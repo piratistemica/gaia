@@ -1,192 +1,157 @@
 # Zaya
 
-Deixei a Zaya aberta num terminal do lado da tela e fui trabalhar. Em algum
-momento eu falei alguma coisa em voz alta, ela respondeu, anotou o que eu pedi
-e voltou a ficar quieta. Não tem nada de mágico nisso: é um programa em Python
-que ouve, pensa com a API de um modelo, mexe nos arquivos se precisar e fala de
-volta. Mas depois de um tempo começa a parecer que tem alguém ali, porque ela
-lembra do que eu falei semana passada.
+Assistente pessoal de voz, local, com agente próprio e Second Brain em Markdown.
+Roda no macOS, fala e ouve em português, executa ferramentas no computador e
+guarda memória entre sessões.
 
-Este README é sobre esse programa: o que ele faz, como instalar, e onde ficam
-as decisões que eu tomei no caminho.
+- **STT local** (`faster-whisper`, pt-BR) — o áudio não sai da máquina.
+- **Agente próprio** — loop de ferramentas, sessões, permissões e streaming.
+- **Second Brain** — notas Markdown indexadas com SQLite FTS5.
+- **Proatividade** — briefing diário, lembretes, rotina de vagas.
 
-## O que é
+---
 
-Um assistente pessoal que roda na minha máquina. Sem conta em serviço nenhum
-além do provedor do modelo, sem servidor no meio.
+## Requisitos
 
-O áudio é transcrito localmente pelo `faster-whisper`, em português. Ele nunca
-sai do computador. Só o texto da resposta vai para o sintetizador de voz.
-
-O agente é meu, escrito aqui dentro (`zaya/agent/`). Ele fala direto com a API
-do modelo, executa as ferramentas localmente e mantém as sessões em disco. Não
-depende de nenhum harness de terceiro.
-
-E o que ficou de mais útil depois de meses usando: ela guarda o que aconteceu.
-As conversas vão para um SQLite, as notas ficam em Markdown num Second Brain
-indexado com FTS5, e no fim do dia tudo aquilo vira uma página de memória.
-
-## Instalar
-
-Precisa de macOS, Python 3.12 (o `faster-whisper` ainda não tem wheel para
-3.13), `uv`, `ffmpeg` e PortAudio.
+- macOS (o áudio e o Spotify assumem macOS; o resto é POSIX).
+- Python **3.12** (travado: o `faster-whisper` não tem wheel para 3.13+).
+- [`uv`](https://docs.astral.sh/uv/), `ffmpeg`, PortAudio.
+- Uma chave de API de algum provedor de modelo.
 
 ```bash
 brew install ffmpeg portaudio
 ```
 
+## Instalação
+
 ```bash
 git clone https://github.com/talitadeoa/zaya.git
 cd zaya
+
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e ".[dev]"
-```
 
-Se quiser o comando `zaya` solto no PATH:
-
-```bash
+# opcional: comando `zaya` no PATH
 uv tool install --python 3.12 --editable .
 ```
 
-Tem um extra para navegador automatizado, que eu só instalo quando preciso:
+Dependências opcionais:
 
 ```bash
+# navegador automatizado
 uv pip install --python .venv/bin/python -e ".[browser]"
 .venv/bin/playwright install chromium
 ```
 
-## A primeira vez
+## Primeiro uso
 
 ```bash
-zaya config --init
-zaya doctor
+zaya config --init   # cria ~/.config/zaya/config.toml
+zaya doctor          # confere ambiente, provedor, voz e Second Brain
+zaya                 # abre a interface
 ```
 
-O `config --init` cria `~/.config/zaya/config.toml`. O `doctor` confere o que
-está faltando: microfone, PortAudio, chave do provedor, Second Brain. Se algo
-não funciona, a resposta quase sempre está ali.
-
-A chave da API vai em `~/.config/zaya/.env`, não no TOML. Pode ser a genérica:
+Chaves de API vão em `~/.config/zaya/.env` (ou no ambiente), nunca no TOML:
 
 ```bash
-ZAYA_AGENT_API_KEY=...
+ZAYA_AGENT_API_KEY=...          # vale para qualquer provedor
+# ou as nativas: DEEPSEEK_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY
 ```
 
-ou a nativa do provedor que você escolher (`DEEPSEEK_API_KEY`,
-`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`). O `.env.example`
-tem todas as variáveis, uma por uma, com comentário.
+Todas as variáveis estão em `.env.example`, comentadas uma a uma.
 
-Depois é só rodar `zaya`.
-
-## Escolher o modelo
-
-No `config.toml`:
+## Modelo
 
 ```toml
 [agent]
-provider = "deepseek"   # deepseek | openai | openrouter | ollama | anthropic | custom
+provider = "deepseek"     # deepseek | openai | openrouter | ollama | anthropic | custom
 model = "deepseek-flash"
+base_url = ""             # obrigatório apenas em "custom"
 ```
 
-Na prática eu quase nunca edito isso à mão. `/modelo` dentro do app lista os
-modelos de todos os provedores que têm chave, e `/modelo 3` ou
-`/modelo openai/gpt-4o` troca na hora. O `F6` abre o mesmo seletor. A escolha
-fica salva no `config.toml` (com um `.bak` do lado) e vale no turno seguinte.
+Para trocar sem editar nada: `/modelo` lista os modelos dos provedores que têm
+chave, `/modelo 3` ou `/modelo openai/gpt-4o` troca na hora, `F6` abre o
+seletor. A escolha é salva no `config.toml` (com `.bak`) e vale no turno
+seguinte. `ZAYA_AGENT_PROVIDER` e `ZAYA_AGENT_MODEL` no ambiente têm prioridade.
 
-Se o provedor não estiver na lista de presets, use `custom` e preencha o
-`base_url`.
-
-## Conversar
+## Interface
 
 ```bash
-zaya            # a TUI, que é como eu uso
-zaya -old       # a interface antiga, de terminal
-zaya --watch    # reinicia sozinha quando eu edito o código
+zaya                 # TUI (padrão)
+zaya -old            # terminal clássico
+zaya --ui textual    # força a TUI
+zaya --watch         # reinicia quando os .py mudam
 ```
 
-A interface padrão é feita em Textual: painéis, histórico, markdown
-renderizado, seleção de texto. Foi a parte que eu mais mexi, porque eu passo o
-dia olhando para ela.
+**Voz:** `F` fala uma vez, `V` alterna a voz, `C` liga a escuta contínua
+(microfone aberto: fala → executa → responde → volta a ouvir), `M` silencia.
+A fala termina sozinha depois de `audio.silence_ms` de silêncio.
 
-Para falar, aperto `F` e falo. `V` liga e desliga a voz das respostas. `C` é o
-modo contínuo: o microfone fica aberto, eu falo, ela executa, responde e
-volta a ouvir sem eu tocar em nada. Ela decide que eu terminei de falar quando
-passa um silêncio (cinco segundos por padrão, ajustável). `M` silencia e `Esc`
-interrompe a resposta no meio.
+**Texto:** `Enter` ou `I`. Não há etapa de confirmar transcrição — o que ela
+entendeu vai direto para o agente.
 
-Para digitar, `Enter` ou `I`. E aqui tem uma coisa que me incomodava em outros
-assistentes: não existe etapa de confirmar a transcrição. O que ela entendeu
-vai direto para o agente. Se errou, eu reclamo na próxima frase.
+| Tecla | Ação |
+|---|---|
+| `F1` | paleta de comandos |
+| `F2` | sessões anteriores |
+| `F3` / `Tab` | trocar de modo |
+| `F4` | alternar seleção de texto |
+| `F5` | recolher/abrir os painéis |
+| `F6` | seletor de modelo |
+| `Ctrl+C` | copiar seleção |
+| `Ctrl+L` | limpar a tela |
+| `Esc` | interromper a resposta |
 
-As teclas que eu realmente uso:
-
-- `F1` abre a paleta de comandos, `F2` as sessões antigas
-- `F3` ou `Tab` troca de modo, `F6` de modelo
-- `F4` liga a seleção de texto, `Ctrl+C` copia, `Ctrl+L` limpa a tela
-- `F5` recolhe os painéis quando eu quero a tela inteira para o texto
-
-E quando quero só uma resposta rápida, sem abrir nada:
+Execução única, sem interface:
 
 ```bash
-zaya ask "o que eu anotei sobre parentesco?"
+zaya ask "resuma o que eu anotei hoje"
 zaya ask --no-voice "responda apenas: ok"
 ```
 
-## Os quatro modos
+## Modos
 
-Ela não tem uma personalidade só. Tem quatro, e eu troco no meio do dia,
-porque meu dia tem partes bem diferentes.
+Troca com `/modo <nome>`, `Tab` ou `F3`. Cada modo injeta uma diretriz no prompt
+e fica salvo entre sessões.
 
-A **assistente** é o padrão: agenda, rotinas, prioridades, conversa solta.
+| Modo | Para quê |
+|---|---|
+| `assistente` (padrão) | agenda, rotinas, prioridades, conversa |
+| `pesquisadora` | mestrado, leitura, fichamento, escrita, metodologia |
+| `trabalhadora` | currículo, vagas, entrevistas, negociação |
+| `investidora` | bolsa, indicadores, orçamento, risco |
 
-A **pesquisadora** é para o mestrado. Antropologia social, leitura, fichamento,
-metodologia, revisão bibliográfica. Ela é instruída a não inventar citação, o
-que parece pouco até a primeira vez que um modelo inventa uma.
+O padrão se configura em `[interface] default_mode`.
 
-A **trabalhadora** cuida de currículo, vagas, entrevistas, negociação. É a que
-sabe ler o `~/SecondBrain/cv/playbook-vagas.md` antes de opinar sobre vaga.
+## Agente e ferramentas
 
-A **investidora** olha bolsa, indicadores e orçamento, e explica o raciocínio
-em vez de dar recomendação.
-
-Cada modo só injeta um parágrafo no prompt. Não muda nada da infraestrutura, e
-o modo ativo fica salvo entre sessões.
-
-Também dá para ensinar preferência: `/preferencia prefiro respostas curtas`, ou
-simplesmente falando "lembra que eu prefiro respostas curtas". Isso vai para
-`~/SecondBrain/preferences.md` e entra no começo do prompt, que é a parte que o
-cache do provedor reaproveita.
-
-## O que ela pode fazer no computador
+O motor fica em `zaya/agent/` e fala direto com a API do provedor — sem
+servidor intermediário, sem harness externo.
 
 Sete ferramentas: `read`, `list`, `glob`, `grep`, `write`, `edit`, `bash`.
-
-O catálogo é fixo, igual para todos os modos. Eu tentei filtrar por modo e
-desisti: na prática eu nunca sabia de antemão o que ia precisar, e ficar
-ligando e desligando ferramenta dava mais trabalho do que deixar tudo
-disponível.
-
-O que importa é a permissão. `write`, `edit` e `bash` pedem confirmação: `o`
-para uma vez, `a` para sempre, `r` para recusar. `agent.auto_approve` existe,
-mas vem desligado, e eu deixo desligado.
+O catálogo é fixo; todos os modos recebem o mesmo conjunto.
 
 ```toml
 [agent]
 tools = true
-auto_approve = false
-allow_outside_project = true   # preciso disso para ela alcançar ~/SecondBrain
+auto_approve = false              # escrita e shell pedem confirmação
+allow_outside_project = true      # necessário para alcançar o Second Brain
 max_steps = 32
+request_timeout = 900
+stall_timeout = 90
 ```
 
-`/status` mostra o modelo, a sessão e quantos tokens foram no último turno,
-quando o provedor informa. `/tokens` lista os turnos anteriores. Foi assim que
-eu descobri que metade do meu gasto vinha de histórico velho, e por isso o
-histórico é comprimido num resumo quando passa de vinte mensagens.
+- Ações que alteram algo pedem confirmação (`o` uma vez, `a` sempre, `r` rejeita).
+- O histórico histórico é comprimido num resumo ao passar de
+  `max_history_messages` / `max_history_chars`.
+- O prompt é montado em duas camadas: prefixo estável (persona e preferências,
+  aproveitado pelo cache) e bloco dinâmico (data, hora, modo).
+- `/status` mostra modelo, sessão e tokens (quando o provedor informa usage);
+  `/tokens` lista os últimos turnos.
 
-## O Second Brain
+## Second Brain
 
-É uma pasta de Markdown, no formato que eu quiser, indexada localmente com
-SQLite FTS5.
+Uma pasta Markdown que é sua, indexada localmente.
 
 ```markdown
 ---
@@ -199,45 +164,41 @@ Discussão sobre parentesco com [[Nota sobre Lévi-Strauss]].
 #antropologia
 ```
 
-Links `[[assim]]`, tags no frontmatter e `#tag` no corpo entram no índice.
-Criar nota é aditivo e não pergunta nada. Editar ou excluir pergunta, gera
-backup em `.zaya/backups` e manda o original para `.zaya/trash` em vez do lixo
-do sistema. Ela também nunca escreve fora da raiz configurada.
+- Índice FTS5 incremental, offline (`data/sb_index.db`).
+- Links `[[Título]]`, tags no frontmatter e `#tag` no corpo.
+- Criar nota é aditivo; editar e excluir pedem confirmação, geram backup em
+  `.zaya/backups` e movem para `.zaya/trash`.
+- Nunca escreve fora da raiz configurada.
+- A busca só entra no turno quando a mensagem tem pista de retomada ("lembra",
+  "aquele projeto"), com poucos trechos e teto de caracteres.
 
-O contexto não entra em todo turno. Isso seria caro e barulhento. A busca só
-acontece quando a minha mensagem tem pista de retomada: "lembra", "aquele
-projeto", "o que a gente decidiu". Quando acontece, vêm dois ou três trechos
-curtos, com teto de tamanho, só naquele turno.
-
-```bash
-zaya search parentesco
-zaya note "Diário de campo"
-zaya index --force
+```toml
+[secondbrain]
+path = "~/SecondBrain"
+context_results = 2
 ```
 
-E no fim do dia, às 23h, ela transforma os turnos em uma nota:
-`Memoria/Memória AAAA-MM-DD.md`, com síntese, decisões, conversas e registros.
-Se eu fechar o app antes disso, ela consolida o que faltou. Se eu abrir no dia
-seguinte sem ter fechado, ela recupera o dia anterior. Se o modelo falhar no
-meio, cai num resumo local determinístico, porque perder o dia por causa de uma
-API fora do ar seria ridículo.
+```bash
+zaya index --force
+zaya search parentesco
+zaya note "Diário de campo"
+```
 
-## O que ela faz sozinha
+**Consolidação diária:** às `memory.at` (23:00), os turnos do dia viram
+`Memoria/Memória AAAA-MM-DD.md` (Síntese, Decisões, Conversas, Registros).
+Consolida o pendente ao sair e recupera o dia anterior se você abrir sem ter
+fechado. Se o modelo falhar, cai num resumo local determinístico.
 
-Enquanto está aberta, ela não fica só esperando.
+## Automações
 
-Às 08:00, manda o bom dia com as tarefas do dia, sem as rotinas. Ao meio-dia,
-diz o que foi feito, o que falta e como está a rotina da manhã. Segunda, quarta
-e sexta, manda a carteira com a cotação de cada ativo. Toda segunda às 09:00,
-busca vaga nas fontes abertas, aplica os filtros do playbook, deduplica, pontua
-e manda no Telegram.
+Determinísticas, sem custo de token:
 
-Nada disso usa token. São rotinas determinísticas que leem o estado e mandam
-mensagem. A única parte com modelo é a consolidação da memória.
-
-Ela também puxa conversa: um check-in depois de 45 minutos de silêncio, no
-máximo quatro vezes por dia, nunca entre 23h e 8h. Esse limite existe porque a
-primeira versão era insuportável.
+| Rotina | Quando | O que faz |
+|---|---|---|
+| Briefing da manhã | 08:00 | tarefas do dia, sem as rotinas |
+| Resumo do meio-dia | 12:00 (até 18:00) | feito, pendente, rotina matinal |
+| Carteira | seg/qua/sex | cotações do que está na carteira |
+| Vagas | segunda 09:00 | busca, filtra, deduplica, pontua e envia |
 
 ```toml
 [briefing]
@@ -245,123 +206,138 @@ morning_at = "08:00"
 noon_at = "12:00"
 
 [career]
-days = [0]        # 0 = segunda
+days = [0]      # 0 = segunda
 at = "09:00"
 
 [proactive]
 idle_minutes = 45
 daily_max = 4
 quiet_hours = "23:00-08:00"
+
+[memory]
+at = "23:00"
+use_llm = true
 ```
 
-A rotina de vagas:
+O método da rotina de vagas (fontes, filtros, rubrica de score) vive em
+`~/SecondBrain/cv/playbook-vagas.md`; o estado, em `data/career/state.json`.
 
 ```bash
 zaya career status
-zaya career buscar    # busca, mas não envia
-zaya career enviar    # busca e manda no Telegram
+zaya career buscar       # busca sem enviar
+zaya career enviar       # busca e manda no Telegram
 ```
 
-## Onde ela aparece
+## Integrações
 
-**Telegram.** Sem número dedicado.
+**Telegram**
 
 ```bash
-zaya telegram updates   # descobre o chat_id
-zaya telegram serve     # escuta texto e áudio e responde
+zaya telegram updates    # descobre o chat_id
+zaya telegram me
+zaya telegram serve      # escuta texto e áudio e responde
 ```
 
-Pelo Telegram, por padrão, ela só lê arquivos. `write`, `edit` e `bash` são
-negados, porque não tem terminal para eu aprovar nada. Se eu quiser liberar,
-ligo `auto_approve` **junto com o `allowed_chat_id` fixado**, para o bot não
-dar acesso ao primeiro estranho que falar com ele.
+Por padrão, pelo Telegram só leitura: `write`, `edit` e `bash` são negados,
+porque não há terminal para aprovar. Para liberar, use
+`[telegram] auto_approve = true` **com `allowed_chat_id` fixado**.
 
-**WhatsApp**, pela Cloud API da Meta: `zaya whatsapp send`, `audio`, `serve`.
+**WhatsApp** (Cloud API da Meta)
 
-**Spotify.** `zaya spotify toggle`, `next`, `volume 40`. Ou por voz, que é
-como eu uso de verdade.
+```bash
+zaya whatsapp send "bom dia"
+zaya whatsapp audio voz.mp3
+zaya whatsapp serve
+```
 
-**Navegador.** Playwright com perfil persistente, então os logins ficam
-salvos:
+**Spotify** (macOS)
+
+```bash
+zaya spotify status
+zaya spotify toggle
+zaya spotify volume 40
+```
+
+**Navegador** (Playwright, perfil persistente com seus logins)
 
 ```bash
 zaya browser login https://exemplo.com
 zaya browser text https://exemplo.com
+zaya browser screenshot https://exemplo.com captura.png
 ```
 
-## Comandos
+## Comandos dentro do app
 
-Os que eu decoro: `/ajuda`, `/status`, `/tokens`, `/modelo`, `/modo`,
-`/buscar`, `/nota`, `/novo`, `/voz`, `/fala`, `/texto`, `/interromper`,
-`/sair`.
+| Comando | Função |
+|---|---|
+| `/ajuda` · `/status` · `/tokens` | comandos · provedor/modelo/sessão · consumo |
+| `/buscar <termo>` · `/nota <título>` | Second Brain |
+| `/indexar` · `/novo` · `/consolidar [dia]` | reindexa · nova conversa · memória do dia |
+| `/modelo [nº\|slug]` · `/modo [nome]` | lista/troca modelo · troca persona |
+| `/bolsa <ticker>` · `/carteira` | cotação · carteira |
+| `/metas` · `/painel` · `/foco` | metas do ciclo · painel · foco |
+| `/tarefas [sync\|fazer\|concluir\|limpar]` | tarefas de longo prazo |
+| `/lembrar <texto>` · `/lembretes` · `/cancelar <id>` | lembretes |
+| `/voz on\|off\|edge\|say\|none` · `/continuo on\|off` | voz e escuta |
+| `/fala` · `/texto` · `/interromper` | modo de entrada |
+| `/rapido on\|off` · `/proativo on\|off` | modo rápido · proatividade |
+| `/contexto` · `/historico` · `/sessao` | contexto, histórico, sessão |
+| `/preferencia <texto>` · `/preferencias` | ensina · mostra preferências |
+| `/confirmar` · `/autoaprovar` | confirmação de notas · ferramentas |
+| `/chines on\|off` · `/reiniciar` · `/sair` | eco em chinês · reinicia · encerra |
 
-Os que existem mas eu esqueço: `/indexar`, `/consolidar [dia]`, `/bolsa`,
-`/carteira`, `/metas`, `/painel`, `/foco`, `/tarefas`,
-`/lembrar <texto>`, `/lembretes`, `/cancelar <id>`, `/continuo`,
-`/rapido`, `/proativo`, `/contexto`, `/historico`, `/sessao`,
-`/preferencia`, `/preferencias`, `/confirmar`, `/autoaprovar`, `/chines`,
-`/reiniciar`.
-
-`/ajuda` lista tudo com descrição. É o que eu uso quando esqueço.
+`/ajuda` lista tudo com a descrição de cada um.
 
 ## Configuração
 
-Tudo em `~/.config/zaya/config.toml`, com segredos só no `.env`:
+Arquivo: `~/.config/zaya/config.toml` (segredos só no `.env`).
+Seções: `agent`, `stt`, `tts`, `audio`, `secondbrain`, `interface`, `memory`,
+`briefing`, `career`, `proactive`, `focus`, `agenda`, `browser`, `telegram`,
+`whatsapp`.
 
 ```bash
-zaya config          # mostra, com os segredos redigidos
-zaya config --init
-zaya config --force
+zaya config          # mostra a configuração (segredos redigidos)
+zaya config --init   # cria o padrão
+zaya config --force  # sobrescreve
 ```
 
-As seções são `agent`, `stt`, `tts`, `audio`, `secondbrain`, `interface`,
-`memory`, `briefing`, `career`, `proactive`, `focus`, `agenda`, `browser`,
-`telegram` e `whatsapp`. Cada campo tem uma variável `ZAYA_*` correspondente.
-Se você tem um config antigo com `[opencode]`, ele ainda é lido e migrado.
+Cada campo tem uma variável `ZAYA_*` correspondente (veja `.env.example`).
+Configurações no formato antigo (`[opencode]`, `ZAYA_OPENCODE_*`) ainda são
+aceitas e migradas na leitura.
 
-## Onde ficam as coisas
+## Estrutura
 
 ```text
 zaya/
-  agent/          loop do agente, providers, ferramentas, sessões
-  audio/          microfone, VAD, pré-roll
-  stt/            faster-whisper
-  tts/            edge-tts, say, limpeza de Markdown
-  secondbrain/    índice FTS5, frontmatter, notas
-  memory/         conversas e turnos em SQLite
-  controller/     intenções, personas, iniciativa, prompt
-  interface/      TUI Textual e terminal Rich
-data/             zaya.db, sb_index.db, sessions/, career/, logs/
+  agent/          # loop do agente, providers, ferramentas, sessões
+  audio/          # microfone, VAD, pré-roll
+  stt/            # faster-whisper
+  tts/            # edge-tts, say, limpeza de Markdown
+  secondbrain/    # índice FTS5, frontmatter, notas
+  memory/         # conversas e turnos (SQLite)
+  controller/     # intenções, personas, iniciativa, prompt
+  interface/      # TUI Textual e terminal Rich
+  cli*.py         # parser, comandos, runtime
+data/             # zaya.db, sb_index.db, sessions/, career/, logs/
 ```
 
 ## Privacidade
 
-O áudio não sai da máquina. Só o texto da resposta vai para o `edge-tts`, e se
-isso incomodar tem `/voz say`, que usa a voz do sistema e fica 100% local.
+- Áudio nunca sai da máquina; é transcrito localmente.
+- Só o texto da resposta vai para o TTS `edge`. Use `/voz say` para ficar 100%
+  offline.
+- Chaves apenas em `.env` ou no ambiente; o `config` as mostra redigidas.
+- Nada da transcrição é executado direto: tudo passa pelo agente e pelas
+  permissões.
+- `agent.auto_approve` é opt-in e vem desligado.
 
-As chaves ficam no `.env`. O `zaya config` mostra a configuração com elas
-redigidas.
-
-E nada do que eu falo é executado direto. Tudo passa pelo agente, com as
-ferramentas passando por permissão. `auto_approve` é opt-in.
-
-## Testes
-
-Não precisam de microfone, download nem rede:
+## Desenvolvimento
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest        # sem microfone, download ou rede
 .venv/bin/ruff check .
 .venv/bin/mypy
 ```
 
-Os planos e as notas de design ficam em `docs/`.
-
-## Uma nota
-
-Escrevi a Zaya porque queria uma assistente que soubesse o que eu estava
-fazendo na semana passada. Chat com memória rasa não resolve isso, e serviço na
-nuvem resolve ao preço de eu não saber o que acontece com o que eu falo em voz
-alta dentro de casa.
-
-O nome é Zaya. O comando também: `zaya`.
+Planos e notas de design ficam em `docs/`, incluindo a proposta de execução
+headless no Linux via Telegram em `docs/plans/`.
