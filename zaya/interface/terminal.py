@@ -594,7 +594,7 @@ class TerminalUI:
         table.add_column(style="bold cyan", no_wrap=True)
         table.add_column()
         rows = [
-            ("[Enter]", "gravar uma instrução por voz"),
+            ("[Enter vazio]", "entra no modo voz; no modo voz, volta ao texto e desliga a voz"),
             ("/ajuda", "mostra esta ajuda"),
             ("/status", "servidor, sessão, modelo, memória e voz"),
             ("/tokens", "consumo de tokens por turno e total da sessão"),

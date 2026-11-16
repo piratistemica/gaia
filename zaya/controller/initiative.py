@@ -66,9 +66,13 @@ class InitiativeMixin(OrchestratorContract):
             self.cfg.audio.continuous = not self.cfg.audio.continuous
         self._voice_mode = self.cfg.audio.continuous
         if self.cfg.audio.continuous:
-            self.ui.success("modo contínuo ativado; fale à vontade")
+            # No modo voz a resposta também é falada; o texto volta a ser mudo.
+            self.tts.enabled = True
+            self.ui.success("modo voz ativado; fale à vontade e ouça a resposta")
         else:
-            self.ui.success("modo contínuo desativado; use Enter para falar")
+            self.tts.stop()
+            self.tts.enabled = False
+            self.ui.success("modo texto ativado; respostas sem voz")
 
     def _toggle_proactive(self, argument: str) -> None:
         arg = argument.lower().strip()

@@ -4,8 +4,8 @@ import asyncio
 import time
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
+from textual import events
 from textual.widgets import Input, OptionList
 
 from zaya.agent.catalog import ModelOption
@@ -114,6 +114,7 @@ class _FakeVoice:
         self.mode_name = "Zaya"
         self.selected_modes: list[str] = []
         self.model_calls: list[str] = []
+        self.spoken: list[str] = []
         self.model_options: list = [
             ModelOption(provider="x", model="y", current=True),
             ModelOption(provider="p", model="q"),
@@ -139,7 +140,7 @@ class _FakeVoice:
         pass
 
     async def speak_text(self, text: str) -> None:
-        pass
+        self.spoken.append(text)
 
     async def translate_zh(self, text: str) -> str:
         return ""
@@ -177,8 +178,8 @@ async def test_app_textual_responde_sem_erro():
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("i")
-        field = app.query_one("#input", Input)
-        field.value = "oi"
+        field = app.query_one("#input", textual_app.ZayaInput)
+        field.text = "oi"
         await pilot.press("enter")
         await pilot.pause()
     assert True
@@ -280,6 +281,43 @@ async def test_plain_text_is_sent_to_answer():
         await pilot.pause()
 
     assert received == ["olá zaya"]
+
+
+@pytest.mark.asyncio
+async def test_paste_multilinha_preserva_o_texto_como_veio():
+    app = ZayaTextualApp(_answer)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        field = app.query_one("#input", textual_app.ZayaInput)
+        field.focus()
+
+        app.post_message(events.Paste("primeira linha\nsegunda linha\n\nterceira linha"))
+        await pilot.pause()
+
+        assert field.text == "primeira linha\nsegunda linha\n\nterceira linha"
+
+
+@pytest.mark.asyncio
+async def test_enter_envia_o_texto_colado_e_limpa_o_campo():
+    app = ZayaTextualApp(_answer)
+    received: list[str] = []
+
+    async def fake_submit(text: str) -> None:
+        received.append(text)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_text = fake_submit
+        field = app.query_one("#input", textual_app.ZayaInput)
+        field.focus()
+
+        app.post_message(events.Paste("primeira linha\nsegunda linha"))
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert received == ["primeira linha\nsegunda linha"]
+        assert field.text == ""
 
 
 @pytest.mark.asyncio
@@ -538,33 +576,147 @@ async def test_paleta_setas_escolhem_comando():
 
 
 @pytest.mark.asyncio
-async def test_push_to_talk_submits_transcribed_text(monkeypatch):
+async def test_f_liga_modo_voz_e_enter_volta_ao_texto(monkeypatch):
     monkeypatch.setattr(textual_app, "ContinuousListener", _FakeListener)
     voice = _FakeVoice()
-    voice.recorder = SimpleNamespace(
-        record_until_silence=lambda on_state=None, wait_timeout=None: np.zeros(
-            1600, dtype=np.float32
-        )
-    )
-    voice.transcriber = SimpleNamespace(transcribe=lambda audio, vad_filter=None: "olá por voz")
+    app = ZayaTextualApp(_answer, voice=voice)
+
+    async with app.run_test(size=(110, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("f")
+        await pilot.pause()
+
+        assert app._continuous is True
+        assert app._voice_replies is True
+        assert app._listener is not None
+        assert voice.tts.enabled is True
+        assert "voz" in app._status_base
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app._continuous is False
+        assert app._voice_replies is False
+        assert app._listener is None
+        assert voice.tts.enabled is False
+        assert app._insert_mode is True
+        assert "TEXTO" in app._status_base
+
+    assert app._exception is None
+
+
+@pytest.mark.asyncio
+async def test_v_liga_modo_voz_e_t_volta_ao_texto(monkeypatch):
+    monkeypatch.setattr(textual_app, "ContinuousListener", _FakeListener)
+    voice = _FakeVoice()
+    app = ZayaTextualApp(_answer, voice=voice)
+
+    async with app.run_test(size=(110, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("v")
+        await pilot.pause()
+        assert app._continuous is True
+        assert app._voice_replies is True
+
+        await pilot.press("t")
+        await pilot.pause()
+        assert app._continuous is False
+        assert app._voice_replies is False
+        assert voice.tts.enabled is False
+
+    assert app._exception is None
+
+
+@pytest.mark.asyncio
+async def test_resposta_e_falada_quando_modo_voz_esta_ligado():
+    voice = _FakeVoice()
     app = ZayaTextualApp(_answer, voice=voice)
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("escape")
+        app._voice_replies = True
+        await app.submit_text("oi")
+        for _ in range(20):
+            if voice.spoken:
+                break
+            await pilot.pause()
+
+        assert voice.spoken == ["eco: oi"]
+        assert app._turn_running is False
+
+
+@pytest.mark.asyncio
+async def test_resposta_nao_e_falada_no_modo_texto():
+    voice = _FakeVoice()
+    app = ZayaTextualApp(_answer, voice=voice)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.submit_text("oi")
         await pilot.pause()
 
-        received: list[str] = []
+        assert voice.spoken == []
+        assert app._turn_running is False
 
-        async def fake_submit(text: str) -> None:
-            received.append(text)
 
+class _ListenerComUmaFala(_FakeListener):
+    """Entrega uma fala e depois so silencio (como o microfone real)."""
+
+    def __init__(self, cfg) -> None:
+        super().__init__(cfg)
+        self._entregues = 0
+
+    def next_utterance(self, timeout=None):
+        time.sleep(0.01)
+        if self._entregues:
+            return None
+        self._entregues += 1
+        return [0.0] * 1600
+
+
+@pytest.mark.asyncio
+async def test_escuta_continua_transcreve_e_submete(monkeypatch):
+    """Caminho mic -> STT -> submit: o que mais falha em maquina nova."""
+    monkeypatch.setattr(textual_app, "ContinuousListener", _ListenerComUmaFala)
+    voice = _FakeVoice()
+    voice.transcriber = SimpleNamespace(
+        transcribe=lambda audio, vad_filter=None: "  olá por voz  "
+    )
+    app = ZayaTextualApp(_answer, voice=voice)
+    received: list[str] = []
+
+    async def fake_submit(text: str) -> None:
+        received.append(text)
+
+    async with app.run_test(size=(110, 40)) as pilot:
+        await pilot.pause()
         app.submit_text = fake_submit
-        await app._push_to_talk()
+        await pilot.press("f")
+        for _ in range(50):
+            if received:
+                break
+            await pilot.pause()
+        app._leave_voice_mode()
         await pilot.pause()
 
     assert received == ["olá por voz"]
     assert app._exception is None
+
+
+@pytest.mark.asyncio
+async def test_falha_de_transcricao_mostra_o_motivo_real():
+    """Antes virava 'não entendi'; agora mostra a causa (modelo, download)."""
+    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+
+    def boom(audio, vad_filter=None):
+        raise RuntimeError("modelo base indisponivel")
+
+    async with app.run_test(size=(110, 40)) as pilot:
+        await pilot.pause()
+        result = await app._transcribe(SimpleNamespace(transcribe=boom), [0.0])
+
+    assert result is None
+    assert "modelo base indisponivel" in app._status_base
 
 
 @pytest.mark.asyncio

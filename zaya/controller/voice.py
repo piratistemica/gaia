@@ -32,6 +32,7 @@ class VoiceMixin(OrchestratorContract):
         self._listener = listener
         self._listening = True
         self._voice_mode = True
+        self.tts.enabled = True
         self._mic_muted = False
         self._last_listen_at = time.monotonic()
         self._mark_activity()
@@ -44,9 +45,9 @@ class VoiceMixin(OrchestratorContract):
         monitor.start()
         if not self._continuous_hint_shown:
             self.ui.hint(
-                "Escuta contínua: fale à vontade · [M] mudo · [Esc] interrompe · "
-                "[T] ou digitar volta ao texto · o mic desliga no silêncio · "
-                "'sair' encerra"
+                "Modo voz: fale à vontade · [Enter] ou [T] volta ao texto e "
+                "desliga a voz · [M] mudo · [Esc] interrompe · "
+                "o mic desliga no silêncio · 'sair' encerra"
             )
             self._continuous_hint_shown = True
         self.ui.set_status("● ouvindo…")
@@ -66,10 +67,8 @@ class VoiceMixin(OrchestratorContract):
                 try:
                     utterance = await asyncio.to_thread(listener.next_utterance, 0.5)
                 except (KeyboardInterrupt, asyncio.CancelledError):
-                    self._voice_mode = False
-                    self.cfg.audio.continuous = False
                     self.ui.clear_status()
-                    self.ui.warning("escuta contínua pausada; use /continuo on para retomar")
+                    self._return_to_text("escuta contínua pausada; voz desligada e pode digitar.")
                     return False
 
                 if utterance is None:
@@ -104,9 +103,9 @@ class VoiceMixin(OrchestratorContract):
                         continue
                     control = classify_voice_control(text)
                     if control == "stop":
-                        self._voice_mode = False
-                        self.cfg.audio.continuous = False
-                        self.ui.info("modo contínuo encerrado; pode digitar.")
+                        self._return_to_text(
+                            "modo contínuo encerrado; voz desligada e pode digitar."
+                        )
                         return False
                     if control == "quit":
                         self.ui.info("até logo.")
@@ -133,9 +132,20 @@ class VoiceMixin(OrchestratorContract):
             monitor.join(timeout=0.6)
             self._listening = False
             self._mic_muted = False
+            self._voice_mode = False
+            self.tts.enabled = False
             listener.stop()
             self._listener = None
         return False
+
+    def _return_to_text(self, message: str = "") -> None:
+        """Sai do modo voz: para a escuta e cala as respostas."""
+        self._voice_mode = False
+        self.cfg.audio.continuous = False
+        self.tts.stop()
+        self.tts.enabled = False
+        if message:
+            self.ui.info(message)
 
     def _enter_monitor(
         self,
@@ -225,15 +235,13 @@ class VoiceMixin(OrchestratorContract):
                     self._toggle_mute(listener)
                     continue
                 if char in {"t", "T"}:
-                    self.cfg.audio.continuous = False
-                    self.ui.info("voltando ao modo texto; pode digitar.")
+                    self._return_to_text("voltando ao modo texto; voz desligada.")
                     return
                 if char in {"\r", "\n"}:
-                    continue
+                    self._return_to_text("voltando ao modo texto; voz desligada.")
+                    return
                 if char.strip():
-                    self.tts.stop()
-                    self._voice_mode = False
-                    self.cfg.audio.continuous = False
+                    self._return_to_text()
                     self._pending_input = char
                     return
         finally:

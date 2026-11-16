@@ -288,12 +288,27 @@ async def test_toggle_commands_update_config(orch):
 
     await orch._handle_command("/texto")
     assert orch.cfg.audio.continuous is False
+    assert orch.tts.enabled is False
 
     await orch._handle_command("/fala")
     assert orch.cfg.audio.continuous is True
+    assert orch.tts.enabled is True
 
     await orch._handle_command("/voz off")
     assert orch.tts.enabled is False
+
+
+def test_voltar_ao_texto_para_escuta_e_desliga_voz(orch):
+    orch.cfg.audio.continuous = True
+    orch._voice_mode = True
+    orch.tts.enabled = True
+
+    orch._return_to_text("voltando ao texto")
+
+    assert orch.cfg.audio.continuous is False
+    assert orch._voice_mode is False
+    assert orch.tts.enabled is False
+    assert orch.ui.called("info")
 
 
 @pytest.mark.asyncio

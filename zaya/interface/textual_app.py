@@ -19,7 +19,8 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
-from textual.widgets import Input, Static
+from textual.message import Message
+from textual.widgets import Input, Static, TextArea
 
 from zaya.audio.recorder import ContinuousListener
 from zaya.controller.modes import PERSONAS, get_persona
@@ -50,6 +51,34 @@ from zaya.interface.textual_screens import (
     SessionPicker,
 )
 from zaya.interface.textual_sink import TextualSink
+
+
+class ZayaInput(TextArea):
+    """Caixa de entrada multilinha que preserva o texto colado.
+
+    O ``Input`` do Textual é de uma linha e descarta tudo depois da primeira
+    linha ao colar. O ``TextArea`` recebe o texto como veio, quebras inclusas:
+    ``Enter`` envia a mensagem e ``Ctrl+J`` cria uma nova linha.
+    """
+
+    class Submitted(Message):
+        """Enviado quando Enter é pressionado dentro do campo."""
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+            super().__init__()
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("enter", "submit", "Enviar", show=False, priority=True),
+        Binding("ctrl+j", "newline", "Nova linha", show=False, priority=True),
+        *TextArea.BINDINGS,
+    ]
+
+    def action_submit(self) -> None:
+        self.post_message(self.Submitted(self.text))
+
+    def action_newline(self) -> None:
+        self.insert("\n")
 
 
 class ModeBar(Static):
@@ -177,12 +206,15 @@ class ZayaTextualApp(App):
         padding: 0 1;
     }
     #input {
-        height: 3;
+        /* 4 = 2 linhas uteis: colar um texto longo continua legivel. */
+        height: 4;
         margin: 0 1;
         border: round #262c37;
         background: #151922;
         color: #e3e6eb;
         padding: 0 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
     }
     #input:focus {
         background: #1b202a;
@@ -217,7 +249,7 @@ class ZayaTextualApp(App):
         self._stream_widget: Static | None = None
         self._modebar: Static | None = None
         self._status_ref: Static | None = None
-        self._input_ref: Input | None = None
+        self._input_ref: ZayaInput | None = None
         self._chat_ref: VerticalScroll | None = None
 
     def compose(self) -> ComposeResult:
@@ -230,7 +262,11 @@ class ZayaTextualApp(App):
             ),
             VerticalScroll(id="chat"),
             Static("", id="status"),
-            Input(id="input", placeholder="fale ou digite…"),
+            ZayaInput(
+                id="input",
+                placeholder="fale ou digite…",
+                highlight_cursor_line=False,
+            ),
         )
         yield Static(_SHORTCUTS, id="commandbar")
 
@@ -242,7 +278,7 @@ class ZayaTextualApp(App):
         self.console.push_theme(MARKDOWN_THEME)
         self._modebar = self.query_one("#modebar", Static)
         self._status_ref = self.query_one("#status", Static)
-        self._input_ref = self.query_one("#input", Input)
+        self._input_ref = self.query_one("#input", ZayaInput)
         self._chat_ref = self.query_one("#chat", VerticalScroll)
         await self._render_welcome()
         self._normal_mode()
@@ -634,12 +670,22 @@ class ZayaTextualApp(App):
             event.stop()
             self.action_slash()
 
+    async def on_zaya_input_submitted(self, event: ZayaInput.Submitted) -> None:
+        event.stop()
+        field = self._input_widget()
+        if field is not None:
+            field.clear()
+        await self._handle_prompt_text(event.text)
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         # Inputs de telas modais (ex.: busca da paleta) não são mensagens.
         if getattr(event.input, "id", None) not in (None, "input"):
             return
-        text = event.value.strip()
         event.input.value = ""
+        await self._handle_prompt_text(event.value)
+
+    async def _handle_prompt_text(self, text: str) -> None:
+        text = text.strip()
         if not text:
             return
         if text in {"/sair", "/quit", "/exit"}:
@@ -735,48 +781,74 @@ class ZayaTextualApp(App):
                 self._set_status("● pronto")
 
     def action_push_to_talk(self) -> None:
-        self.run_worker(self._push_to_talk(), exclusive=False)
-
-    async def _push_to_talk(self) -> None:
+        """Liga o modo voz: escuta contínua + respostas faladas."""
         if self._voice is None:
             self._set_status("voz indisponível")
             return
-        recorder = self._voice.recorder
-        transcriber = self._voice.transcriber
-        self._set_status("🎙 ouvindo… fale e faça uma pausa")
+        if self._voice_mode_active():
+            self._leave_voice_mode()
+            self._set_status("TEXTO · digite e Enter envia")
+            return
+        self._enter_voice_mode()
 
-        def on_state(state: str) -> None:
+    def _voice_mode_active(self) -> bool:
+        return self._continuous or self._voice_replies
+
+    def _enter_voice_mode(self) -> None:
+        """Abre o microfone e fala as respostas até o modo texto voltar."""
+        if self._voice is None:
+            self._set_status("voz indisponível")
+            return
+        self._voice_replies = True
+        tts = getattr(self._voice, "tts", None)
+        if tts is not None:
             try:
-                self.call_from_thread(self._set_status, f"🎙 {state}")
+                tts.enabled = True
+            except Exception:
+                pass
+        if not self._continuous:
+            try:
+                listener = ContinuousListener(self._voice.cfg.audio)
+                listener.start()
+            except Exception as exc:
+                self._set_status(f"voz ligada · microfone: {exc}")
+                return
+            self._listener = listener
+            self._continuous = True
+            self._listen_task = asyncio.create_task(self._listen_loop())
+        self._set_status("● voz · ouvindo… fale; Enter volta ao texto")
+
+    def _leave_voice_mode(self) -> None:
+        """Volta ao texto: fecha o microfone e cala as respostas."""
+        self._stop_listening()
+        self._voice_replies = False
+        tts = getattr(self._voice, "tts", None) if self._voice is not None else None
+        if tts is not None:
+            try:
+                tts.stop()
+                tts.enabled = False
             except Exception:
                 pass
 
-        try:
-            audio = await asyncio.to_thread(
-                recorder.record_until_silence, on_state, 20.0
-            )
-        except Exception:
-            self._set_status("microfone indisponível")
-            return
-        if audio is None or len(audio) == 0:
-            self._set_status("não ouvi nada")
-            return
+    async def _transcribe(self, transcriber, audio) -> str | None:
+        """Transcreve mostrando o motivo real da falha em vez de 'não entendi'."""
         self._set_status("◐ transcrevendo…")
         try:
-            text = await asyncio.to_thread(transcriber.transcribe, audio)
-        except Exception:
-            text = ""
-        if not text.strip():
-            self._set_status("não entendi")
-            return
-        await self.submit_text(text.strip())
+            return await asyncio.to_thread(transcriber.transcribe, audio)
+        except Exception as exc:
+            message = str(exc).strip() or type(exc).__name__
+            self._set_status(f"STT: {message[:120]}")
+            return None
 
     async def action_toggle_voice(self) -> None:
         if self._voice is None:
             self._set_status("voz indisponível")
             return
-        self._voice_replies = not self._voice_replies
-        self._set_status("voz ligada" if self._voice_replies else "voz desligada")
+        if self._voice_mode_active():
+            self._leave_voice_mode()
+            self._set_status("TEXTO · voz desligada")
+            return
+        self._enter_voice_mode()
 
     async def action_interrupt(self) -> None:
         if self._voice is None:
@@ -794,31 +866,22 @@ class ZayaTextualApp(App):
             self._set_status("voz indisponível")
             return
         if self._continuous:
-            self._stop_listening()
-            self._set_status("escuta contínua desligada")
+            self._leave_voice_mode()
+            self._set_status("TEXTO · voz desligada")
             return
-        try:
-            listener = ContinuousListener(self._voice.cfg.audio)
-            listener.start()
-        except Exception as exc:
-            self._set_status(f"microfone: {exc}")
-            return
-        self._listener = listener
-        self._continuous = True
-        self._listen_task = asyncio.create_task(self._listen_loop())
-        self._set_status("● ouvindo…")
+        self._enter_voice_mode()
 
     def _stop_listening(self) -> None:
         self._continuous = False
-        if self._listen_task is not None:
-            self._listen_task.cancel()
-            self._listen_task = None
+        task, self._listen_task = self._listen_task, None
         if self._listener is not None:
             try:
                 self._listener.stop()
             except Exception:
                 pass
             self._listener = None
+        if task is not None and not task.done() and not self._turn_running:
+            task.cancel()
 
     async def _listen_loop(self) -> None:
         listener = self._listener
@@ -831,12 +894,8 @@ class ZayaTextualApp(App):
                 if utterance is None:
                     continue
                 listener.pause()
-                self._set_status("◐ transcrevendo…")
-                try:
-                    text = await asyncio.to_thread(transcriber.transcribe, utterance)
-                except Exception:
-                    text = ""
-                if text.strip():
+                text = await self._transcribe(transcriber, utterance)
+                if text and text.strip():
                     await self.submit_text(text.strip())
                 else:
                     self._set_status("● ouvindo…")
@@ -888,18 +947,20 @@ class ZayaTextualApp(App):
         field = self._input_widget()
         if field is None:
             return
-        field.value = "/"
+        field.text = "/"
         try:
-            field.cursor_position = len(field.value)
+            field.cursor_location = (0, 1)
         except Exception:
             pass
 
     def action_insert(self) -> None:
+        if self._voice_mode_active():
+            self._leave_voice_mode()
         self._insert_mode = True
         field = self._input_widget()
         if field is not None:
             field.focus()
-        self._set_status("")
+        self._set_status("TEXTO · Enter envia · Ctrl+J nova linha · voz desligada")
 
     async def action_escape(self) -> None:
         if self.screen.selections:
@@ -913,15 +974,13 @@ class ZayaTextualApp(App):
             await self.action_interrupt()
 
     def action_text_mode(self) -> None:
+        self._leave_voice_mode()
         self.action_insert()
-        self._stop_listening()
-        self._set_status("TEXTO · digite e Enter envia")
+        self._set_status("TEXTO · digite e Enter envia · voz desligada")
 
     def action_mute(self) -> None:
-        self._stop_listening()
-        if self._voice is not None:
-            self._voice.tts.stop()
-        self._set_status("mudo")
+        self._leave_voice_mode()
+        self._set_status("mudo · TEXTO · digite e Enter envia")
 
     # --------------------------------------------------------------- palette
     def palette_entries(self) -> list[tuple[str, str, str]]:
@@ -1018,7 +1077,7 @@ class ZayaTextualApp(App):
         # Ctrl+C é prioritário para o pbcopy do Terminal.app; no campo de
         # texto ele ainda copia a seleção do próprio input.
         focused = self.focused
-        if isinstance(focused, Input) and focused.selected_text:
+        if isinstance(focused, (Input, TextArea)) and focused.selected_text:
             self._copy_selection(focused.selected_text)
             return
         text = self.screen.get_selected_text()
@@ -1150,11 +1209,11 @@ class ZayaTextualApp(App):
             return self._chat_ref
         return self.query_one("#chat", VerticalScroll)
 
-    def _input_widget(self) -> Input | None:
+    def _input_widget(self) -> ZayaInput | None:
         if self._input_ref is not None:
             return self._input_ref
         try:
-            return self.query_one("#input", Input)
+            return self.query_one("#input", ZayaInput)
         except NoMatches:
             return None
 

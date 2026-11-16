@@ -117,13 +117,15 @@ def _welcome_art(max_cols: int = 78) -> list[list[tuple[str, str]]]:
 
 
 _SHORTCUTS = (
-    "i digitar · f falar · Tab modo · F1 comandos · F2 sessões · F6 modelo · "
-    "F4 seleção · Ctrl+C copiar · F5 painéis · Esc parar"
+    "i ou Enter texto (voz off) · f voz (ouvir e falar) · Tab modo · F1 comandos · "
+    "F2 sessões · F6 modelo · F4 seleção · Ctrl+C copiar · F5 painéis · Esc parar"
 )
 
 _HELP = (
-    "Modo normal: i digitar · t texto · m mudo · v voz on/off · f falar · "
-    "c escuta contínua · Tab alterna o modo · Esc interromper. No modo insert, "
+    "Modo normal: i ou Enter volta ao texto e desliga a voz · f liga a voz "
+    "(escuta contínua e respostas faladas) · v ou c alternam o modo voz · "
+    "t texto · m mudo · Tab alterna o modo · Esc interromper. No modo insert, "
+    "Enter envia a mensagem, Ctrl+J quebra linha e colar preserva o texto inteiro. "
     "Esc volta ao normal. F1 paleta · F2 sessões · F3 modo · F6 modelo · Ctrl+L limpar. "
     "F4 liga ou desliga a seleção: arraste sobre o texto para destacar e copiar; "
     "Ctrl+C copia de novo o que estiver selecionado. "
