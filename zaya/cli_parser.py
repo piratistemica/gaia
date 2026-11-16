@@ -87,13 +87,6 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_sub.add_parser("serve", help="escuta e executa as mensagens na Zaya")
     telegram_sub.add_parser("me", help="mostra dados do bot")
 
-    spotify_parser = sub.add_parser("spotify", help="controla o Spotify no macOS")
-    spotify_sub = spotify_parser.add_subparsers(dest="spotify_command")
-    for name in ("status", "toggle", "play", "pause", "next", "prev"):
-        spotify_sub.add_parser(name)
-    spotify_volume = spotify_sub.add_parser("volume", help="define o volume (0-100)")
-    spotify_volume.add_argument("value", type=int)
-
     browser_parser = sub.add_parser("browser", help="automação de navegador (Playwright)")
     browser_sub = browser_parser.add_subparsers(dest="browser_command")
     for name in ("open", "text", "html"):

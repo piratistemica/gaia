@@ -1,4 +1,4 @@
-"""Comandos de integração: WhatsApp, Telegram, Spotify e navegador."""
+"""Comandos de integração: WhatsApp, Telegram e navegador."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ from zaya.browser.session import BrowserError, BrowserSession, playwright_availa
 from zaya.cli_runtime import _build_app
 from zaya.config import Config
 from zaya.interface.terminal import TerminalUI
-from zaya.spotify.controller import SpotifyCommand, SpotifyError
-from zaya.spotify.controller import execute as execute_spotify
 from zaya.telegram.client import TelegramClient
 from zaya.telegram.service import TelegramService, telegram_permission
 from zaya.whatsapp.client import WhatsAppClient
@@ -132,29 +130,6 @@ async def _telegram_serve(cfg: Config, ui: TerminalUI, args, client: TelegramCli
         await orchestrator.aclose()
         store.close()
         index.close()
-
-
-def _spotify_command(args, ui: TerminalUI) -> None:
-    actions = {
-        "status": "status",
-        "toggle": "toggle",
-        "play": "play",
-        "pause": "pause",
-        "next": "next",
-        "prev": "previous",
-    }
-    name = args.spotify_command or "status"
-    command = (
-        SpotifyCommand("volume_set", int(args.value))
-        if name == "volume"
-        else SpotifyCommand(actions.get(name, "status"))
-    )
-    try:
-        ui.success(execute_spotify(command))
-    except SpotifyError as exc:
-        ui.error(str(exc))
-        if "nao instalado" in str(exc):
-            ui.hint("instale com: brew install --cask spotify")
 
 
 async def _browser_command(cfg: Config, args, ui: TerminalUI) -> None:

@@ -15,7 +15,6 @@ from zaya.cli_commands import (
 from zaya.cli_integrations import (
     _browser_command,
     _career_command,
-    _spotify_command,
     _telegram_command,
     _whatsapp_command,
 )
@@ -57,8 +56,6 @@ def main() -> None:
             asyncio.run(_whatsapp_command(cfg, args, ui))
         elif args.command == "telegram":
             asyncio.run(_telegram_command(cfg, args, ui))
-        elif args.command == "spotify":
-            _spotify_command(args, ui)
         elif args.command == "browser":
             asyncio.run(_browser_command(cfg, args, ui))
         elif args.command == "career":

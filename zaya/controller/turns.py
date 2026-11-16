@@ -39,9 +39,6 @@ from zaya.controller.prompt import (
     route_model,
 )
 from zaya.controller.smalltalk import fast_reply
-from zaya.spotify.controller import SpotifyCommand, SpotifyError
-from zaya.spotify.controller import execute as execute_spotify
-from zaya.spotify.intents import parse_spotify_command
 
 
 class TurnInterrupted(Exception):
@@ -71,9 +68,6 @@ class TurnMixin(OrchestratorContract):
         if mode:
             await self._switch_mode(mode)
             return f"Modo {self.persona.name} ativado."
-        spotify = parse_spotify_command(text)
-        if spotify is not None:
-            return await self._handle_spotify(spotify, speak=False)
         preference = parse_preference(text)
         if preference is not None:
             await self._handle_preference(preference)
@@ -92,9 +86,6 @@ class TurnMixin(OrchestratorContract):
         quick = self._quick_reply(text)
         if quick is not None:
             return await self._emit_quick_reply(quick, speak=True)
-        spotify = parse_spotify_command(text)
-        if spotify is not None:
-            return await self._handle_spotify(spotify, speak=True)
         preference = parse_preference(text)
         if preference is not None:
             await self._handle_preference(preference)
@@ -127,16 +118,6 @@ class TurnMixin(OrchestratorContract):
             self.ui.print_markdown(text)
             await self._speak(text)
         return text
-
-    async def _handle_spotify(self, command: SpotifyCommand, speak: bool) -> str:
-        try:
-            message = await asyncio.to_thread(execute_spotify, command)
-        except SpotifyError as exc:
-            message = f"Spotify: {exc}"
-        self.ui.info(message)
-        if speak:
-            await self._speak(message)
-        return message
 
     async def _handle_task(self, text: str) -> str:
         self._busy = True
