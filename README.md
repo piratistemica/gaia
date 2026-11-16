@@ -152,13 +152,15 @@ zaya -old       # terminal clássico, para quem gosta
 zaya --watch    # reinicia sozinha quando o código muda
 ```
 
-**Voz contínua** vem ligada: fale sem apertar nada. A fala termina sozinha
-depois de uma pausa de silêncio. `M` pausa ou retoma o microfone, `Esc`
-interrompe a resposta, `T` volta ao texto.
+**Modo voz**: tecle `F` (ou `V`/`C`). Ela abre o microfone, continua ouvindo
+depois de cada resposta e fala a resposta em voz. A fala termina sozinha depois
+de uma pausa de silêncio. `M` pausa o microfone, `Esc` interrompe a resposta.
 
-**Texto** é só digitar e dar Enter. Enter vazio volta para a voz. E não existe
-aquela etapa chata de confirmar transcrição: o que ela entendeu vai direto para
-o agente.
+**Modo texto**: pressione `Enter` (ou `I`/`T`). Ela fecha o microfone, para de
+ouvir e desliga a voz das respostas até você ligar o modo voz de novo. É só
+digitar e dar Enter. No terminal clássico, `Enter` vazio liga a voz e `Enter`
+no modo voz volta ao texto. E não existe aquela etapa chata de confirmar
+transcrição: o que ela entendeu vai direto para o agente.
 
 Atalhos que valem a pena memorizar:
 
