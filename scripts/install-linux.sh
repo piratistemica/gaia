@@ -11,6 +11,11 @@
 
 set -euo pipefail
 
+# O proprio script instala uv e o comando `zaya` em ~/.local/bin. Sem isso,
+# rodando por SSH nao-interativo o `command -v uv` nao acha o que ja existe e
+# o script tenta baixar tudo de novo.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKIP_APT=0
 SKIP_LAUNCHER=0
@@ -55,7 +60,23 @@ fi
 
 if ! command -v uv >/dev/null 2>&1; then
   say "Instalando uv..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  if command -v curl >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://astral.sh/uv/install.sh | sh
+  else
+    # Instalacao minima sem curl/wget: astral.sh exige User-Agent, e o
+    # urllib do python do sistema resolve sem depender de pacote extra.
+    python3 - <<'PY'
+import urllib.request
+req = urllib.request.Request(
+    "https://astral.sh/uv/install.sh", headers={"User-Agent": "Mozilla/5.0"}
+)
+with open("/tmp/uv-install.sh", "wb") as fh:
+    fh.write(urllib.request.urlopen(req, timeout=60).read())
+PY
+    sh /tmp/uv-install.sh
+  fi
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
 command -v uv >/dev/null 2>&1 || die "uv não ficou disponível no PATH."
@@ -65,7 +86,11 @@ uv python install 3.12
 
 say "Criando o ambiente e instalando a Zaya..."
 cd "$REPO_DIR"
-uv venv --python 3.12 .venv
+# Idempotente: rodar o instalador de novo nao pode falhar so porque o ambiente
+# ja existe (o uv recusa criar em cima de um .venv existente).
+if [ ! -x .venv/bin/python ]; then
+  uv venv --python 3.12 .venv
+fi
 uv pip install --python .venv/bin/python -e .
 
 BIN_DIR="$HOME/.local/bin"
