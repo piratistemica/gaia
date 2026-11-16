@@ -1,8 +1,9 @@
 # Zaya
 
 Assistente pessoal de voz, local, com agente próprio e Second Brain em Markdown.
-Roda no macOS, fala e ouve em português, executa ferramentas no computador e
-guarda memória entre sessões.
+Roda no macOS e no Linux (inclusive num mini PC headless, comandado pelo
+Telegram), fala e ouve em português, executa ferramentas no computador e guarda
+memória entre sessões.
 
 - **STT local** (`faster-whisper`, pt-BR) — o áudio não sai da máquina.
 - **Agente próprio** — loop de ferramentas, sessões, permissões e streaming.
@@ -13,14 +14,22 @@ guarda memória entre sessões.
 
 ## Requisitos
 
-- macOS (o áudio e o Spotify assumem macOS; o resto é POSIX).
+- macOS ou Linux (Ubuntu/Debian testado; roda também headless, sem tela).
 - Python **3.12** (travado: o `faster-whisper` não tem wheel para 3.13+).
-- [`uv`](https://docs.astral.sh/uv/), `ffmpeg`, PortAudio.
+- [`uv`](https://docs.astral.sh/uv/), `ffmpeg` e PortAudio.
 - Uma chave de API de algum provedor de modelo.
 
 ```bash
+# macOS
 brew install ffmpeg portaudio
+
+# Ubuntu/Debian
+sudo apt install ffmpeg libportaudio2 libsndfile1
 ```
+
+A reprodução de áudio escolhe sozinha o player disponível: `afplay` no macOS;
+`ffplay`, `pw-play`, `paplay`, `mpv` ou `aplay` no Linux. A voz do sistema
+(`/voz say`) é exclusiva do macOS — no Linux use `/voz edge`.
 
 ## Instalação
 
@@ -33,6 +42,16 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 
 # opcional: comando `zaya` no PATH
 uv tool install --python 3.12 --editable .
+```
+
+No Ubuntu/Debian tem um script que faz tudo: dependências de sistema, `uv`,
+Python 3.12, venv, o comando `zaya` em `~/.local/bin` e um atalho de tela cheia
+para tablet.
+
+```bash
+./scripts/install-linux.sh              # instala tudo
+./scripts/install-linux.sh --no-apt     # sem sudo/apt
+./scripts/install-linux.sh --no-launcher # sem o atalho gráfico
 ```
 
 Dependências opcionais:
@@ -82,6 +101,11 @@ zaya -old            # terminal clássico
 zaya --ui textual    # força a TUI
 zaya --watch         # reinicia quando os .py mudam
 ```
+
+Numa máquina headless (mini PC, servidor) a TUI só serve para manutenção por
+SSH. Nesse caso o canal de uso é o Telegram: `zaya telegram serve` responde
+texto e áudio e entrega a iniciativa proativa no chat, sem depender de tela nem
+de alto-falante local.
 
 **Voz:** `F` fala uma vez, `V` alterna a voz, `C` liga a escuta contínua
 (microfone aberto: fala → executa → responde → volta a ouvir), `M` silencia.
@@ -250,14 +274,6 @@ zaya whatsapp audio voz.mp3
 zaya whatsapp serve
 ```
 
-**Spotify** (macOS)
-
-```bash
-zaya spotify status
-zaya spotify toggle
-zaya spotify volume 40
-```
-
 **Navegador** (Playwright, perfil persistente com seus logins)
 
 ```bash
@@ -324,8 +340,8 @@ data/             # zaya.db, sb_index.db, sessions/, career/, logs/
 ## Privacidade
 
 - Áudio nunca sai da máquina; é transcrito localmente.
-- Só o texto da resposta vai para o TTS `edge`. Use `/voz say` para ficar 100%
-  offline.
+- Só o texto da resposta vai para o TTS `edge`. Use `/voz say` (macOS) para
+  ficar 100% offline.
 - Chaves apenas em `.env` ou no ambiente; o `config` as mostra redigidas.
 - Nada da transcrição é executado direto: tudo passa pelo agente e pelas
   permissões.
