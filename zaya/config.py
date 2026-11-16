@@ -117,6 +117,10 @@ class AudioConfig(BaseModel):
     preroll_ms: int = 300
     # 0 = sem limite de duracao para uma fala.
     max_seconds: float = 0.0
+    # Probabilidade do Silero VAD acima da qual o bloco conta como fala.
+    # So vale quando o onnxruntime esta disponivel (o normal).
+    vad_threshold: float = 0.5
+    # Reserva sem Silero: limiar de RMS em dB.
     speech_threshold_db: float = -42.0
     input_device: str = ""
     # Escuta continua: microfone aberto, fala -> executa -> responde -> volta a ouvir.
@@ -490,6 +494,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_AUDIO_INPUT_DEVICE": ("audio", "input_device"),
     "ZAYA_AUDIO_MAX_SECONDS": ("audio", "max_seconds"),
     "ZAYA_AUDIO_SILENCE_MS": ("audio", "silence_ms"),
+    "ZAYA_AUDIO_VAD_THRESHOLD": ("audio", "vad_threshold"),
     "ZAYA_BROWSER_ENABLED": ("browser", "enabled"),
     "ZAYA_BROWSER_HEADLESS": ("browser", "headless"),
     "ZAYA_BROWSER_PROFILE_DIR": ("browser", "profile_dir"),
@@ -783,7 +788,8 @@ silence_ms = 5000               # pausa de 5s encerra a fala
 min_speech_ms = 250
 preroll_ms = 300
 max_seconds = 0.0               # 0 = sem limite para uma fala
-speech_threshold_db = -42.0
+vad_threshold = 0.5             # probabilidade minima do Silero para contar fala
+speech_threshold_db = -42.0     # reserva: limiar de RMS se faltar onnxruntime
 input_device = ""
 continuous = true               # microfone aberto; fala -> executa -> volta a ouvir
 auto_mute_seconds = 30          # silencio que desliga o microfone (0 = nunca)

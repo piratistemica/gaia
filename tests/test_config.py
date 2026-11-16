@@ -99,6 +99,7 @@ def test_env_types_are_inferred_from_model(isolated_env):
         "ZAYA_UI_DASHBOARD_COLLAPSED": "false",
         "ZAYA_TELEGRAM_AUTO_APPROVE": "true",
         "ZAYA_AUDIO_SILENCE_MS": "1500",
+        "ZAYA_AUDIO_VAD_THRESHOLD": "0.7",
         "ZAYA_SB_AUTO_CONTEXT": "yes",
         "ZAYA_FAST": "off",
         "ZAYA_UI_MARKDOWN": "false",
@@ -109,6 +110,7 @@ def test_env_types_are_inferred_from_model(isolated_env):
     assert cfg.interface.dashboard_collapsed is False
     assert cfg.telegram.auto_approve is True
     assert cfg.audio.silence_ms == 1500
+    assert cfg.audio.vad_threshold == 0.7
     assert cfg.secondbrain.auto_context is True
     assert cfg.interface.fast is False
     assert cfg.interface.markdown_render is False
