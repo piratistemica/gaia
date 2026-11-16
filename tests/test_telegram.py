@@ -174,6 +174,9 @@ class _BootOrchestrator:
     def start_career(self) -> None:
         self.ligados.append("career")
 
+    def start_proactive(self) -> None:
+        self.ligados.append("proactive")
+
     async def answer_once(self, text, speak=False, close=False):
         return ""
 
@@ -207,7 +210,7 @@ async def test_serve_liga_briefing_e_rotina_de_vagas_ao_subir():
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert orch.ligados == ["briefing", "career"]
+    assert orch.ligados == ["briefing", "career", "proactive"]
 
 
 class _BoomGetMeClient(_GetMeClient):
@@ -235,7 +238,7 @@ async def test_serve_sobrevive_a_bad_gateway_no_boot():
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert orch.ligados == ["briefing", "career"]
+    assert orch.ligados == ["briefing", "career", "proactive"]
 
 
 class _FakeTelegramClient:

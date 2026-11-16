@@ -217,6 +217,17 @@ class Orchestrator(
         """Liga a rotina de vagas sem depender do bootstrap do agente."""
         self._start_career_worker()
 
+    def start_proactive(self) -> None:
+        """Liga lembretes, agenda e foco sem a TUI (servico do Telegram).
+
+        Sem isso o servico responde mas nunca dispara um lembrete: o laco
+        proativo so era criado em ``run()``, que a TUI usa.
+        """
+        if not self.cfg.proactive.enabled:
+            return
+        if self._proactive_task is None or self._proactive_task.done():
+            self._proactive_task = asyncio.create_task(self._proactive_loop(greet=False))
+
     async def _warmup_stt(self) -> None:
         try:
             await asyncio.to_thread(self.transcriber.warmup)

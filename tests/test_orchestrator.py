@@ -986,3 +986,62 @@ async def test_modelo_reinicia_provedor_em_cache(orch, tmp_path):
     await orch.model_messages("deepseek/deepseek-chat")
 
     assert chamadas == [True]
+
+
+class FakeTelegram:
+    """Cliente do Telegram que só registra o que foi enviado."""
+
+    enabled = True
+
+    def __init__(self, fail: bool = False) -> None:
+        self.sent: list[str] = []
+        self.fail = fail
+
+    async def send_message(self, text: str, chat_id=None):
+        if self.fail:
+            raise RuntimeError("telegram fora do ar")
+        self.sent.append(text)
+        return {"message_id": len(self.sent)}
+
+
+@pytest.mark.asyncio
+async def test_proativo_no_canal_telegram_vai_para_o_chat(orch):
+    telegram = FakeTelegram()
+    orch.telegram = telegram
+    orch.channel = "telegram"
+
+    await orch._say_proactive("Lembrete: beber água")
+
+    assert telegram.sent == ["Lembrete: beber água"]
+    assert orch.tts.spoken == []
+
+
+@pytest.mark.asyncio
+async def test_proativo_no_canal_cli_continua_falando_local(orch):
+    telegram = FakeTelegram()
+    orch.telegram = telegram
+    orch.channel = "cli"
+
+    await orch._say_proactive("Bom dia")
+
+    assert telegram.sent == []
+    assert orch.tts.spoken == ["Bom dia"]
+
+
+@pytest.mark.asyncio
+async def test_proativo_nao_quebra_quando_o_telegram_falha(orch):
+    orch.telegram = FakeTelegram(fail=True)
+    orch.channel = "telegram"
+
+    await orch._say_proactive("qualquer coisa")
+
+    assert orch.ui.called("proactive")
+
+
+@pytest.mark.asyncio
+async def test_speak_nao_toca_audio_local_no_canal_telegram(orch):
+    orch.channel = "telegram"
+
+    await orch._speak("Combinado. Vou te lembrar.")
+
+    assert orch.tts.spoken == []

@@ -248,7 +248,19 @@ class InitiativeMixin(OrchestratorContract):
         if count:
             self._proactive_count += 1
             self._last_proactive = time.monotonic()
+        if self.channel == "telegram":
+            await self._notify_telegram(text)
+            return
         await self._speak(text)
+
+    async def _notify_telegram(self, text: str) -> None:
+        """Entrega proativa no chat. Falha de rede nao pode matar o laco."""
+        if not getattr(self.telegram, "enabled", False):
+            return
+        try:
+            await self.telegram.send_message(text)
+        except Exception as exc:
+            self.logger.warning("proativo: falha ao enviar no Telegram: %s", exc)
 
     def _idle_message(self) -> str:
         options = [

@@ -72,6 +72,9 @@ class TelegramService:
         # A rotina semanal de vagas tambem: sem isso ela so acordaria depois
         # da primeira mensagem, e a segunda-feira passaria em branco.
         self.orchestrator.start_career()
+        # Sem isso o servico responde mas nunca dispara lembrete nem aviso de
+        # agenda: o laco proativo so existia no caminho da TUI.
+        self.orchestrator.start_proactive()
         offset: int | None = None
         backoff = 2.0
         while True:
