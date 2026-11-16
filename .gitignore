@@ -44,6 +44,7 @@ curriculo*.md
 *.ogg
 *.sqlite
 *.pem
+agentes-chat-export.json
 
 # Markdown pessoal: por padrão ignora, mas docs do projeto entram
 *.md
