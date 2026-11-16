@@ -221,7 +221,9 @@ class Orchestrator(
         try:
             await asyncio.to_thread(self.transcriber.warmup)
         except Exception as exc:  # pragma: no cover
-            self.logger.debug("warmup do STT falhou: %s", exc)
+            # Um modelo indisponivel nao deve passar despercebido: sem isso o
+            # primeiro 'falar' cai num generico "nao entendi".
+            self.logger.warning("STT indisponivel: %s", exc)
 
     async def _shutdown(self) -> None:
         if self._memory_task is not None:

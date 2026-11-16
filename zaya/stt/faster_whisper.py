@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
+import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -17,32 +20,74 @@ class STTError(RuntimeError):
     pass
 
 
+@contextlib.contextmanager
+def real_stdio():
+    """Devolve stdout/stderr reais enquanto o modelo e carregado.
+
+    A TUI do Textual troca ``sys.stdout``/``sys.stderr`` por capturadores cujo
+    ``fileno()`` retorna -1. O download do modelo usa o ``tqdm`` do
+    huggingface_hub, que cria um ``RLock`` de multiprocessing na primeira
+    chamada; o resource_tracker do Python repassa esse -1 ao filho e o load
+    quebra com ``ValueError: bad value(s) in fds_to_keep``. Restaurar os
+    streams reais (ou, na falta deles, um descritor valido) resolve.
+    """
+    saved = (sys.stdout, sys.stderr)
+    changed = False
+    try:
+        for name in ("stdout", "stderr"):
+            stream = getattr(sys, name, None)
+            try:
+                valid = stream is not None and stream.fileno() >= 0
+            except Exception:
+                valid = False
+            if valid:
+                continue
+            real = getattr(sys, "__" + name + "__", None)
+            try:
+                if real is not None and real.fileno() >= 0:
+                    setattr(sys, name, real)
+                    changed = True
+            except Exception:
+                continue
+        yield
+    finally:
+        if changed:
+            sys.stdout, sys.stderr = saved
+
+
 class WhisperTranscriber:
     def __init__(self, cfg: STTConfig):
         self.cfg = cfg
         self._model = None
+        self._load_lock = threading.Lock()
 
     def _ensure_model(self):
         if self._model is not None:
             return self._model
-        try:
-            from faster_whisper import WhisperModel
-        except Exception as exc:  # pragma: no cover - depende do ambiente
-            raise STTError(
-                "faster-whisper nao esta instalado corretamente. "
-                "Rode 'zaya doctor' e reinstale com Python 3.12."
-            ) from exc
-        try:
-            self._model = WhisperModel(
-                self.cfg.model,
-                device=self.cfg.device,
-                compute_type=self.cfg.compute_type,
-            )
-        except Exception as exc:  # pragma: no cover
-            raise STTError(
-                f"nao foi possivel carregar o modelo '{self.cfg.model}': {exc}. "
-                "O primeiro uso baixa o modelo do Hugging Face e requer internet."
-            ) from exc
+        # Dois caminhos podem pedir o modelo ao mesmo tempo (push-to-talk e
+        # escuta continua): carregar uma vez so.
+        with self._load_lock:
+            if self._model is not None:
+                return self._model
+            try:
+                from faster_whisper import WhisperModel
+            except Exception as exc:  # pragma: no cover - depende do ambiente
+                raise STTError(
+                    "faster-whisper nao esta instalado corretamente. "
+                    "Rode 'zaya doctor' e reinstale com Python 3.12."
+                ) from exc
+            try:
+                with real_stdio():
+                    self._model = WhisperModel(
+                        self.cfg.model,
+                        device=self.cfg.device,
+                        compute_type=self.cfg.compute_type,
+                    )
+            except Exception as exc:  # pragma: no cover
+                raise STTError(
+                    f"nao foi possivel carregar o modelo '{self.cfg.model}': {exc}. "
+                    "O primeiro uso baixa o modelo do Hugging Face e requer internet."
+                ) from exc
         return self._model
 
     def warmup(self) -> None:

@@ -15,6 +15,10 @@ from zaya.interface.terminal import TerminalUI
 from zaya.stt.faster_whisper import STTError, WhisperTranscriber
 from zaya.telegram.client import TelegramClient, TelegramError
 
+# Teto do backoff do long polling. Sem isso, uma queda do Telegram vira rajada
+# de requisicoes a cada 2s durante todo o incidente.
+_MAX_BACKOFF = 30.0
+
 
 def telegram_permission(cfg: TelegramConfig) -> Callable[[str, list[str]], str]:
     """Política de permissão para o canal do Telegram.
@@ -52,8 +56,15 @@ class TelegramService:
         self._chat_id: str | None = None
 
     async def run(self) -> None:
-        me = await self.client.get_me()
-        username = me.get("username", "?") if isinstance(me, dict) else "?"
+        username = "?"
+        try:
+            me = await self.client.get_me()
+            username = me.get("username", "?") if isinstance(me, dict) else "?"
+        except TelegramError as exc:
+            # Um 502/timeout aqui nao pode matar o processo: o KeepAlive do
+            # launchd reiniciaria em loop e o bot ficaria mudo ate a API voltar.
+            # O loop de getUpdates abaixo ja trata falha com backoff.
+            self.logger.warning("getMe falhou no boot: %s", exc)
         self.ui.info(f"Telegram conectado: @{username}")
         self.ui.hint("enviando mensagens; Ctrl+C encerra")
         # Briefings diarios rodam mesmo sem mensagem recebida.
@@ -62,12 +73,15 @@ class TelegramService:
         # da primeira mensagem, e a segunda-feira passaria em branco.
         self.orchestrator.start_career()
         offset: int | None = None
+        backoff = 2.0
         while True:
             try:
                 updates = await self.client.get_updates(offset=offset)
+                backoff = 2.0
             except TelegramError as exc:
                 self.logger.warning("getUpdates falhou: %s", exc)
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, _MAX_BACKOFF)
                 continue
             for update in updates:
                 offset = int(update.get("update_id", 0)) + 1

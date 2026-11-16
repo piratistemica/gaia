@@ -210,6 +210,34 @@ async def test_serve_liga_briefing_e_rotina_de_vagas_ao_subir():
     assert orch.ligados == ["briefing", "career"]
 
 
+class _BoomGetMeClient(_GetMeClient):
+    async def get_me(self):
+        raise TelegramError("erro do Telegram: Bad Gateway", 502)
+
+
+@pytest.mark.asyncio
+async def test_serve_sobrevive_a_bad_gateway_no_boot():
+    """502 no getMe nao pode derrubar o serve (o launchd faria crash-loop)."""
+    import asyncio
+    import logging
+
+    cfg = Config()
+    cfg.telegram.allowed_chat_id = "42"
+    orch = _BootOrchestrator()
+    service = TelegramService(
+        cfg, orch, _BoomGetMeClient(), None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    task = asyncio.create_task(service.run())
+    await asyncio.sleep(0.05)
+    assert not task.done()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert orch.ligados == ["briefing", "career"]
+
+
 class _FakeTelegramClient:
     def __init__(self) -> None:
         self.sent: list[str] = []
