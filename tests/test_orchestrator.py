@@ -1315,3 +1315,91 @@ async def test_aviso_do_sonho_nao_repete_a_cada_minuto_quando_falha(orch, monkey
 
     assert len(tentativas) == 1
     assert orch.store.get_meta(f"memory_dream_reported:{ontem.isoformat()}") is None
+
+
+@pytest.mark.asyncio
+async def test_aviso_do_sonho_respeita_proativo_off(orch, monkeypatch):
+    """/proativo off e silencio total: o aviso nao fura a escolha dela."""
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_notify = True
+    orch.cfg.memory.dream_notify_at = "08:00"
+    orch.cfg.proactive.enabled = False
+    ontem = datetime.now().astimezone().date() - timedelta(days=1)
+    orch.store.set_meta(f"memory_dreamed:{ontem.isoformat()}", "Sonhos/Sonho x.md")
+    enviados: list[str] = []
+    monkeypatch.setattr(
+        orch, "_say_proactive", lambda text, count=True: enviados.append(text)
+    )
+
+    await orch._maybe_dream_report(datetime.now().astimezone().replace(hour=9, minute=0))
+
+    assert enviados == []
+    assert orch.store.get_meta(f"memory_dream_reported:{ontem.isoformat()}") is None
+
+
+@pytest.mark.asyncio
+async def test_descartar_sonho_move_a_nota_e_nao_avisa_mais(orch, monkeypatch):
+    dia = datetime.now().astimezone().date()
+    nota = types.SimpleNamespace(
+        rel_path=f"Sonhos/Sonho {dia.isoformat()}.md",
+        title=f"Sonho {dia.isoformat()}",
+        body="Um sonho.\n\n## Pergunta para amanhã\nO que fica?",
+        tags=["sonho"],
+        links=[],
+    )
+    orch.brain = types.SimpleNamespace(read_note=lambda name: nota)
+    orch.store.set_meta(f"memory_dreamed:{dia.isoformat()}", nota.rel_path)
+    orch.store.set_meta(f"memory_dream_reported:{dia.isoformat()}", "2026-11-16T09:00:00")
+
+    def fake_delete(name, confirm=False):
+        return f"/lixeira/{name}"
+
+    orch.brain.delete_note = fake_delete  # type: ignore[attr-defined]
+
+    await orch.discard_dream(dia)
+
+    assert orch.store.get_meta(f"memory_dreamed:{dia.isoformat()}") is None
+    assert orch.store.get_meta(f"memory_dream_reported:{dia.isoformat()}") is None
+    assert orch.store.get_meta(f"memory_dream_forgotten:{dia.isoformat()}") is not None
+
+
+@pytest.mark.asyncio
+async def test_comando_sonhar_descartar(orch, monkeypatch):
+    dia = datetime.now().astimezone().date()
+    chamadas: list = []
+
+    async def fake_discard(day):
+        chamadas.append(day)
+        return "/lixeira/Sonhos/Sonho x.md"
+
+    monkeypatch.setattr(orch, "discard_dream", fake_discard)
+
+    await orch._handle_command("/sonhar descartar")
+
+    assert chamadas == [dia]
+    assert orch.ui.called("success")
+
+
+@pytest.mark.asyncio
+async def test_dream_report_avisa_quando_a_nota_fica_sem_frase(orch, monkeypatch, caplog):
+    """Falha silenciosa era o pior caso: agora fica no log."""
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_notify = True
+    orch.cfg.memory.dream_notify_at = "08:00"
+    ontem = datetime.now().astimezone().date() - timedelta(days=1)
+    orch.store.set_meta(f"memory_dreamed:{ontem.isoformat()}", "Sonhos/Sonho x.md")
+    orch.brain = types.SimpleNamespace(
+        read_note=lambda name: types.SimpleNamespace(
+            rel_path="Sonhos/Sonho x.md", title="x", body="", tags=[], links=[]
+        )
+    )
+    enviados: list[str] = []
+    monkeypatch.setattr(
+        orch, "_say_proactive", lambda text, count=True: enviados.append(text)
+    )
+
+    with caplog.at_level("WARNING"):
+        await orch._maybe_dream_report(datetime.now().astimezone().replace(hour=9, minute=0))
+
+    assert enviados == []
+    assert any("sem frase nem pergunta" in r.message for r in caplog.records)

@@ -1231,3 +1231,26 @@ O aviso bem-sucedido registra no journal:
 ```text
 sonho: aviso de 2026-11-16 enviado
 ```
+
+### 16.10 Fechando as lacunas da primeira versão
+
+Cinco pontos que a primeira versão deixava em aberto, todos resolvidos sem
+dependência nova:
+
+| Lacuna | O que era | O que é agora |
+|---|---|---|
+| Formato não validado | modelo podia devolver prosa solta; `dream_recap` virava vazio e o aviso **não saía, em silêncio** | `has_structure()` confere os três títulos; `compose_dream_note` mantém a prosa e refaz a moldura; aviso vazio vira `WARNING` no log |
+| Sem continuidade | sonhos anteriores excluídos da busca; cada noite começava do zero | `_previous_dreams()` traz os 2 últimos sonhos como `## Sonhos anteriores` no material do modelo (não entram em "Memórias revisitadas") |
+| Sem retorno | sonho torto ficava para sempre | `/sonhar descartar [dia]` manda a nota para a lixeira e grava `memory_dream_forgotten:<dia>`; o catch-up não ressuscita |
+| Corrida entre processos | TUI e serviço do Telegram podiam sonhar o mesmo dia; o segundo caía em `NoteConflict` | quem chega depois **adota** a nota existente (log `info`) em vez de estourar |
+| `/proativo off` ignorado | aviso chegava mesmo com proatividade desligada | `_maybe_dream_report` respeita `proactive.enabled` |
+
+Detalhe do parser: `_section()` termina só em título de nível 1-2, e `_excerpt()`
+remove marcadores `#`. Antes, o trecho de uma nota de memória começando com
+"# Memória ..." zerava a seção e fazia uma nota boa parecer sem estrutura.
+
+Testes novos: `has_structure` (três casos), recomposição da moldura mantendo a
+prosa (contagem de ocorrência = 1), sonho fora do formato ainda gerando aviso,
+continuidade (sonho anterior no prompt, sonho do próprio dia fora), descarte
+(não sonha de novo, `force` ainda sonha), corrida (adota a nota), aviso com
+`/proativo off` e aviso vazio registrado em `WARNING`.

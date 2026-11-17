@@ -185,6 +185,10 @@ class OrchestratorContract(ABC):
     async def _handle_dream(self, argument: str) -> None:
         ...
 
+    @abstractmethod
+    async def discard_dream(self, day: date) -> str | None:
+        ...
+
     # --- metodos que um mixin chama de outro (implementados nos mixins) ---
     @abstractmethod
     async def _speak(self, text: str) -> None:

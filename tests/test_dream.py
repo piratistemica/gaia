@@ -13,6 +13,7 @@ from zaya.memory.dream import (
     compose_dream_note,
     dream_recap,
     dream_target_day,
+    has_structure,
     in_dream_window,
     keywords,
 )
@@ -168,11 +169,17 @@ def test_compose_dream_note_com_modelo_lista_memorias():
         def as_context(self, max_chars=480):
             return f"- **{self.title}** (`{self.rel_path}`): {self.snippet}"
 
+    completo = (
+        "A madrugada costura.\n\n"
+        "## Ecos do dia\nUm fio.\n\n"
+        "## Ressonâncias\nUma ressonância.\n\n"
+        "## Pergunta para amanhã\nO que fica?"
+    )
     nota = compose_dream_note(
         date(2026, 11, 16),
         None,
         [_Hit()],  # type: ignore[list-item]
-        "## Ecos do dia\nUm fio.",
+        completo,
     )
     assert "Um fio." in nota
     assert "## Memórias revisitadas" in nota
@@ -312,3 +319,154 @@ def test_dream_recap_sem_secoes_nao_quebra():
         links=[],
     )
     assert dream_recap(date(2026, 11, 15), nota) == ""
+
+
+def test_has_structure_exige_as_tres_secoes():
+    completo = (
+        "Abertura.\n\n## Ecos do dia\na\n\n## Ressonâncias\nb\n\n"
+        "## Pergunta para amanhã\nc"
+    )
+    assert has_structure(completo) is True
+    assert has_structure("Abertura.\n\n## Ecos do dia\na") is False
+    assert has_structure("") is False
+
+
+def test_compose_refaz_a_moldura_mantendo_a_prosa_do_modelo():
+    """Modelo fora do formato nao perde o texto: ganha as secoes que faltam."""
+    nota = compose_dream_note(
+        date(2026, 11, 16),
+        None,
+        [],
+        "# Sonho\n\nA madrugada virou fita e a fita virou reza.",
+    )
+    assert "A madrugada virou fita e a fita virou reza." in nota
+    assert "## Ecos do dia" in nota
+    assert "## Ressonâncias" in nota or "## Pergunta para amanhã" in nota
+    assert has_structure(nota) is True
+    assert nota.count("A madrugada virou fita") == 1
+
+
+async def test_modelo_fora_do_formato_ainda_gera_aviso(sonho):
+    cfg, store, brain, index, proj = sonho
+    cfg.memory.use_llm = True
+    dia = date.today()
+    _criar_memoria_dia(brain, dia)
+    cliente = _FakeClient(sonho="Sonhei com uma fita que virou reza.")
+
+    dreamer = Dreamer(cfg, store, brain, index, cliente, proj)
+    caminho = await dreamer.dream(dia)
+
+    nota = brain.read_note(caminho)
+    assert has_structure(nota.body)
+    assert dream_recap(dia, nota).startswith("Sonhei com")
+    assert "fita que virou reza" in dream_recap(dia, nota)
+
+
+def test_sonhos_anteriores_entram_como_continuidade(sonho):
+    cfg, store, brain, index, proj = sonho
+    dia = date(2026, 11, 16)
+    _criar_memoria_dia(brain, dia)
+    brain.create_note(
+        "Sonho 2026-11-14",
+        "A madrugada tinha cheiro de arquivo.\n\n## Pergunta para amanhã\nO que fica?",
+        folder="Sonhos",
+        confirm=True,
+    )
+    dreamer = Dreamer(cfg, store, brain, index, _FakeClient(), proj)
+
+    anteriores = dreamer._previous_dreams(dia)
+
+    assert [n.title for n in anteriores] == ["Sonho 2026-11-14"]
+
+
+def test_sonho_do_proprio_dia_nao_conta_como_anterior(sonho):
+    cfg, store, brain, index, proj = sonho
+    dia = date(2026, 11, 16)
+    brain.create_note("Sonho 2026-11-16", "hoje", folder="Sonhos", confirm=True)
+    brain.create_note("Sonho 2026-11-17", "amanha", folder="Sonhos", confirm=True)
+    dreamer = Dreamer(cfg, store, brain, index, _FakeClient(), proj)
+
+    assert dreamer._previous_dreams(dia) == []
+
+
+async def test_sonho_anterior_aparece_no_contexto_do_modelo(sonho):
+    cfg, store, brain, index, proj = sonho
+    cfg.memory.use_llm = True
+    dia = date(2026, 11, 16)
+    _criar_memoria_dia(brain, dia)
+    brain.create_note(
+        "Sonho 2026-11-15",
+        "Um teclado quebrado e um dedo cortado.",
+        folder="Sonhos",
+        confirm=True,
+    )
+    cliente = _FakeClient(sonho="A madrugada voltou ao teclado.")
+    dreamer = Dreamer(cfg, store, brain, index, cliente, proj)
+
+    await dreamer.dream(dia)
+
+    assert "## Sonhos anteriores" in cliente.prompts[0]
+    assert "teclado quebrado" in cliente.prompts[0]
+
+
+async def test_descartar_marca_o_dia_e_nao_sonha_de_novo(sonho):
+    cfg, store, brain, index, proj = sonho
+    dia = date.today()
+    _criar_memoria_dia(brain, dia)
+    dreamer = Dreamer(cfg, store, brain, index, _FakeClient(), proj)
+    caminho = await dreamer.dream(dia)
+    assert caminho is not None
+
+    # Simula o descarte: nota fora, marcas trocadas.
+    brain.delete_note(caminho, confirm=True)
+    store.delete_meta(f"memory_dreamed:{dia.isoformat()}")
+    store.set_meta(f"memory_dream_forgotten:{dia.isoformat()}", "2026-11-16T09:00:00")
+
+    assert await dreamer.dream(dia) is None
+    # force continua podendo, para quem quiser refazer de proposito.
+    assert await dreamer.dream(dia, force=True) is not None
+
+
+async def test_corrida_entre_processos_adota_a_nota_existente(sonho):
+    """TUI e servico do Telegram podem sonhar o mesmo dia ao mesmo tempo."""
+    from zaya.secondbrain.notes import NoteConflict
+
+    cfg, store, brain, index, proj = sonho
+    dia = date.today()
+    _criar_memoria_dia(brain, dia)
+
+    class _RaceBrain:
+        """resolve() nao ve a nota; create_note() bate no conflito."""
+
+        def __init__(self, real, rel_path):
+            self._real = real
+            self._rel_path = rel_path
+            self._wins = 0
+
+        def resolve(self, name):
+            if "Sonho " in str(name):
+                self._wins += 1
+                return None if self._wins == 1 else self._real.root / self._rel_path
+            return self._real.resolve(name)
+
+        def create_note(self, *args, **kwargs):
+            raise NoteConflict("ja existe uma nota")
+
+        def read_note(self, name):
+            return self._real.read_note(name)
+
+    rel = f"Sonhos/Sonho {dia.isoformat()}.md"
+    brain.create_note(
+        f"Sonho {dia.isoformat()}",
+        "Nota de quem ganhou a corrida.\n\n## Ecos do dia\na\n\n"
+        "## Ressonâncias\nb\n\n## Pergunta para amanhã\nO que fica?",
+        folder="Sonhos",
+        confirm=True,
+    )
+    dreamer = Dreamer(cfg, store, brain, index, _FakeClient(), proj)
+    dreamer.brain = _RaceBrain(brain, rel)  # type: ignore[assignment]
+
+    caminho = await dreamer.dream(dia)
+
+    assert caminho == rel
+    assert "ganhou a corrida" in brain.read_note(caminho).body

@@ -911,3 +911,8 @@ Para este documento, o que importa:
   do Telegram podem estar abertos juntos.
 - **Sem modelo.** O texto vem da nota já escrita: primeira frase do parágrafo
   onírico + **Pergunta para amanhã**. Custo zero de token.
+
+**Descartar um sonho** é o equivalente ao `descarta` da revisão: `/sonhar
+descartar [dia]` move a nota para a lixeira do Second Brain e grava
+`memory_dream_forgotten:<dia>`. A marca é o que impede o catch-up da manhã de
+sonhar o mesmo dia outra vez — sem ela, descartar não serviria de nada.

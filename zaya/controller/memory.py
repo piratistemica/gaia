@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from datetime import date, datetime, timedelta
 
@@ -103,6 +104,9 @@ class MemoryMixin(OrchestratorContract):
         cfg = self.cfg.memory
         if not cfg.enabled or not cfg.dream_enabled or not cfg.dream_notify:
             return
+        # /proativo off e silencio total: o aviso nao fura a escolha dela.
+        if not self.cfg.proactive.enabled:
+            return
         if now.strftime("%H:%M") < cfg.dream_notify_at:
             return
         if in_quiet_hours(now, self.cfg.proactive.quiet_hours):
@@ -128,6 +132,9 @@ class MemoryMixin(OrchestratorContract):
             self.store.delete_meta(key)
             return
         if not aviso:
+            self.logger.warning(
+                "sonho de %s sem frase nem pergunta: aviso nao enviado", day.isoformat()
+            )
             self.store.delete_meta(key)
             return
         try:
@@ -218,7 +225,42 @@ class MemoryMixin(OrchestratorContract):
         else:
             self.ui.info("nada novo para consolidar (ou já consolidado)")
 
+    async def discard_dream(self, day: date) -> str | None:
+        """Esquece o sonho de um dia: nota para a lixeira e dia marcado.
+
+        E o equivalente ao "descarta" da revisao de fatos. A marca
+        ``memory_dream_forgotten:<dia>`` impede que o catch-up da manha sonhe o
+        mesmo dia outra vez, o que tornaria o descarte inutil.
+        """
+        path = self.store.get_meta(f"memory_dreamed:{day.isoformat()}")
+        if not path:
+            return None
+        moved = await asyncio.to_thread(
+            self.brain.delete_note, str(path), confirm=True
+        )
+        self.store.delete_meta(f"memory_dreamed:{day.isoformat()}")
+        self.store.delete_meta(f"memory_dream_reported:{day.isoformat()}")
+        self.store.set_meta(
+            f"memory_dream_forgotten:{day.isoformat()}",
+            datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+        self.logger.info("sonho de %s descartado em %s", day.isoformat(), moved)
+        return str(moved)
+
     async def _handle_dream(self, argument: str) -> None:
+        if "descart" in (argument or "").lower():
+            limpo = re.sub(r"\bdescart\w*", " ", argument or "", flags=re.IGNORECASE)
+            day, _force = parse_day(limpo)
+            try:
+                moved = await self.discard_dream(day)
+            except Exception as exc:
+                self.ui.error(f"falha ao descartar o sonho: {exc}")
+                return
+            if moved:
+                self.ui.success(f"sonho de {day.isoformat()} descartado (lixeira: {moved})")
+            else:
+                self.ui.info(f"não há sonho de {day.isoformat()} para descartar")
+            return
         day, force = parse_day(argument)
         self.ui.info(f"sonhando sobre {day.isoformat()}…")
         try:

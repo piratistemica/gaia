@@ -18,7 +18,7 @@ from zaya.agent import AgentClient
 from zaya.config import Config
 from zaya.memory.store import MemoryStore
 from zaya.secondbrain.index import SearchHit, SecondBrainIndex
-from zaya.secondbrain.notes import Note, SecondBrain
+from zaya.secondbrain.notes import Note, NoteConflict, SecondBrain
 
 _DREAM_PROMPT = (
     "Você é a Zaya, a agente pessoal da Talita. É madrugada e você está "
@@ -30,6 +30,8 @@ _DREAM_PROMPT = (
     "## Ecos do dia\n"
     "## Ressonâncias\n"
     "## Pergunta para amanhã\n\n"
+    "Se houver sonhos anteriores no material, retome os fios deles — o que "
+    "voltou, o que mudou — sem repetir as mesmas palavras.\n\n"
     "Máximo de 300 palavras.\n\n---\n\n"
 )
 
@@ -99,7 +101,10 @@ def dream_target_day(now: datetime) -> date:
 
 
 def _excerpt(text: str, limit: int = 600) -> str:
-    value = re.sub(r"\s+", " ", text or "").strip()
+    # Sem marcadores de titulo: um "# Memória ..." colado dentro de uma secao
+    # quebrava o parser e fazia a nota parecer sem estrutura.
+    sem_titulos = re.sub(r"(?m)^#{1,6}\s*", "", text or "")
+    value = re.sub(r"\s+", " ", sem_titulos).strip()
     if len(value) > limit:
         value = value[:limit].rstrip() + "…"
     return value
@@ -130,10 +135,19 @@ def first_sentence(text: str, limit: int = 220) -> str:
     return _excerpt(sentence, limit)
 
 
+# Seccoes que a nota de sonho precisa ter para virar aviso e leitura.
+_DREAM_SECTIONS = ("Ecos do dia", "Ressonâncias", "Pergunta para amanhã")
+
+# Pergunta de reserva quando o modelo nao entrega uma: generica, mas honesta.
+_FALLBACK_QUESTION = "O que desse sonho ainda vai fazer sentido daqui a uma semana?"
+
+
 def _section(body: str, title: str) -> str:
     """Conteudo de uma secao ``## <title>`` ate a proxima secao."""
+    # Termina so em titulo de nivel 1-2: um "# algo" dentro do conteudo (trecho
+    # de outra nota) nao pode zerar a secao.
     pattern = re.compile(
-        rf"^#{{1,3}}\s*{re.escape(title)}\s*$(.*?)(?=^#{{1,3}}\s|\Z)",
+        rf"^#{{1,2}}\s*{re.escape(title)}\s*$(.*?)(?=^#{{1,2}}\s|\Z)",
         re.IGNORECASE | re.MULTILINE | re.DOTALL,
     )
     match = pattern.search(body or "")
@@ -170,23 +184,53 @@ def dream_recap(day: date, note: Note) -> str:
     return aviso
 
 
-def _fallback_dream(day: date, day_note: Note | None, old: list[SearchHit]) -> str:
-    """Sonho deterministico, usado quando o modelo falha ou esta desligado."""
+def _fallback_dream(
+    day: date,
+    day_note: Note | None,
+    old: list[SearchHit],
+    opening: str = "",
+) -> str:
+    """Sonho deterministico, usado quando o modelo falha, esta desligado ou
+    devolve algo sem a estrutura pedida.
+
+    ``opening`` preserva a prosa do modelo quando ela existe e so a moldura
+    (secoes) precisa ser reconstruida: o texto onirico e a parte que vale.
+    """
     sections = [
-        "## Sonho da noite\n"
-        f"Na madrugada de {day.isoformat()}, a Zaya sonhou com o que viveu e "
-        f"com {len(old)} memória(s) antiga(s)."
+        opening.strip()
+        or (
+            "## Sonho da noite\n"
+            f"Na madrugada de {day.isoformat()}, a Zaya sonhou com o que viveu e "
+            f"com {len(old)} memória(s) antiga(s)."
+        )
     ]
     if day_note:
         sections.append("## Ecos do dia\n" + _excerpt(day_note.body))
     else:
         sections.append("## Ecos do dia\nDia sem memória consolidada.")
-    if old:
-        sections.append(
-            "## Ressonâncias\n" + "\n".join(hit.as_context(320) for hit in old)
+    sections.append(
+        "## Ressonâncias\n"
+        + (
+            "\n".join(hit.as_context(320) for hit in old)
+            if old
+            else "Nada antigo ressoou hoje."
         )
-    sections.append("## Pergunta para amanhã\nO que esse sonho quer dizer?")
+    )
+    sections.append(f"## Pergunta para amanhã\n{_FALLBACK_QUESTION}")
     return "\n\n".join(sections)
+
+
+def has_structure(text: str) -> bool:
+    """Diz se o texto do modelo tem as tres secoes que a nota promete.
+
+    Conta o *titulo*, nao o conteudo: uma secao vazia e legitima ("nada
+    antigo ressoou hoje"), mas a falta da secao significa que o modelo
+    ignorou o formato - e aí o aviso do dia seguinte sairia vazio.
+    """
+    return all(
+        re.search(rf"^#{{1,2}}\s*{re.escape(title)}\s*$", text or "", re.IGNORECASE | re.MULTILINE)
+        for title in _DREAM_SECTIONS
+    )
 
 
 def compose_dream_note(
@@ -196,16 +240,17 @@ def compose_dream_note(
     dream_text: str = "",
 ) -> str:
     """Monta o corpo Markdown da nota de sonho."""
-    if dream_text:
-        parts = [_strip_dream_heading(dream_text)]
+    text = _strip_dream_heading(dream_text)
+    if text and has_structure(text):
+        parts = [text]
         if old:
             parts.append(
                 "## Memórias revisitadas\n"
                 + "\n".join(hit.as_context(240) for hit in old)
             )
-    else:
-        parts = [_fallback_dream(day, day_note, old)]
-    return "\n\n".join(parts).strip() + "\n"
+        return "\n\n".join(parts).strip() + "\n"
+    # Sem estrutura: mantem a prosa (se houver) e reconstroi a moldura.
+    return _fallback_dream(day, day_note, old, opening=text).strip() + "\n"
 
 
 class Dreamer:
@@ -242,11 +287,15 @@ class Dreamer:
             return None
         day = day or datetime.now().astimezone().date()
         key = f"memory_dreamed:{day.isoformat()}"
-        if not force and self.store.get_meta(key):
+        forgotten = f"memory_dream_forgotten:{day.isoformat()}"
+        # ``forgotten`` e o pedido explicito de esquecer: sem ele, descartar um
+        # sonho faria o catch-up da manha sonhar o mesmo dia de novo.
+        if not force and (self.store.get_meta(key) or self.store.get_meta(forgotten)):
             return None
 
         day_note = await asyncio.to_thread(self._day_note, day)
         old = await asyncio.to_thread(self._old_memories, day, day_note)
+        previous = await asyncio.to_thread(self._previous_dreams, day)
         if day_note is None and not old:
             return None
 
@@ -255,8 +304,17 @@ class Dreamer:
             dream_text = ""
             if cfg.use_llm:
                 dream_text = await self._dream(
-                    day, day_note, old, timeout_seconds or cfg.llm_timeout_seconds
+                    day,
+                    day_note,
+                    old,
+                    previous,
+                    timeout_seconds or cfg.llm_timeout_seconds,
                 )
+                if dream_text and not has_structure(_strip_dream_heading(dream_text)):
+                    self.logger.warning(
+                        "sonho de %s veio fora do formato; refazendo a moldura",
+                        day.isoformat(),
+                    )
             body = compose_dream_note(day, day_note, old, dream_text)
             note = await asyncio.to_thread(self._write_note, day, body)
             self.store.set_meta(key, note.rel_path)
@@ -317,7 +375,43 @@ class Dreamer:
                 break
         return hits[:limit]
 
-    def _dream_context(self, day: date, day_note: Note | None, old: list[SearchHit]) -> str:
+    def _previous_dreams(self, day: date, limit: int = 2) -> list[Note]:
+        """Sonhos das noites anteriores: a continuidade que faltava.
+
+        Ficam fora de ``_old_memories`` de proposito (nao entram como
+        "memorias revisitadas"), mas entram no material como fio narrativo.
+        """
+        prefix = f"{self.cfg.memory.dream_folder}/Sonho "
+        found: list[tuple[date, str]] = []
+        for hit in self.index.recent(limit=60):
+            if not hit.rel_path.startswith(prefix):
+                continue
+            match = re.search(r"(\d{4}-\d{2}-\d{2})", hit.rel_path)
+            if not match:
+                continue
+            try:
+                when = date.fromisoformat(match.group(1))
+            except ValueError:
+                continue
+            if when >= day:
+                continue
+            found.append((when, hit.rel_path))
+        found.sort(reverse=True)
+        notes: list[Note] = []
+        for _when, rel_path in found[:limit]:
+            try:
+                notes.append(self.brain.read_note(rel_path))
+            except Exception as exc:  # pragma: no cover - nota sumiu no meio
+                self.logger.warning("sonho: nao consegui ler %s: %s", rel_path, exc)
+        return notes
+
+    def _dream_context(
+        self,
+        day: date,
+        day_note: Note | None,
+        old: list[SearchHit],
+        previous: list[Note] | None = None,
+    ) -> str:
         parts: list[str] = []
         if day_note:
             parts.append("## Memória do dia\n\n" + _excerpt(day_note.body, 4000))
@@ -327,6 +421,14 @@ class Dreamer:
             parts.append(
                 "## Memórias antigas\n\n" + "\n".join(hit.as_context(480) for hit in old)
             )
+        if previous:
+            parts.append(
+                "## Sonhos anteriores\n\n"
+                + "\n\n".join(
+                    f"### {note.title}\n{_excerpt(note.body, 1200)}"
+                    for note in previous
+                )
+            )
         return "\n\n".join(parts)
 
     async def _dream(
@@ -334,9 +436,10 @@ class Dreamer:
         day: date,
         day_note: Note | None,
         old: list[SearchHit],
+        previous: list[Note] | None,
         timeout_seconds: float,
     ) -> str:
-        context = self._dream_context(day, day_note, old)
+        context = self._dream_context(day, day_note, old, previous)
         if not context:
             return ""
         session_id = ""
@@ -365,11 +468,20 @@ class Dreamer:
         # Liga o sonho a memoria do dia: o Second Brain e um grafo, nao uma
         # pasta. Sem o link, a nota do dia nunca "sabe" que sonhou com ela.
         links = [f"Memória {day.isoformat()}"] if self._day_note(day) else []
-        return self.brain.create_note(
-            title,
-            body,
-            folder=cfg.dream_folder,
-            tags=tags,
-            links=links,
-            confirm=True,
-        )
+        try:
+            return self.brain.create_note(
+                title,
+                body,
+                folder=cfg.dream_folder,
+                tags=tags,
+                links=links,
+                confirm=True,
+            )
+        except NoteConflict:
+            # TUI e servico do Telegram podem sonhar o mesmo dia ao mesmo
+            # tempo: quem chegar depois adota a nota de quem ganhou.
+            existing = self.brain.resolve(f"{cfg.dream_folder}/{title}")
+            if existing is None:
+                raise
+            self.logger.info("sonho de %s ja existia; adotando a nota", day.isoformat())
+            return self.brain.read_note(existing)

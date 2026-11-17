@@ -266,10 +266,16 @@ retry_minutes = 10.0      # espera entre tentativas se o envio falhar
 Para sonhar na hora — sobre hoje, ontem ou um dia específico:
 
 ```
-/sonhar           # hoje
-/sonhar ontem     # recupera a noite passada
+/sonhar                  # hoje
+/sonhar ontem            # recupera a noite passada
 /sonhar 2026-11-09 forcar
+/sonhar descartar ontem  # esquece o sonho (nota vai para a lixeira)
 ```
+
+O sonho retoma os dois sonhos anteriores como fio narrativo, então há
+continuidade entre as noites. Se o modelo devolver texto fora do formato
+pedido, a prosa dele é mantida e a moldura (Ecos, Ressonâncias, Pergunta) é
+reconstruída — o aviso nunca fica sem conteúdo sem avisar no log.
 
 ## Automações
 
