@@ -224,6 +224,12 @@ class MemoryMixin(OrchestratorContract):
             return
         if path:
             self.ui.success(f"sonho salvo em {path}")
+            # Pedido na mao conta como ja visto: sem isso o laco de memoria
+            # mandaria o mesmo aviso no chat logo depois, em duplicidade.
+            self.store.set_meta(
+                f"memory_dream_reported:{day.isoformat()}",
+                datetime.now().astimezone().isoformat(timespec="seconds"),
+            )
             try:
                 note = self.brain.read_note(path)
                 aviso = dream_recap(day, note)

@@ -1232,3 +1232,38 @@ async def test_catch_up_sonha_so_de_manha(orch, monkeypatch):
     await orch._dream_catch_up()
     if tarde.date() == agora.date() and agora.hour >= 12:
         assert chamadas == []
+
+
+@pytest.mark.asyncio
+async def test_sonhar_na_mao_nao_repete_o_aviso_no_chat(orch, monkeypatch):
+    """/sonhar ja mostra o resumo; o laco de memoria nao pode mandar de novo."""
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_notify = True
+    orch.cfg.memory.dream_notify_at = "08:00"
+
+    async def fake_consolidar(day=None, *, force=False, timeout_seconds=None):
+        return None
+
+    async def fake_sonhar(day=None, *, force=False, timeout_seconds=None):
+        return "Sonhos/Sonho x.md"
+
+    enviados: list[str] = []
+    monkeypatch.setattr(orch, "consolidate_day", fake_consolidar)
+    monkeypatch.setattr(orch, "dream_day", fake_sonhar)
+    monkeypatch.setattr(
+        orch, "_say_proactive", lambda text, count=True: enviados.append(text)
+    )
+    nota = types.SimpleNamespace(
+        rel_path="Sonhos/Sonho x.md",
+        title="x",
+        body="Um sonho.\n\n## Pergunta para amanhã\nO que fica?",
+        tags=["sonho"],
+        links=[],
+    )
+    orch.brain = types.SimpleNamespace(read_note=lambda name: nota)
+
+    await orch._handle_command("/sonhar 2026-11-20")
+    assert orch.store.get_meta("memory_dream_reported:2026-11-20") is not None
+
+    await orch._maybe_dream_report(datetime.now().astimezone().replace(hour=9, minute=0))
+    assert enviados == []

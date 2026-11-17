@@ -297,6 +297,7 @@ def test_dream_recap_usa_frase_e_pergunta():
     assert "A madrugada costura fios soltos." in aviso
     assert "Ficou a pergunta: O que fica aqui?" in aviso
     assert "Ressonâncias" not in aviso
+    assert "…." not in aviso
     assert len(aviso) <= 381
 
 

@@ -154,9 +154,11 @@ def dream_recap(day: date, note: Note) -> str:
     pergunta = first_sentence(_section(body, "Pergunta para amanhã"), 160)
     if not frase and not pergunta:
         return ""
+    frase = frase.rstrip(".…").rstrip()
+    pergunta = pergunta.strip()
     partes = [f"Sonhei com {day.strftime('%d/%m')}"]
     if frase:
-        partes.append(f": {frase.rstrip('.')}.")
+        partes.append(f": {frase}.")
     else:
         partes.append(".")
     if pergunta:
