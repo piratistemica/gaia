@@ -359,11 +359,10 @@ class Dreamer:
             seen.add(hit.rel_path)
 
         if day_note:
-            texto = f"{day_note.title} {day_note.body[:2000]}"
-            # Duas buscas, uma depois da outra: a semantica acha sinonimo
+            # Duas buscas por secao do dia: a semantica acha sinonimo
             # ("impulsao" x "vontade"), a lexical acha termo exato que o vetor
             # borra (nome, sigla, titulo). Uma completa a outra.
-            for candidato in self._candidates(texto, limit):
+            for candidato in self._candidates(day_note, limit):
                 if not relevant(candidato.rel_path):
                     continue
                 take(candidato)
@@ -377,21 +376,49 @@ class Dreamer:
                 break
         return hits[:limit]
 
-    def _candidates(self, texto: str, limit: int) -> list[SearchHit]:
+    def _queries(self, day_note: Note, max_queries: int = 3) -> list[str]:
+        """Consultas curtas a partir do dia, em vez do dia inteiro.
+
+        Embutir 2000 caracteres de assunto variado produz um vetor "media de
+        tudo": ele fica perto de qualquer coisa e perto de nada. Uma consulta
+        por secao (Sintese, Decisoes, Conversas) preserva o assunto.
+        """
+        partes: list[str] = []
+        corpo = re.sub(r"(?m)^#\s+.*$", "", day_note.body or "")
+        secoes = re.split(r"(?m)^##\s*", corpo)
+        for bloco in secoes:
+            texto = re.sub(r"\s+", " ", bloco).strip()
+            if len(texto) < 40:
+                continue
+            partes.append(texto[:600])
+        if not partes:
+            partes = [re.sub(r"\s+", " ", (day_note.body or ""))[:600]]
+        return partes[:max_queries]
+
+    def _candidates(self, day_note: Note, limit: int) -> list[SearchHit]:
         """Semantico primeiro, lexical completando - nessa ordem, sem repetir."""
         vistos: set[str] = set()
         saida: list[SearchHit] = []
-        semantico = self.index.semantic_search(
-            texto, limit=limit * 3, min_score=self.cfg.secondbrain.embed_min_score
-        )
-        query = " ".join(keywords(texto))
-        lexical = self.index.search(query, limit=limit * 3) if query else []
-        for hit in list(semantico) + list(lexical):
-            chave = f"{hit.rel_path}#{hit.section}"
-            if chave in vistos:
+        piso = self.cfg.secondbrain.embed_min_score
+        for consulta in self._queries(day_note):
+            for hit in self.index.semantic_search(
+                consulta, limit=limit * 2, min_score=piso
+            ):
+                chave = f"{hit.rel_path}#{hit.section}"
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                saida.append(hit)
+        for consulta in self._queries(day_note):
+            query = " ".join(keywords(consulta))
+            if not query:
                 continue
-            vistos.add(chave)
-            saida.append(hit)
+            for hit in self.index.search(query, limit=limit * 2):
+                chave = f"{hit.rel_path}#{hit.section}"
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                saida.append(hit)
         return saida
 
     def _previous_dreams(self, day: date, limit: int = 2) -> list[Note]:
