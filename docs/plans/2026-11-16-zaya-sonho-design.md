@@ -26,7 +26,11 @@ interpretação em cima da própria memória, e não registro.
 | Dia sonhado | último dia fechado: ontem de madrugada, hoje à noite | `now.date()` cru (sonharia sobre um dia vazio às 3h) |
 | Frequência | 1x/dia via `meta['memory_dreamed:<dia>']` | a cada ciclo ocioso (repetitivo e caro) |
 | Entrega | silencioso, só nota no Second Brain | mandar no Telegram (disputa com quiet hours) |
-| Pasta | `memory.dream_folder`, padrão a mesma da memória | pasta `Sonhos/` (fragmenta o diário) |
+| Pasta | `Sonhos/` (decisão da Talita): interpretação não se mistura com registro | mesma pasta da memória (poluía a busca) |
+| Aviso | uma linha no dia seguinte, às 08:00, sem LLM | silêncio total (ninguém sabia que houve sonho) |
+| Grafo | `links=["Memória <dia>"]` na criação | nota órfã (`links: []`) |
+| Seleção | `keywords()` sem stopwords + `_PER_NOTE = 2` | busca crua (uma nota ocupava 3 vagas) |
+| Catch-up | `_dream_catch_up` na subida, só de manhã | perder o dia se a máquina estava off às 2h |
 | Falha do modelo | nota determinística com dia + antigas | abortar (perderia a noite) |
 | Gatilho | `_memory_loop`, respeitando `_busy`/`_recording`/`_listening` | `_proactive_loop` (teria que fingir ser iniciativa) |
 
@@ -63,6 +67,9 @@ tags: [sonho, memoria, 2026-11-16]
 
 ## Memórias revisitadas
 - **Diário de campo** (`Inbox/Diário de campo.md`): ...
+
+## Relações
+- [[Memória 2026-11-16]]
 ```
 
 ## Configuração
@@ -72,11 +79,14 @@ tags: [sonho, memoria, 2026-11-16]
 dream_enabled = true
 dream_at = "02:00"
 dream_until = "08:00"
-dream_folder = "Memoria"
+dream_folder = "Sonhos"
+dream_notify = true
+dream_notify_at = "08:00"
 ```
 
 Variáveis: `ZAYA_MEMORY_DREAM_ENABLED`, `ZAYA_MEMORY_DREAM_AT`,
-`ZAYA_MEMORY_DREAM_UNTIL`, `ZAYA_MEMORY_DREAM_FOLDER`.
+`ZAYA_MEMORY_DREAM_UNTIL`, `ZAYA_MEMORY_DREAM_FOLDER`,
+`ZAYA_MEMORY_DREAM_NOTIFY`, `ZAYA_MEMORY_DREAM_NOTIFY_AT`.
 
 ### Janela e dia sonhado
 
@@ -89,6 +99,19 @@ tem três horas de vida.
 Ficar fora da janela não perde o sonho: a guarda é `meta['memory_dreamed:<dia>']`,
 então a madrugada seguinte ainda sonha sobre o mesmo dia, com `force` implícito
 não — se já sonhou, não repete.
+
+## Aviso no dia seguinte
+
+`_maybe_dream_report` (no `_memory_loop`) manda uma linha às `dream_notify_at`:
+
+```text
+Sonhei com 15/11: A madrugada costura fios soltos. Ficou a pergunta: O que fica aqui?
+```
+
+Regras: respeita `proactive.quiet_hours`, reserva `meta` antes de falar (TUI e
+Telegram coexistem), `count=False` para não comer o `daily_max` da
+proatividade, e o texto sai da própria nota (`dream_recap`) — sem segunda
+chamada ao modelo. Sem nota ou sem frase/pergunta, não avisa.
 
 ## Comando
 

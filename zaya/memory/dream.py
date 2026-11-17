@@ -33,6 +33,26 @@ _DREAM_PROMPT = (
     "Máximo de 300 palavras.\n\n---\n\n"
 )
 
+# Palavras que aparecem em toda conversa e nao dizem nada sobre ressonancia.
+# Sem esse filtro, "bom dia" no resumo do dia puxava qualquer nota que tivesse
+# um "dia" e o sonho virava sorteio.
+_STOPWORDS = frozenset(
+    """
+    a à ao aos as até com como da das de do dos e é eh ela ele eles em entre era
+    essa esse esta este eu foi há isso isto já lhe mais mas me mesmo meu minha na
+    nas não no nos o os ou para pela pelo por porque que quem se sem ser seu sua
+    são só também te tem ter tu um uma você vocês vou vai dei dia hoje hoje ontem
+    agora bom boa oi olá ok certo aqui ali então ainda muito pouco tudo nada
+    fazer fiz falar falei sobre isso aquilo essa esse tipo coisa gente
+    """.split()
+)
+
+_SHORT_RE = re.compile(r"\w+", flags=re.UNICODE)
+
+# Trechos por nota: o indice e por chunk, entao uma nota longa podia ocupar
+# varias vagas e o sonho revisitava um dia so.
+_PER_NOTE = 2
+
 
 def _strip_dream_heading(text: str) -> str:
     """Remove um "## Sonho" inicial para nao duplicar o titulo da nota."""
@@ -83,6 +103,69 @@ def _excerpt(text: str, limit: int = 600) -> str:
     if len(value) > limit:
         value = value[:limit].rstrip() + "…"
     return value
+
+
+def keywords(text: str, limit: int = 24) -> list[str]:
+    """Tokens que valem uma busca: sem stopword, sem palavra de 1-2 letras."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for token in _SHORT_RE.findall(text or ""):
+        key = token.casefold()
+        if len(key) < 3 or key in _STOPWORDS or key in seen:
+            continue
+        seen.add(key)
+        found.append(token)
+        if len(found) >= limit:
+            break
+    return found
+
+
+def first_sentence(text: str, limit: int = 220) -> str:
+    """Primeira frase de um trecho, para caber num aviso de uma linha."""
+    value = re.sub(r"\s+", " ", text or "").strip()
+    if not value:
+        return ""
+    match = re.match(r"^(.+?[.!?])(?:\s|$)", value)
+    sentence = match.group(1) if match else value
+    return _excerpt(sentence, limit)
+
+
+def _section(body: str, title: str) -> str:
+    """Conteudo de uma secao ``## <title>`` ate a proxima secao."""
+    pattern = re.compile(
+        rf"^#{{1,3}}\s*{re.escape(title)}\s*$(.*?)(?=^#{{1,3}}\s|\Z)",
+        re.IGNORECASE | re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(body or "")
+    return match.group(1).strip() if match else ""
+
+
+def dream_recap(day: date, note: Note) -> str:
+    """Aviso de uma linha sobre o sonho, para o dia seguinte.
+
+    Usa o proprio texto do sonho: a primeira frase do paragrafo onirico e a
+    pergunta que ficou. Nada de segunda chamada ao modelo: o aviso e barato e
+    nunca inventa.
+    """
+    body = note.body or ""
+    onirico = body.split("\n## ", 1)[0]
+    onirico = re.sub(r"^#\s+.*$", "", onirico, count=1, flags=re.MULTILINE)
+    frase = first_sentence(onirico, 200)
+    pergunta = first_sentence(_section(body, "Pergunta para amanhã"), 160)
+    if not frase and not pergunta:
+        return ""
+    partes = [f"Sonhei com {day.strftime('%d/%m')}"]
+    if frase:
+        partes.append(f": {frase.rstrip('.')}.")
+    else:
+        partes.append(".")
+    if pergunta:
+        partes.append(f" Ficou a pergunta: {pergunta}")
+    aviso = "".join(partes).strip()
+    # Um aviso curto: o resto esta na nota.
+    if len(aviso) > 380:
+        aviso = aviso[:377].rstrip() + "…"
+    return aviso
 
 
 def _fallback_dream(day: date, day_note: Note | None, old: list[SearchHit]) -> str:
@@ -190,28 +273,44 @@ class Dreamer:
     def _old_memories(
         self, day: date, day_note: Note | None, limit: int = 5
     ) -> list[SearchHit]:
+        """Memorias antigas que ressoam com o dia, sem repetir nota.
+
+        A busca do indice e por chunk e um OR de tokens: sem estes limites, as
+        notas de memoria diaria (longas e recentes) ocupavam as cinco vagas e o
+        sonho so conversava com a semana passada. Entao: no maximo
+        ``_PER_NOTE`` trechos por nota, e fora sonhos, a nota do dia e a propria
+        nota que esta sendo escrita.
+        """
         day_rel = day_note.rel_path if day_note else None
         dream_prefix = f"{self.cfg.memory.dream_folder}/Sonho "
         hits: list[SearchHit] = []
         seen: set[str] = set()
+        per_note: dict[str, int] = {}
+        self_rel = f"{self.cfg.memory.dream_folder}/Sonho {day.isoformat()}.md"
 
         def relevant(rel_path: str) -> bool:
-            if rel_path == day_rel or rel_path.startswith(dream_prefix):
+            if rel_path in {day_rel, self_rel} or rel_path.startswith(dream_prefix):
                 return False
-            return rel_path not in seen
+            return per_note.get(rel_path, 0) < _PER_NOTE
+
+        def take(hit: SearchHit) -> None:
+            per_note[hit.rel_path] = per_note.get(hit.rel_path, 0) + 1
+            hits.append(hit)
+            seen.add(hit.rel_path)
 
         if day_note:
-            query = f"{day_note.title} {day_note.body[:2000]}"
-            for hit in self.index.search(query, limit=limit * 2):
-                if not relevant(hit.rel_path):
-                    continue
-                seen.add(hit.rel_path)
-                hits.append(hit)
-        for hit in self.index.recent(limit=limit * 2):
-            if not relevant(hit.rel_path):
+            query = " ".join(keywords(f"{day_note.title} {day_note.body[:2000]}"))
+            if query:
+                for hit in self.index.search(query, limit=limit * 4):
+                    if not relevant(hit.rel_path):
+                        continue
+                    take(hit)
+                    if len(hits) >= limit:
+                        return hits
+        for hit in self.index.recent(limit=limit * 3):
+            if hit.rel_path in seen or not relevant(hit.rel_path):
                 continue
-            seen.add(hit.rel_path)
-            hits.append(hit)
+            take(hit)
             if len(hits) >= limit:
                 break
         return hits[:limit]
@@ -261,6 +360,14 @@ class Dreamer:
         existing = self.brain.resolve(f"{cfg.dream_folder}/{title}")
         if existing:
             return self.brain.update_note(str(existing), body, confirm=True, tags=tags)
+        # Liga o sonho a memoria do dia: o Second Brain e um grafo, nao uma
+        # pasta. Sem o link, a nota do dia nunca "sabe" que sonhou com ela.
+        links = [f"Memória {day.isoformat()}"] if self._day_note(day) else []
         return self.brain.create_note(
-            title, body, folder=cfg.dream_folder, tags=tags, confirm=True
+            title,
+            body,
+            folder=cfg.dream_folder,
+            tags=tags,
+            links=links,
+            confirm=True,
         )

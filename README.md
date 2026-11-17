@@ -216,20 +216,30 @@ fechado. Se o modelo falhar, cai num resumo local determinístico.
 **Sonho:** na janela `memory.dream_at`–`memory.dream_until` (02:00–08:00), se
 a Zaya estiver ociosa, ela sonha. O sonho lê a memória do dia, procura no
 índice as memórias antigas que ressoam com ele e escreve
-`Memoria/Sonho AAAA-MM-DD.md` — parágrafo onírico, **Ecos do dia**,
-**Ressonâncias**, **Pergunta para amanhã** e a lista de memórias revisitadas.
-Acontece uma vez por dia, em silêncio (não fala nada), e só é interrompido pelo
-uso normal da Zaya. De madrugada o sonho é sobre o dia que acabou; à noite (se
-a janela começar antes da meia-noite) é sobre o dia em curso. Se o modelo
-falhar, a nota sai de qualquer forma com a costura determinística do dia com as
-notas antigas.
+`Sonhos/Sonho AAAA-MM-DD.md` — parágrafo onírico, **Ecos do dia**,
+**Ressonâncias**, **Pergunta para amanhã** e a lista de memórias revisitadas
+(no máximo dois trechos por nota, sem repetir sonhos nem a memória do dia).
+A nota já nasce ligada à memória do dia (`[[Memória AAAA-MM-DD]]`).
+
+Os sonhos ficam em pasta própria, separada do diário consolidado, para que
+`/buscar` não misture sonho com registro. De madrugada o sonho é sobre o dia
+que acabou; à noite (se a janela começar antes da meia-noite) é sobre o dia em
+curso. Se o modelo falhar, a nota sai de qualquer forma com a costura
+determinística do dia com as notas antigas.
+
+**No dia seguinte** a Zaya avisa, em uma linha, com o que sonhou e a pergunta
+que ficou — sem segunda chamada ao modelo, fora das quiet hours, uma vez por
+dia. O aviso sai pelo canal em uso (TUI ou Telegram) e não conta como
+iniciativa proativa.
 
 ```toml
 [memory]
 dream_enabled = true
-dream_at = "02:00"       # início da janela noturna (pode virar a meia-noite)
-dream_until = "08:00"    # fim da janela
-dream_folder = "Memoria" # pasta do sonho (padrão: a mesma da memória diária)
+dream_at = "02:00"        # início da janela noturna (pode virar a meia-noite)
+dream_until = "08:00"     # fim da janela
+dream_folder = "Sonhos"   # pasta própria, fora do diário consolidado
+dream_notify = true       # avisa no dia seguinte
+dream_notify_at = "08:00" # depois disso o aviso pode sair
 ```
 
 Para sonhar na hora — sobre hoje, ontem ou um dia específico:
@@ -247,6 +257,7 @@ Determinísticas, sem custo de token:
 | Rotina | Quando | O que faz |
 |---|---|---|
 | Briefing da manhã | 08:00 | tarefas do dia, sem as rotinas |
+| Aviso do sonho | 08:00 (até o meio-dia) | o sonho da noite, em uma linha |
 | Resumo do meio-dia | 12:00 (até 18:00) | feito, pendente, rotina matinal |
 | Carteira | seg/qua/sex | cotações do que está na carteira |
 | Vagas | segunda 09:00 | busca, filtra, deduplica, pontua e envia |
@@ -271,6 +282,8 @@ use_llm = true
 dream_enabled = true
 dream_at = "02:00"
 dream_until = "08:00"
+dream_notify = true
+dream_notify_at = "08:00"
 ```
 
 O método da rotina de vagas (fontes, filtros, rubrica de score) vive em

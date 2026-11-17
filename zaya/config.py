@@ -205,7 +205,12 @@ class MemoryConfig(BaseModel):
     dream_at: str = "02:00"
     # Fim da janela do sonho (a janela pode virar a meia-noite).
     dream_until: str = "08:00"
-    dream_folder: str = "Memoria"
+    # Os sonhos ficam em pasta propria, separada do diario consolidado.
+    dream_folder: str = "Sonhos"
+    # Aviso no dia seguinte: uma linha sobre o sonho, sem segunda chamada ao
+    # modelo. Vai pelo canal em uso (TUI ou Telegram), fora das quiet hours.
+    dream_notify: bool = True
+    dream_notify_at: str = "08:00"
     max_turns: int = 120
     max_chars: int = 16000
     llm_timeout_seconds: float = 90.0
@@ -546,6 +551,8 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_MEMORY_DREAM_AT": ("memory", "dream_at"),
     "ZAYA_MEMORY_DREAM_ENABLED": ("memory", "dream_enabled"),
     "ZAYA_MEMORY_DREAM_FOLDER": ("memory", "dream_folder"),
+    "ZAYA_MEMORY_DREAM_NOTIFY": ("memory", "dream_notify"),
+    "ZAYA_MEMORY_DREAM_NOTIFY_AT": ("memory", "dream_notify_at"),
     "ZAYA_MEMORY_DREAM_UNTIL": ("memory", "dream_until"),
     "ZAYA_MEMORY_ENABLED": ("memory", "enabled"),
     "ZAYA_MEMORY_FOLDER": ("memory", "folder"),
@@ -884,7 +891,9 @@ folder = "Memoria"
 dream_enabled = true
 dream_at = "02:00"          # janela noturna: pode virar a meia-noite
 dream_until = "08:00"
-dream_folder = "Memoria"
+dream_folder = "Sonhos"     # pasta propria, fora do diario consolidado
+dream_notify = true         # avisa no dia seguinte (uma linha)
+dream_notify_at = "08:00"
 
 [briefing]
 # Bom dia, meio-dia e fecho da noite no Telegram, direto da Agenda.

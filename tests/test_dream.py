@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,12 +11,14 @@ from zaya.config import Config, SecondBrainConfig
 from zaya.memory.dream import (
     Dreamer,
     compose_dream_note,
+    dream_recap,
     dream_target_day,
     in_dream_window,
+    keywords,
 )
 from zaya.memory.store import MemoryStore
 from zaya.secondbrain.index import SecondBrainIndex
-from zaya.secondbrain.notes import SecondBrain
+from zaya.secondbrain.notes import Note, SecondBrain
 
 
 class _FakeClient:
@@ -86,10 +89,12 @@ async def test_dream_escreve_nota_e_nao_repete(sonho):
     caminho = await dreamer.dream(dia)
 
     assert caminho is not None
-    assert caminho.startswith("Memoria/Sonho ")
+    assert caminho.startswith("Sonhos/Sonho ")
     nota = brain.read_note(caminho)
     assert "sonho" in nota.tags
     assert "## Sonho da noite" in nota.body
+    # O sonho precisa voltar para a memoria do dia: pasta sozinha nao e grafo.
+    assert f"Memória {dia.isoformat()}" in nota.links
     assert store.get_meta(f"memory_dreamed:{dia.isoformat()}") == caminho
     assert await dreamer.dream(dia) is None
 
@@ -214,3 +219,95 @@ def test_horario_invalido_nao_quebra():
 )
 def test_dia_alvo_do_sonho(hora, dia_esperado):
     assert dream_target_day(datetime(2026, 11, 16, *hora)) == dia_esperado
+
+
+def test_keywords_descarta_stopwords_e_palavras_curtas():
+    assert keywords("bom dia, ok! falei de parentesco no mestrado") == [
+        "parentesco",
+        "mestrado",
+    ]
+
+
+def test_keywords_limita_a_quantidade():
+    texto = " ".join(f"palavra{i}" for i in range(40))
+    assert len(keywords(texto, limit=5)) == 5
+
+
+async def test_dream_nao_repete_nota_antiga(sonho):
+    """A busca e por chunk: sem limite, uma nota longa ocupava varias vagas."""
+    cfg, store, brain, index, proj = sonho
+    dia = date.today()
+    _criar_memoria_dia(brain, dia)
+    for titulo in ("Diário de campo", "Nota sobre Lévi-Strauss", "Ensaio etnicidade"):
+        brain.create_note(
+            titulo,
+            "parentesco memoria etnicidade alteridade parentesco memoria "
+            "etnicidade alteridade parentesco memoria etnicidade",
+            folder="Inbox",
+            confirm=True,
+        )
+
+    dreamer = Dreamer(cfg, store, brain, index, _FakeClient(), proj)
+    day_note = dreamer._day_note(dia)
+    antigas = dreamer._old_memories(dia, day_note)
+
+    por_nota: dict[str, int] = {}
+    for hit in antigas:
+        por_nota[hit.rel_path] = por_nota.get(hit.rel_path, 0) + 1
+    assert max(por_nota.values()) <= 2
+    assert len(por_nota) >= 2, antigas
+
+
+async def test_dream_ignora_sonhos_anteriores_e_a_si_mesmo(sonho):
+    cfg, store, brain, index, proj = sonho
+    dia = date.today()
+    _criar_memoria_dia(brain, dia)
+    brain.create_note(
+        "Sonho " + (dia.replace(day=1)).isoformat(),
+        "parentesco memoria noite anterior",
+        folder="Sonhos",
+        confirm=True,
+    )
+
+    dreamer = Dreamer(cfg, store, brain, index, _FakeClient(), proj)
+    antigas = dreamer._old_memories(dia, dreamer._day_note(dia))
+
+    assert all("Sonho " not in hit.rel_path for hit in antigas)
+    assert all(not hit.rel_path.startswith("Sonhos/") for hit in antigas)
+
+
+def test_dream_recap_usa_frase_e_pergunta():
+    nota = Note(
+        path=Path("/tmp/x.md"),
+        rel_path="Sonhos/Sonho 2026-11-15.md",
+        title="Sonho 2026-11-15",
+        meta={},
+        body=(
+            "# Sonho 2026-11-15\n\n"
+            "A madrugada costura fios soltos. Havia um teclado quebrado.\n\n"
+            "## Ecos do dia\necos\n\n"
+            "## Ressonâncias\nressonancias\n\n"
+            "## Pergunta para amanhã\nO que fica aqui? Talvez nada.\n"
+        ),
+        tags=["sonho"],
+        links=[],
+    )
+    aviso = dream_recap(date(2026, 11, 15), nota)
+    assert aviso.startswith("Sonhei com 15/11")
+    assert "A madrugada costura fios soltos." in aviso
+    assert "Ficou a pergunta: O que fica aqui?" in aviso
+    assert "Ressonâncias" not in aviso
+    assert len(aviso) <= 381
+
+
+def test_dream_recap_sem_secoes_nao_quebra():
+    nota = Note(
+        path=Path("/tmp/x.md"),
+        rel_path="Sonhos/x.md",
+        title="x",
+        meta={},
+        body="# x\n",
+        tags=[],
+        links=[],
+    )
+    assert dream_recap(date(2026, 11, 15), nota) == ""

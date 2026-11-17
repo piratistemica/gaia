@@ -1172,3 +1172,42 @@ perdida (máquina desligada) não perde o sonho: a próxima ainda sonha sobre o
 mesmo dia fechado. O teste de regressão vive em `tests/test_dream.py`
 (`test_janela_de_sonho_padrao`, `test_janela_de_sonho_que_vira_a_meia_noite`,
 `test_dia_alvo_do_sonho`).
+
+### 16.7 Segunda rodada: pasta própria, grafo e aviso
+
+Quatro ajustes depois de olhar a primeira versão rodando no mini:
+
+- **`dream_folder` mudou de `Memoria` para `Sonhos`.** O diário consolidado é
+  registro; o sonho é interpretação. Na mesma pasta, `/buscar` misturava os
+  dois e o fecho da noite podia tratar sonho como nota do dia.
+- **A nota do sonho nasce ligada à memória do dia** (`links=["Memória <dia>"]`).
+  Antes ficava `links: []`: a pasta do Second Brain funcionava como pasta, não
+  como grafo, e nada ligava o sonho ao dia que o gerou.
+- **A seleção deixou de repetir nota.** `_old_memories` agora usa
+  `keywords()` (sem stopwords, sem token de 1-2 letras) e `_PER_NOTE = 2`.
+  Medido no mini antes da correção: uma busca de quatro palavras devolvia
+  `Memória 2026-11-12` três vezes, e as cinco vagas ficavam nos últimos dias.
+  Sonhos anteriores e a própria nota do dia ficam fora por `rel_path`.
+- **Catch-up:** `_dream_catch_up` roda na subida, como
+  `_consolidate_previous_day`. Se a máquina estava desligada às 2h, o dia não
+  se perde — mas só de manhã (antes do meio-dia): escrever madrugada no meio da
+  tarde não é sonho, é invenção.
+
+### 16.8 Aviso no dia seguinte
+
+`_maybe_dream_report` fecha a lacuna do "sonhou e ninguém soube". Regras:
+
+| Regra | Por quê |
+|---|---|
+| `dream_notify` + `dream_notify_at` (08:00) | desligável, e nunca antes do horário |
+| respeita `proactive.quiet_hours` | um reboot às 3h não acorda ninguém; o aviso espera |
+| `claim_meta('memory_dream_reported:<dia>')` | TUI e serviço do Telegram podem coexistir |
+| `_say_proactive(aviso, count=False)` | sai no canal em uso, sem comer o `daily_max` |
+| texto vem da própria nota (`dream_recap`) | nenhuma segunda chamada ao modelo |
+
+`dream_recap` usa a primeira frase do parágrafo onírico e a seção **Pergunta
+para amanhã**, com teto de 380 caracteres. Se a nota não tiver nenhum dos dois,
+não avisa — melhor silêncio do que mensagem vazia.
+
+O aviso é sobre o **dia anterior** (`dream_target_day`), porque é ele que a
+noite passada sonhou. `/sonhar <dia>` imprime o mesmo resumo na hora.

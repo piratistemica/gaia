@@ -169,6 +169,14 @@ class OrchestratorContract(ABC):
         ...
 
     @abstractmethod
+    async def _maybe_dream_report(self, now: datetime) -> None:
+        ...
+
+    @abstractmethod
+    async def _dream_catch_up(self) -> None:
+        ...
+
+    @abstractmethod
     async def _handle_consolidate(self, argument: str) -> None:
         ...
 

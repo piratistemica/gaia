@@ -1132,3 +1132,103 @@ async def test_speak_nao_toca_audio_local_no_canal_telegram(orch):
     await orch._speak("Combinado. Vou te lembrar.")
 
     assert orch.tts.spoken == []
+
+
+@pytest.mark.asyncio
+async def test_aviso_do_sonho_sai_uma_vez_no_dia_seguinte(orch, monkeypatch):
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_notify = True
+    orch.cfg.memory.dream_notify_at = "08:00"
+    orch.cfg.proactive.quiet_hours = "23:00-08:00"
+    ontem = datetime.now().astimezone().date() - timedelta(days=1)
+    orch.store.set_meta(f"memory_dreamed:{ontem.isoformat()}", "Sonhos/Sonho x.md")
+    nota = types.SimpleNamespace(
+        rel_path="Sonhos/Sonho x.md",
+        title="Sonho " + ontem.isoformat(),
+        body=(
+            "A madrugada costura fios soltos.\n\n"
+            "## Pergunta para amanhã\nO que fica?"
+        ),
+        tags=["sonho"],
+        links=[],
+    )
+    orch.brain = types.SimpleNamespace(read_note=lambda name: nota)
+    enviados: list[str] = []
+
+    async def fake_say(text, count=True):
+        enviados.append(text)
+
+    monkeypatch.setattr(orch, "_say_proactive", fake_say)
+
+    cedo = datetime.now().astimezone().replace(hour=7, minute=0)
+    await orch._maybe_dream_report(cedo)
+    assert enviados == []
+
+    manha = datetime.now().astimezone().replace(hour=8, minute=30)
+    await orch._maybe_dream_report(manha)
+    assert len(enviados) == 1
+    assert "Sonhei com" in enviados[0]
+
+    # Segunda passada no mesmo dia: nao repete.
+    await orch._maybe_dream_report(manha.replace(hour=10))
+    assert len(enviados) == 1
+
+
+@pytest.mark.asyncio
+async def test_aviso_do_sonho_espera_as_quiet_hours(orch, monkeypatch):
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_notify = True
+    orch.cfg.memory.dream_notify_at = "02:00"
+    orch.cfg.proactive.quiet_hours = "23:00-08:00"
+    ontem = datetime.now().astimezone().date() - timedelta(days=1)
+    orch.store.set_meta(f"memory_dreamed:{ontem.isoformat()}", "Sonhos/Sonho x.md")
+    enviados: list[str] = []
+    monkeypatch.setattr(
+        orch, "_say_proactive", lambda text, count=True: enviados.append(text)
+    )
+
+    madrugada = datetime.now().astimezone().replace(hour=3, minute=0)
+    await orch._maybe_dream_report(madrugada)
+    assert enviados == []
+
+
+@pytest.mark.asyncio
+async def test_aviso_sem_sonho_nao_fala(orch, monkeypatch):
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_notify = True
+    enviados: list[str] = []
+    monkeypatch.setattr(
+        orch, "_say_proactive", lambda text, count=True: enviados.append(text)
+    )
+
+    await orch._maybe_dream_report(datetime.now().astimezone().replace(hour=9, minute=0))
+    assert enviados == []
+
+
+@pytest.mark.asyncio
+async def test_catch_up_sonha_so_de_manha(orch, monkeypatch):
+    orch.cfg.memory.dream_enabled = True
+    chamadas: list = []
+
+    async def fake_consolidar(day=None, *, force=False, timeout_seconds=None):
+        return None
+
+    async def fake_sonhar(day=None, *, force=False, timeout_seconds=None):
+        chamadas.append(day)
+        return None
+
+    monkeypatch.setattr(orch, "consolidate_day", fake_consolidar)
+    monkeypatch.setattr(orch, "dream_day", fake_sonhar)
+
+    agora = datetime.now().astimezone()
+    if agora.hour < 12:
+        # De manha: o sonho da noite passada e recuperado.
+        await orch._dream_catch_up()
+        ontem = agora.date() - timedelta(days=1)
+        assert chamadas == [ontem]
+
+    # Depois do meio-dia nao se escreve madrugada no meio da tarde.
+    tarde = agora.replace(hour=15, minute=0)
+    await orch._dream_catch_up()
+    if tarde.date() == agora.date() and agora.hour >= 12:
+        assert chamadas == []

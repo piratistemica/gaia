@@ -6,8 +6,9 @@ import asyncio
 from datetime import date, datetime, timedelta
 
 from zaya.controller.contract import OrchestratorContract
+from zaya.controller.proactive import in_quiet_hours
 from zaya.memory.consolidation import DailyMemory, parse_day
-from zaya.memory.dream import Dreamer, dream_target_day, in_dream_window
+from zaya.memory.dream import Dreamer, dream_recap, dream_target_day, in_dream_window
 
 
 class MemoryMixin(OrchestratorContract):
@@ -90,6 +91,68 @@ class MemoryMixin(OrchestratorContract):
         await self.consolidate_day(day)
         await self.dream_day(day)
 
+    async def _maybe_dream_report(self, now: datetime) -> None:
+        """Avisa sobre o sonho da noite passada, uma vez, no dia seguinte.
+
+        Sai pelo canal em uso (TUI fala, Telegram manda no chat) e nao conta
+        como iniciativa: ``count=False`` mantem o ``daily_max`` da proatividade
+        intacto, senao o sonho roubaria um dos avisos do dia. Respeita as quiet
+        hours, entao um reboot as 3h nao acorda ninguem; o aviso espera.
+        """
+        cfg = self.cfg.memory
+        if not cfg.enabled or not cfg.dream_enabled or not cfg.dream_notify:
+            return
+        if now.strftime("%H:%M") < cfg.dream_notify_at:
+            return
+        if in_quiet_hours(now, self.cfg.proactive.quiet_hours):
+            return
+        day = dream_target_day(now)
+        path = self.store.get_meta(f"memory_dreamed:{day.isoformat()}")
+        if not path:
+            return
+        key = f"memory_dream_reported:{day.isoformat()}"
+        # Reserva antes de falar: TUI e servico do Telegram podem coexistir.
+        if not self.store.claim_meta(key, "sending"):
+            return
+        try:
+            note = await asyncio.to_thread(self.brain.read_note, str(path))
+            aviso = dream_recap(day, note)
+        except Exception as exc:
+            self.logger.warning("sonho: nao consegui ler a nota para avisar: %s", exc)
+            self.store.delete_meta(key)
+            return
+        if not aviso:
+            self.store.delete_meta(key)
+            return
+        try:
+            await self._say_proactive(aviso, count=False)  # type: ignore[attr-defined]
+        except Exception as exc:  # pragma: no cover - depende da interface
+            self.logger.warning("sonho: falha ao avisar: %s", exc)
+            self.store.delete_meta(key)
+            return
+        self.store.set_meta(key, now.isoformat(timespec="seconds"))
+
+    async def _dream_catch_up(self) -> None:
+        """Sonha o dia que ficou sem sonho se a Zaya estava desligada as 2h.
+
+        So vale de manha (antes do meio-dia): depois disso, sonhar com a noite
+        que passou seria escrever a madrugada no meio da tarde. Dentro da janela
+        normal o laco cuida sozinho, entao aqui nao se faz nada.
+        """
+        cfg = self.cfg.memory
+        if not cfg.enabled or not cfg.dream_enabled:
+            return
+        now = datetime.now().astimezone()
+        if now.hour >= 12:
+            return
+        if in_dream_window(now, cfg.dream_at, cfg.dream_until):
+            return
+        day = dream_target_day(now)
+        if self.store.get_meta(f"memory_dreamed:{day.isoformat()}"):
+            return
+        await self.consolidate_day(day)
+        await self.dream_day(day)
+
     async def _consolidate_previous_day(self) -> None:
         """Recupera o dia anterior se a Zaya nao estava aberta na hora certa."""
         if not self.cfg.memory.enabled:
@@ -113,6 +176,10 @@ class MemoryMixin(OrchestratorContract):
             await self._consolidate_previous_day()
         except Exception as exc:  # pragma: no cover - depende do provedor
             self.logger.warning("consolidação do dia anterior falhou: %s", exc)
+        try:
+            await self._dream_catch_up()
+        except Exception as exc:  # pragma: no cover - depende do provedor
+            self.logger.warning("sonho atrasado falhou: %s", exc)
         while True:
             await asyncio.sleep(60.0)
             if not self.cfg.memory.enabled:
@@ -123,6 +190,7 @@ class MemoryMixin(OrchestratorContract):
                 now = datetime.now().astimezone()
                 await self._maybe_consolidate(now)
                 await self._maybe_dream(now)
+                await self._maybe_dream_report(now)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # pragma: no cover - depende do provedor
@@ -156,5 +224,12 @@ class MemoryMixin(OrchestratorContract):
             return
         if path:
             self.ui.success(f"sonho salvo em {path}")
+            try:
+                note = self.brain.read_note(path)
+                aviso = dream_recap(day, note)
+            except Exception:
+                aviso = ""
+            if aviso:
+                self.ui.print_markdown(aviso, "Sonho")
         else:
             self.ui.info("nada para sonhar (ou já sonhado)")

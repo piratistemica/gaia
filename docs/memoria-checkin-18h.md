@@ -892,3 +892,22 @@ Consequências para o desenho deste documento:
 - **`record_note(kind='dream')` não entra em `records` do briefing.** O fecho da
   noite lista `kind='memory'`; o sonho fica fora da lista de tarefas e de notas
   do dia, e aparece quando a busca o encontra.
+
+### Aviso do sonho (08:00)
+
+O sonho em si continua mudo, mas no dia seguinte ele aparece. Às 08:00 (config
+`memory.dream_notify_at`) a Zaya manda uma linha com o que sonhou e a pergunta
+que ficou, pelo canal em uso.
+
+Para este documento, o que importa:
+
+- **Não disputa a revisão.** `_maybe_dream_report` vive no `_memory_loop` e usa
+  `_say_proactive(..., count=False)`: não entra no `daily_max` nem em
+  `_last_proactive`, então não rouba a resposta da revisão do dia seguinte.
+- **Respeita as quiet hours** (`proactive.quiet_hours`), diferente do sonho, que
+  roda dentro delas de propósito. Um restart às 3h não acorda ninguém: o aviso
+  sai quando as quiet hours terminam.
+- **Uma vez por dia**, com reserva atômica (`claim_meta`), porque TUI e serviço
+  do Telegram podem estar abertos juntos.
+- **Sem modelo.** O texto vem da nota já escrita: primeira frase do parágrafo
+  onírico + **Pergunta para amanhã**. Custo zero de token.
