@@ -360,18 +360,13 @@ class Dreamer:
 
         if day_note:
             texto = f"{day_note.title} {day_note.body[:2000]}"
-            # Com embeddings, "impulsao" encontra "vontade" de um mes atras;
-            # sem eles, cai na busca lexical de sempre (nenhuma regressao).
-            candidatos = self.index.semantic_search(
-                texto, limit=limit * 4, min_score=self.cfg.secondbrain.embed_min_score
-            )
-            if not candidatos:
-                query = " ".join(keywords(texto))
-                candidatos = self.index.search(query, limit=limit * 4) if query else []
-            for hit in candidatos:
-                if not relevant(hit.rel_path):
+            # Duas buscas, uma depois da outra: a semantica acha sinonimo
+            # ("impulsao" x "vontade"), a lexical acha termo exato que o vetor
+            # borra (nome, sigla, titulo). Uma completa a outra.
+            for candidato in self._candidates(texto, limit):
+                if not relevant(candidato.rel_path):
                     continue
-                take(hit)
+                take(candidato)
                 if len(hits) >= limit:
                     return hits
         for hit in self.index.recent(limit=limit * 3):
@@ -381,6 +376,23 @@ class Dreamer:
             if len(hits) >= limit:
                 break
         return hits[:limit]
+
+    def _candidates(self, texto: str, limit: int) -> list[SearchHit]:
+        """Semantico primeiro, lexical completando - nessa ordem, sem repetir."""
+        vistos: set[str] = set()
+        saida: list[SearchHit] = []
+        semantico = self.index.semantic_search(
+            texto, limit=limit * 3, min_score=self.cfg.secondbrain.embed_min_score
+        )
+        query = " ".join(keywords(texto))
+        lexical = self.index.search(query, limit=limit * 3) if query else []
+        for hit in list(semantico) + list(lexical):
+            chave = f"{hit.rel_path}#{hit.section}"
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            saida.append(hit)
+        return saida
 
     def _previous_dreams(self, day: date, limit: int = 2) -> list[Note]:
         """Sonhos das noites anteriores: a continuidade que faltava.

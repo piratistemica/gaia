@@ -617,7 +617,7 @@ def test_limiar_de_ressonancia_vem_da_config(tmp_path):
         config_path=tmp_path / "missing.toml",
         env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
     )
-    assert cfg.secondbrain.embed_min_score == 0.5
+    assert cfg.secondbrain.embed_min_score == 0.35
 
     raiz = tmp_path / "brain"
     (raiz / "Inbox").mkdir(parents=True)
@@ -627,6 +627,6 @@ def test_limiar_de_ressonancia_vem_da_config(tmp_path):
     index = SecondBrainIndex(sb_cfg, tmp_path / "sb.db", embedder=_Raso())
     try:
         index.index_note(nota)
-        assert index.semantic_search("outra coisa", min_score=0.5) == []
+        assert index.semantic_search("outra coisa", min_score=0.35) == []
     finally:
         index.close()

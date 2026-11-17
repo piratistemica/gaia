@@ -155,9 +155,10 @@ class SecondBrainConfig(BaseModel):
     embed_base_url: str = "https://api.openai.com/v1"
     # A chave vai no .env como ZAYA_SB_EMBED_API_KEY, nunca no TOML.
     embed_api_key: str = ""
-    # Cosseno minimo para considerar que "ressoa". Medido com bge-m3:
-    # frases sem relacao ficam ~0.45, entao 0.5 e o piso honesto.
-    embed_min_score: float = 0.5
+    # Cosseno minimo para considerar que "ressoa". Depende do modelo: medido
+    # com paraphrase-multilingual no mini, relacionado ~0.40-0.60 e sem
+    # relacao ~0.08-0.37. Ajuste se trocar de modelo de embedding.
+    embed_min_score: float = 0.35
     # CPU (mini PC) demora: lote pequeno e timeout folgado evitam timeouts.
     embed_batch_size: int = 8
     embed_timeout: float = 120.0
