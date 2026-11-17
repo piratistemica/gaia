@@ -75,6 +75,9 @@ class TelegramService:
         # Sem isso o servico responde mas nunca dispara lembrete nem aviso de
         # agenda: o laco proativo so existia no caminho da TUI.
         self.orchestrator.start_proactive()
+        # Consolidacao das 23:00 e sonho das 02:00 tambem precisam subir sem
+        # mensagem: headless, ninguem fala com ela de madrugada.
+        self.orchestrator.start_memory()
         offset: int | None = None
         backoff = 2.0
         while True:

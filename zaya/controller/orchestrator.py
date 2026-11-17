@@ -213,6 +213,15 @@ class Orchestrator(
         """Liga o briefing sem depender do bootstrap do agente."""
         self._start_briefing_worker()
 
+    def start_memory(self) -> None:
+        """Liga consolidacao e sonho sem depender de uma mensagem recebida.
+
+        No servico do Telegram os workers so subiam no primeiro ``answer_once``:
+        um mini reiniciado a noite ficava sem consolidar as 23:00 e sem sonhar
+        as 02:00 ate alguem falar com a Zaya.
+        """
+        self._start_memory_worker()
+
     def start_career(self) -> None:
         """Liga a rotina de vagas sem depender do bootstrap do agente."""
         self._start_career_worker()

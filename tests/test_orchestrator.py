@@ -1267,3 +1267,17 @@ async def test_sonhar_na_mao_nao_repete_o_aviso_no_chat(orch, monkeypatch):
 
     await orch._maybe_dream_report(datetime.now().astimezone().replace(hour=9, minute=0))
     assert enviados == []
+
+
+@pytest.mark.asyncio
+async def test_start_memory_liga_o_worker(orch):
+    chamadas: list[bool] = []
+    orch.cfg.memory.enabled = True
+    orch._memory_task = None
+    original = orch._start_memory_worker
+    orch._start_memory_worker = lambda: chamadas.append(True)  # type: ignore[method-assign]
+    try:
+        orch.start_memory()
+    finally:
+        orch._start_memory_worker = original  # type: ignore[method-assign]
+    assert chamadas == [True]
