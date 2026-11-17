@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import date, datetime, timedelta
 
 from zaya.controller.contract import OrchestratorContract
@@ -111,9 +112,14 @@ class MemoryMixin(OrchestratorContract):
         if not path:
             return
         key = f"memory_dream_reported:{day.isoformat()}"
+        # Se o envio falhar, nao adianta tentar a cada 60s: espera o mesmo
+        # espaco do briefing entre tentativas.
+        if time.monotonic() - self._dream_report_last_attempt < cfg.retry_minutes * 60:
+            return
         # Reserva antes de falar: TUI e servico do Telegram podem coexistir.
         if not self.store.claim_meta(key, "sending"):
             return
+        self._dream_report_last_attempt = time.monotonic()
         try:
             note = await asyncio.to_thread(self.brain.read_note, str(path))
             aviso = dream_recap(day, note)

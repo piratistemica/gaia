@@ -211,6 +211,8 @@ class MemoryConfig(BaseModel):
     # modelo. Vai pelo canal em uso (TUI ou Telegram), fora das quiet hours.
     dream_notify: bool = True
     dream_notify_at: str = "08:00"
+    # Espaco entre tentativas quando o aviso do sonho nao consegue sair.
+    retry_minutes: float = 10.0
     max_turns: int = 120
     max_chars: int = 16000
     llm_timeout_seconds: float = 90.0
@@ -344,9 +346,15 @@ class TelegramConfig(BaseModel):
     # Responder também com áudio (gera mp3 local e envia como áudio).
     voice_replies: bool = False
     # O Telegram não tem terminal interativo para aprovar ferramentas. Com
-    # isto ligado, write/edit/bash são aprovados automaticamente (exige
-    # allowed_chat_id fixado). Desligado, essas ferramentas são negadas.
+    # isto ligado, as ferramentas que pedem confirmação são aprovadas
+    # automaticamente (exige allowed_chat_id fixado). Desligado, toda
+    # ferramenta que pede confirmação é negada.
     auto_approve: bool = False
+    # Shell e escrita de arquivo pelo chat remoto: opt-in explícito, e só vale
+    # junto de auto_approve + allowed_chat_id. Desligado (padrão) o bot acessa
+    # a Agenda pelas ferramentas agenda_* e não consegue rodar comando na
+    # máquina.
+    shell_access: bool = False
 
 
 class Config(BaseModel):
@@ -557,6 +565,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_MEMORY_ENABLED": ("memory", "enabled"),
     "ZAYA_MEMORY_FOLDER": ("memory", "folder"),
     "ZAYA_MEMORY_ON_EXIT": ("memory", "on_exit"),
+    "ZAYA_MEMORY_RETRY_MINUTES": ("memory", "retry_minutes"),
     "ZAYA_MEMORY_USE_LLM": ("memory", "use_llm"),
     "ZAYA_BRIEFING_ENABLED": ("briefing", "enabled"),
     "ZAYA_BRIEFING_MORNING_AT": ("briefing", "morning_at"),
@@ -608,6 +617,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_TELEGRAM_BOT_TOKEN": ("telegram", "bot_token"),
     "ZAYA_TELEGRAM_ENABLED": ("telegram", "enabled"),
     "ZAYA_TELEGRAM_POLL_TIMEOUT": ("telegram", "poll_timeout"),
+    "ZAYA_TELEGRAM_SHELL_ACCESS": ("telegram", "shell_access"),
     "ZAYA_TELEGRAM_VOICE_REPLIES": ("telegram", "voice_replies"),
     "ZAYA_TTS_VOICE": ("tts", "edge_voice"),
     "ZAYA_TTS_ENABLED": ("tts", "enabled"),
@@ -877,7 +887,8 @@ allowed_chat_id = ""
 api_base_url = "https://api.telegram.org"
 poll_timeout = 25
 voice_replies = false
-auto_approve = false      # true = aprova write/edit/bash no chat autorizado
+auto_approve = false      # true = aprova as ferramentas no chat autorizado
+shell_access = false      # true = libera write/edit/bash no chat (evite)
 # bot_token vai apenas no .env/ambiente.
 
 [memory]
@@ -894,6 +905,7 @@ dream_until = "08:00"
 dream_folder = "Sonhos"     # pasta propria, fora do diario consolidado
 dream_notify = true         # avisa no dia seguinte (uma linha)
 dream_notify_at = "08:00"
+retry_minutes = 10.0        # espaco entre tentativas se o aviso falhar
 
 [briefing]
 # Bom dia, meio-dia e fecho da noite no Telegram, direto da Agenda.

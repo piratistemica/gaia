@@ -120,6 +120,7 @@ class Orchestrator(
         self._briefing_task: asyncio.Task[None] | None = None
         self._briefing_last_attempt = 0.0
         self._market_last_attempt = 0.0
+        self._dream_report_last_attempt = 0.0
         self._career_task: asyncio.Task[None] | None = None
         self._career_last_attempt = 0.0
         self._proactive_count = 0

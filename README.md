@@ -240,6 +240,7 @@ dream_until = "08:00"     # fim da janela
 dream_folder = "Sonhos"   # pasta própria, fora do diário consolidado
 dream_notify = true       # avisa no dia seguinte
 dream_notify_at = "08:00" # depois disso o aviso pode sair
+retry_minutes = 10.0      # espera entre tentativas se o envio falhar
 ```
 
 Para sonhar na hora — sobre hoje, ontem ou um dia específico:

@@ -1281,3 +1281,37 @@ async def test_start_memory_liga_o_worker(orch):
     finally:
         orch._start_memory_worker = original  # type: ignore[method-assign]
     assert chamadas == [True]
+
+
+@pytest.mark.asyncio
+async def test_aviso_do_sonho_nao_repete_a_cada_minuto_quando_falha(orch, monkeypatch):
+    """Telegram fora do ar: espera retry_minutes em vez de tentar 60s a 60s."""
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_notify = True
+    orch.cfg.memory.dream_notify_at = "08:00"
+    orch.cfg.memory.retry_minutes = 10.0
+    ontem = datetime.now().astimezone().date() - timedelta(days=1)
+    orch.store.set_meta(f"memory_dreamed:{ontem.isoformat()}", "Sonhos/Sonho x.md")
+    nota = types.SimpleNamespace(
+        rel_path="Sonhos/Sonho x.md",
+        title="x",
+        body="Um sonho.\n\n## Pergunta para amanhã\nO que fica?",
+        tags=["sonho"],
+        links=[],
+    )
+    orch.brain = types.SimpleNamespace(read_note=lambda name: nota)
+    tentativas: list[str] = []
+
+    async def fake_say(text, count=True):
+        tentativas.append(text)
+        raise RuntimeError("telegram fora do ar")
+
+    monkeypatch.setattr(orch, "_say_proactive", fake_say)
+    manha = datetime.now().astimezone().replace(hour=9, minute=0)
+
+    await orch._maybe_dream_report(manha)
+    await orch._maybe_dream_report(manha)
+    await orch._maybe_dream_report(manha)
+
+    assert len(tentativas) == 1
+    assert orch.store.get_meta(f"memory_dream_reported:{ontem.isoformat()}") is None
