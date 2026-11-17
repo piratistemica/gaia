@@ -152,8 +152,28 @@ O padrão se configura em `[interface] default_mode`.
 O motor fica em `zaya/agent/` e fala direto com a API do provedor — sem
 servidor intermediário, sem harness externo.
 
-Sete ferramentas: `read`, `list`, `glob`, `grep`, `write`, `edit`, `bash`.
-O catálogo é fixo; todos os modos recebem o mesmo conjunto.
+Sete ferramentas de base: `read`, `list`, `glob`, `grep`, `write`, `edit`,
+`bash` — iguais em todos os modos.
+
+Quando `agenda.env_file` tem credencial válida, entram mais cinco, específicas
+da Agenda (não dependem de shell):
+
+| Ferramenta | Para quê |
+|---|---|
+| `agenda_dia` | tarefas pendentes (com id), feitas e placar da rotina do dia |
+| `agenda_rotinas` | rotinas cadastradas e os dias de cada uma |
+| `agenda_paginas` | lista páginas da Agenda ou lê uma pelo título |
+| `agenda_nova_tarefa` | cria tarefa (exige `confirm=true`) |
+| `agenda_marcar_tarefa` | marca/desmarca por id ou texto (exige `confirm=true`) |
+
+E uma de leitura de planilhas, quando o SecondBrain está configurado:
+
+| Ferramenta | Para quê |
+|---|---|
+| `planilha` | lista abas e tamanhos, mostra uma faixa de linhas ou busca um termo nos `.xlsx` de `~/SecondBrain/planilhas` |
+
+O `.xlsx` é lido com a biblioteca padrão (`zipfile` + XML), sem `openpyxl` e
+sem shell — funciona no canal do Telegram mesmo com `shell_access = false`.
 
 ```toml
 [agent]
@@ -306,9 +326,20 @@ zaya telegram me
 zaya telegram serve      # escuta texto e áudio e responde
 ```
 
-Por padrão, pelo Telegram só leitura: `write`, `edit` e `bash` são negados,
-porque não há terminal para aprovar. Para liberar, use
-`[telegram] auto_approve = true` **com `allowed_chat_id` fixado**.
+`auto_approve = true` (com `allowed_chat_id` fixado) aprova no chat as
+ferramentas que pedem confirmação — inclusive as `agenda_*`, que é como a Zaya
+consulta e altera a Agenda pelo Telegram.
+
+`bash`, `write` e `edit` ficam **negados por padrão mesmo com `auto_approve`**:
+`shell_access = true` é o único jeito de liberar, e só vale junto de
+`auto_approve` + `allowed_chat_id`. Com o padrão, quem controlar o chat mexe na
+Agenda — não roda comando na máquina.
+
+```toml
+[telegram]
+auto_approve = true
+shell_access = false   # mantenha desligado: shell remoto é o risco maior
+```
 
 **WhatsApp** (Cloud API da Meta)
 

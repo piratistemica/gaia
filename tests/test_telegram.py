@@ -122,14 +122,31 @@ def test_config_redige_token_do_telegram():
 
 
 def test_permissao_do_telegram_segue_o_flag():
-    assert telegram_permission(_cfg(auto_approve=True))("write", ["a.txt"]) == "always"
-    assert telegram_permission(_cfg(auto_approve=True))("bash", ["pytest"]) == "always"
+    assert telegram_permission(_cfg(auto_approve=True))("agenda_nova_tarefa", []) == "always"
+    assert telegram_permission(_cfg())("agenda_nova_tarefa", []) == "reject"
     assert telegram_permission(_cfg())("write", ["a.txt"]) == "reject"
     assert telegram_permission(_cfg())("bash", ["pytest"]) == "reject"
 
 
+def test_permissao_do_telegram_nega_shell_mesmo_com_auto_approve():
+    """O chat remoto não pode virar shell na máquina sem opt-in explícito."""
+    decide = telegram_permission(_cfg(auto_approve=True))
+    assert decide("bash", ["rm -rf ~"]) == "reject"
+    assert decide("write", ["a.txt"]) == "reject"
+    assert decide("edit", ["a.py"]) == "reject"
+    assert decide("read", ["a.py"]) == "always"
+    assert decide("agenda_dia", []) == "always"
+
+
+def test_shell_access_libera_com_auto_approve():
+    cfg = _cfg(auto_approve=True, shell_access=True)
+    assert telegram_permission(cfg)("bash", ["pytest"]) == "always"
+    assert telegram_permission(_cfg(shell_access=True))("bash", ["pytest"]) == "reject"
+
+
 def test_permissao_do_telegram_exige_chat_fixado():
     cfg = _cfg(auto_approve=True, allowed_chat_id="")
+    assert telegram_permission(cfg)("agenda_dia", []) == "reject"
     assert telegram_permission(cfg)("bash", ["pytest"]) == "reject"
 
 
@@ -255,6 +272,9 @@ class _FakeTelegramClient:
     async def send_message(self, text, chat_id=None, **kwargs) -> None:
         self.sent.append(text)
 
+    async def send_audio(self, path, chat_id=None, caption="", as_voice=False) -> None:
+        self.audios.append(str(path))
+
 
 @pytest.mark.asyncio
 async def test_erro_do_agente_chega_no_telegram():
@@ -375,3 +395,67 @@ async def test_modelos_sem_argumento_no_telegram_lista():
 
     assert orch.argumentos == [""]
     assert "deepseek/deepseek-flash" in tg.sent[-1]
+
+
+class _VoiceOrchestrator:
+    """Orquestrador com TTS que devolve um arquivo pronto."""
+
+    last_error = ""
+
+    class _TTS:
+        class _Backend:
+            def cleanup(self, path) -> None:
+                pass
+
+        async def prepare(self, text):
+            return (self._Backend(), "/tmp/reply.mp3")
+
+    def __init__(self) -> None:
+        self.tts = self._TTS()
+        self.received: list[str] = []
+
+    async def answer_once(self, text, speak=False, close=False):
+        self.received.append(text)
+        return f"resposta a {text}"
+
+
+@pytest.mark.asyncio
+async def test_audio_entrando_volta_como_audio(monkeypatch):
+    """Falar por voz deve receber voz de volta, sem ligar voice_replies."""
+    import logging
+
+    cfg = Config()
+    cfg.telegram.allowed_chat_id = "42"
+    cfg.telegram.voice_replies = False
+    tg = _FakeTelegramClient()
+    orch = _VoiceOrchestrator()
+    service = TelegramService(cfg, orch, tg, None, TerminalUI(quiet=True), logging.getLogger("t"))
+
+    async def fake_transcribe(message):
+        return "olha minha agenda"
+
+    monkeypatch.setattr(service, "_transcribe_message", fake_transcribe)
+
+    await service._handle_update(
+        {"message": {"chat": {"id": 42}, "voice": {"file_id": "x", "mime_type": "audio/ogg"}}}
+    )
+
+    assert orch.received == ["olha minha agenda"]
+    assert tg.audios == ["/tmp/reply.mp3"]
+
+
+@pytest.mark.asyncio
+async def test_texto_entrando_nao_gera_audio_por_padrao():
+    import logging
+
+    cfg = Config()
+    cfg.telegram.allowed_chat_id = "42"
+    cfg.telegram.voice_replies = False
+    tg = _FakeTelegramClient()
+    service = TelegramService(
+        cfg, _VoiceOrchestrator(), tg, None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    await service._handle_update({"message": {"chat": {"id": 42}, "text": "oi"}})
+
+    assert tg.audios == []

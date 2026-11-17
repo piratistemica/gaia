@@ -35,6 +35,11 @@ def normalize(text: object) -> str:
     return " ".join(value.casefold().split())
 
 
+def has_text(note: dict[str, Any]) -> bool:
+    """Nota com texto util. A Agenda deixa sobras em branco no banco."""
+    return bool(str(note.get("text") or "").strip())
+
+
 def _order(note: dict[str, Any]) -> tuple[int, str]:
     try:
         order = int(note.get("order") or 0)
@@ -60,11 +65,18 @@ def _flatten(items: Iterable[Item]) -> Iterator[tuple[int, Item]]:
 
 def collect_tasks(notes: list[dict[str, Any]]) -> list[Item]:
     """Tarefas do dia: checkboxes fora das rotinas, com subtarefas aninhadas."""
+    usable = [
+        note
+        for note in notes
+        if note.get("is_checkbox") and not note.get("routine_id") and has_text(note)
+    ]
+    ids = {note.get("id") for note in usable}
     by_parent: dict[Any, list[dict[str, Any]]] = {}
-    for note in notes:
-        if note.get("routine_id") or not note.get("is_checkbox"):
-            continue
-        by_parent.setdefault(note.get("parent_id"), []).append(note)
+    for note in usable:
+        parent = note.get("parent_id")
+        # Se o pai ficou de fora por falta de texto, a filha sobe para raiz em
+        # vez de desaparecer junto.
+        by_parent.setdefault(parent if parent in ids else None, []).append(note)
 
     items: list[Item] = []
     for root in sorted(by_parent.get(None, []), key=_order):
@@ -87,7 +99,9 @@ def collect_habits(
         if needle not in normalize(parent.get("text")):
             continue
         children = [
-            note for note in notes if note.get("parent_id") == parent.get("id")
+            note
+            for note in notes
+            if note.get("parent_id") == parent.get("id") and has_text(note)
         ]
         habits = [_item(child) for child in sorted(children, key=_order)]
         return (habits or [_item(parent)]), True

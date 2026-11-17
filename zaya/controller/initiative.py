@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 
 from zaya.agenda.client import AgendaError
+from zaya.briefing.compose import has_text
 from zaya.controller.contract import OrchestratorContract
 from zaya.controller.proactive import ReminderSpec, greeting_for, in_quiet_hours
 from zaya.focus import RITUALS, principal_phase_today
@@ -127,10 +128,12 @@ class InitiativeMixin(OrchestratorContract):
             return
         self._agenda_next_check = time.monotonic() + max(5.0, cfg.poll_minutes * 60.0)
         try:
-            tasks = await self.agenda.pending_today(now.date().isoformat())
+            rows = await self.agenda.pending_today(now.date().isoformat())
         except AgendaError as exc:
             self.logger.warning("agenda: %s", exc)
             return
+        # Nota em branco nao e tarefa: nao gera aviso nem aparece no nome.
+        tasks = [row for row in rows if has_text(row)]
         if now.date() != self._agenda_day:
             self._agenda_day = now.date()
             self._agenda_seen = set()

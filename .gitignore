@@ -38,6 +38,14 @@ cv/
 curriculo*.md
 *.pdf
 *.docx
+# Planilhas e afins: dado pessoal, nunca versionar (o repo e publico).
+# A planilha vive em ~/SecondBrain/planilhas/ e entra pelo backup do zmin.
+*.xlsx
+*.xls
+*.ods
+*.numbers
+*.csv
+*.tsv
 *.mp3
 *.wav
 *.aiff

@@ -203,3 +203,77 @@ class AgendaClient:
             "limit": str(limit),
         }
         return await self._query("pages", params)
+
+    # ------------------------------------------------------------------ escrita
+    async def _mutate(
+        self,
+        method: str,
+        table: str,
+        payload: dict[str, Any],
+        params: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.enabled:
+            raise AgendaError("Agenda desabilitada: configure agenda.env_file")
+        base = self._get("VITE_SUPABASE_URL", "SUPABASE_URL").rstrip("/")
+        headers = {**self._headers(), "Prefer": "return=representation"}
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.request(
+                    method,
+                    f"{base}/rest/v1/{table}",
+                    headers=headers,
+                    params=params or {},
+                    json=payload,
+                )
+        except httpx.HTTPError as exc:
+            raise AgendaError(f"falha ao gravar na Agenda: {exc}") from exc
+        if not response.is_success:
+            raise AgendaError(
+                f"Agenda respondeu {response.status_code}: {response.text[:200]}"
+            )
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return [data] if isinstance(data, dict) else []
+
+    async def create_task(
+        self,
+        text: str,
+        *,
+        date: str | None = None,
+        parent_id: str = "",
+        is_checkbox: bool = True,
+    ) -> dict[str, Any]:
+        """Cria uma tarefa (note) para um dia. Texto vazio e recusado."""
+        clean = " ".join(str(text or "").split())
+        if not clean:
+            raise AgendaError("tarefa sem texto")
+        payload: dict[str, Any] = {
+            "user_id": self._get("AGENDA_USER_ID"),
+            "date": date or _today_local(),
+            "text": clean,
+            "is_checkbox": is_checkbox,
+            "completed": False,
+        }
+        if parent_id:
+            payload["parent_id"] = parent_id
+        rows = await self._mutate("POST", "notes", payload)
+        return rows[0] if rows else {}
+
+    async def set_completed(self, note_id: str, completed: bool = True) -> dict[str, Any]:
+        """Marca/desmarca uma tarefa pelo id, sempre dentro do user da Agenda."""
+        ident = str(note_id or "").strip()
+        if not ident:
+            raise AgendaError("id vazio")
+        rows = await self._mutate(
+            "PATCH",
+            "notes",
+            {"completed": bool(completed)},
+            {
+                "id": f"eq.{ident}",
+                "user_id": f"eq.{self._get('AGENDA_USER_ID')}",
+            },
+        )
+        if not rows:
+            raise AgendaError(f"tarefa {ident} nao encontrada")
+        return rows[0]

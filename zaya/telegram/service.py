@@ -20,18 +20,32 @@ from zaya.telegram.client import TelegramClient, TelegramError
 _MAX_BACKOFF = 30.0
 
 
+# Ferramentas que dão shell ou escrevem arquivo: nunca pelo chat remoto sem
+# opt-in explícito (telegram.shell_access).
+_SHELL_TOOLS = frozenset({"bash", "write", "edit"})
+
+
 def telegram_permission(cfg: TelegramConfig) -> Callable[[str, list[str]], str]:
     """Política de permissão para o canal do Telegram.
 
     O serviço sobe com ``TerminalUI(quiet=True)``; sem terminal interativo o
-    prompt de permissão responde "reject" e write/edit/bash nunca funcionariam.
-    Esta política substitui o prompt. Ela só aprova com ``auto_approve`` ligado
-    e ``allowed_chat_id`` fixado: sem isso o bot adota o primeiro chat que falar
-    com ele, e auto-aprovar daria shell a qualquer desconhecido.
+    prompt de permissão responde "reject" e as ferramentas que pedem
+    confirmação nunca funcionariam. Esta política substitui o prompt.
+
+    Duas travas independentes:
+
+    1. ``auto_approve`` só vale com ``allowed_chat_id`` fixado — sem isso o bot
+       adota o primeiro chat que falar com ele, e auto-aprovar daria shell a
+       qualquer desconhecido.
+    2. ``bash``/``write``/``edit`` continuam negados mesmo com auto_approve,
+       a menos que ``shell_access`` esteja ligado. A Agenda é acessada pelas
+       ferramentas ``agenda_*``, então o chat não precisa de shell.
     """
     enabled = bool(cfg.auto_approve and str(cfg.allowed_chat_id or "").strip())
 
     def decide(tool: str, resources: list[str]) -> str:
+        if tool in _SHELL_TOOLS and not cfg.shell_access:
+            return "reject"
         return "always" if enabled else "reject"
 
     return decide
@@ -112,6 +126,9 @@ class TelegramService:
         chat_id = (message.get("chat") or {}).get("id")
         if chat_id is None or not self._allowed(chat_id):
             return
+        # Espelhar o canal: entrou audio, sai audio. `voice_replies` continua
+        # servindo para responder em voz tambem quando a entrada e texto.
+        was_voice = bool(message.get("voice") or message.get("audio"))
         text = (message.get("text") or "").strip()
         if text in {"/start", "/iniciar"}:
             await self.client.send_message(
@@ -141,7 +158,7 @@ class TelegramService:
 
         if answer:
             await self.client.send_message(answer, chat_id=chat_id)
-            if self.cfg.telegram.voice_replies:
+            if was_voice or self.cfg.telegram.voice_replies:
                 await self._send_voice(answer, chat_id)
         elif self.orchestrator.last_error:
             await self.client.send_message(

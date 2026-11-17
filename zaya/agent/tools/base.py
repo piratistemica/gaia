@@ -33,6 +33,10 @@ class ToolContext:
 
     directory: Path
     allow_outside_project: bool = True
+    # AgendaConfig | None: sem isso as ferramentas da Agenda nao existem.
+    agenda: Any = None
+    # Caminho do SecondBrain: habilita a ferramenta de planilhas.
+    secondbrain: str = ""
 
     def resolve(self, raw: str) -> Path:
         if not (raw or "").strip():

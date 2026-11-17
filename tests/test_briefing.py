@@ -241,3 +241,52 @@ def test_day_recap_alimenta_o_prompt_do_insight():
     assert "- meditar" in recap
     assert "Metas ativas:" in recap
     assert "- cnh" in recap
+
+
+def test_notas_em_branco_nao_viram_tarefa():
+    """A Agenda deixa linhas sem texto; elas nao podem virar checkbox vazio."""
+    notes = [
+        {"id": "x1", "text": "", "is_checkbox": True, "completed": False,
+         "parent_id": None, "routine_id": None, "order": 1},
+        {"id": "x2", "text": "   ", "is_checkbox": True, "completed": False,
+         "parent_id": None, "routine_id": None, "order": 2},
+        {"id": "ok", "text": "fio dental", "is_checkbox": True, "completed": False,
+         "parent_id": None, "routine_id": None, "order": 3},
+    ]
+    tasks = collect_tasks(notes)
+    assert [item.text for item in tasks] == ["fio dental"]
+
+    texto = morning_message("Talita", DAY, tasks)
+    assert "fio dental" in texto
+    assert "☐ \n" not in texto + "\n"
+    assert "☐" not in texto.replace("☐ fio dental", "")
+
+
+def test_subtarefa_sem_texto_some_e_filha_de_pai_vazio_sobe():
+    notes = [
+        {"id": "vazio", "text": "", "is_checkbox": True, "completed": False,
+         "parent_id": None, "routine_id": None, "order": 1},
+        {"id": "filha", "text": "ligar para o plano", "is_checkbox": True,
+         "completed": False, "parent_id": "vazio", "routine_id": None, "order": 1},
+        {"id": "pai", "text": "cadastro flash", "is_checkbox": True, "completed": False,
+         "parent_id": None, "routine_id": None, "order": 2},
+        {"id": "vazia", "text": " ", "is_checkbox": True, "completed": False,
+         "parent_id": "pai", "routine_id": None, "order": 1},
+    ]
+    tasks = collect_tasks(notes)
+    assert [item.text for item in tasks] == ["ligar para o plano", "cadastro flash"]
+    assert tasks[1].children == ()
+
+
+def test_habito_sem_texto_some():
+    notes = [
+        {"id": "r", "text": "Rotina matinal", "is_checkbox": True, "completed": False,
+         "parent_id": None, "routine_id": "rot1", "order": 1},
+        {"id": "r1", "text": "alongar", "is_checkbox": True, "completed": True,
+         "parent_id": "r", "routine_id": "rot1", "order": 1},
+        {"id": "r2", "text": "", "is_checkbox": True, "completed": False,
+         "parent_id": "r", "routine_id": "rot1", "order": 2},
+    ]
+    habits, found = collect_habits(notes, "matinal")
+    assert found is True
+    assert [item.text for item in habits] == ["alongar"]

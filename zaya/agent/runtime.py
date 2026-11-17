@@ -70,7 +70,10 @@ class AgentClient:
         self._sessions: dict[str, AgentSession] = {}
         self._store = SessionStore(cfg.resolved_data_dir() / "sessions")
         self._tool_context = ToolContext(
-            self.directory, cfg.agent.allow_outside_project
+            self.directory,
+            cfg.agent.allow_outside_project,
+            cfg.agenda,
+            cfg.secondbrain.path,
         )
         self.tools: ToolSet = (
             build_tools(self._tool_context) if cfg.agent.tools else ToolSet()

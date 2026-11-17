@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from zaya.agenda.client import AgendaClient
+from zaya.agent.tools.agenda import build_agenda_tools
 from zaya.agent.tools.base import Tool, ToolContext, ToolResult, ToolSet
 from zaya.agent.tools.filesystem import (
     EDIT_TOOL,
@@ -11,6 +15,7 @@ from zaya.agent.tools.filesystem import (
     READ_TOOL,
     WRITE_TOOL,
 )
+from zaya.agent.tools.planilhas import build_planilha_tools
 from zaya.agent.tools.shell import BASH_TOOL
 
 
@@ -25,6 +30,13 @@ def build_tools(ctx: ToolContext) -> ToolSet:
         Tool(**GREP_TOOL),
         Tool(**BASH_TOOL),
     )
+    # So aparecem quando ha credencial da Agenda: sem isso o modelo tentaria
+    # usar uma ferramenta que nunca vai funcionar.
+    if ctx.agenda is not None and AgendaClient(ctx.agenda).enabled:
+        tools.add(*build_agenda_tools())
+    # Planilhas: so quando existe um SecondBrain (a ferramenta le de la).
+    if str(ctx.secondbrain or "").strip() and Path(ctx.secondbrain).expanduser().is_dir():
+        tools.add(*build_planilha_tools())
     return tools
 
 
