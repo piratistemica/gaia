@@ -1211,3 +1211,23 @@ não avisa — melhor silêncio do que mensagem vazia.
 
 O aviso é sobre o **dia anterior** (`dream_target_day`), porque é ele que a
 noite passada sonhou. `/sonhar <dia>` imprime o mesmo resumo na hora.
+
+### 16.9 Onde o sonho realmente roda
+
+Corrigido depois de ver o aviso não sair no mini: o serviço do Telegram sobe
+`briefing`, `career` e `proactive` no boot, mas o worker de memória só nascia no
+primeiro `answer_once` (com `close=False`). Num mini reiniciado à noite e sem
+mensagem, isso significa **nenhuma consolidação às 23:00 e nenhum sonho às
+02:00** até alguém falar com a Zaya.
+
+`Orchestrator.start_memory()` faz pelo worker de memória o mesmo que
+`start_briefing`/`start_proactive` já faziam, e `TelegramService.run()` chama no
+boot. Consequência prática: os três horários noturnos (18:00 revisão, 23:00
+consolidação, 02:00 sonho, 08:00 aviso) valem para o mini ligado, sem depender
+de conversa.
+
+O aviso bem-sucedido registra no journal:
+
+```text
+sonho: aviso de 2026-11-16 enviado
+```

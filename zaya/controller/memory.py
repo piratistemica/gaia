@@ -131,6 +131,7 @@ class MemoryMixin(OrchestratorContract):
             self.store.delete_meta(key)
             return
         self.store.set_meta(key, now.isoformat(timespec="seconds"))
+        self.logger.info("sonho: aviso de %s enviado", day.isoformat())
 
     async def _dream_catch_up(self) -> None:
         """Sonha o dia que ficou sem sonho se a Zaya estava desligada as 2h.
