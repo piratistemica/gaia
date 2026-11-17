@@ -599,3 +599,34 @@ async def test_sonho_prefere_busca_semantica(sonho, tmp_path):
         assert any("Diário de campo" in hit.title for hit in antigas)
     finally:
         semantico.close()
+
+
+def test_limiar_de_ressonancia_vem_da_config(tmp_path):
+    """bge-m3 da ~0.45 entre frases sem relacao: 0.2 deixava tudo passar."""
+    from zaya.secondbrain.index import SecondBrainIndex
+
+    class _Raso(_FakeEmbedder):
+        def embed(self, texts):
+            # Eixos diferentes por assunto: cosseno 0, abaixo de qualquer piso.
+            return [
+                [1.0, 0.0, 0.0] if "outra" in (t or "").lower() else [0.0, 1.0, 0.0]
+                for t in texts
+            ]
+
+    cfg = Config.load(
+        config_path=tmp_path / "missing.toml",
+        env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
+    )
+    assert cfg.secondbrain.embed_min_score == 0.5
+
+    raiz = tmp_path / "brain"
+    (raiz / "Inbox").mkdir(parents=True)
+    nota = raiz / "Inbox" / "a.md"
+    nota.write_text("## X\nconteudo qualquer", encoding="utf-8")
+    sb_cfg = SecondBrainConfig(path=str(raiz), default_folder="Inbox")
+    index = SecondBrainIndex(sb_cfg, tmp_path / "sb.db", embedder=_Raso())
+    try:
+        index.index_note(nota)
+        assert index.semantic_search("outra coisa", min_score=0.5) == []
+    finally:
+        index.close()

@@ -362,7 +362,9 @@ class Dreamer:
             texto = f"{day_note.title} {day_note.body[:2000]}"
             # Com embeddings, "impulsao" encontra "vontade" de um mes atras;
             # sem eles, cai na busca lexical de sempre (nenhuma regressao).
-            candidatos = self.index.semantic_search(texto, limit=limit * 4, min_score=0.2)
+            candidatos = self.index.semantic_search(
+                texto, limit=limit * 4, min_score=self.cfg.secondbrain.embed_min_score
+            )
             if not candidatos:
                 query = " ".join(keywords(texto))
                 candidatos = self.index.search(query, limit=limit * 4) if query else []

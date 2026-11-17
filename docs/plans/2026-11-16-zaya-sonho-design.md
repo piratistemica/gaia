@@ -105,7 +105,7 @@ não — se já sonhou, não repete.
 `_maybe_dream_report` (no `_memory_loop`) manda uma linha às `dream_notify_at`:
 
 ```text
-Sonhei com 15/11: A madrugada costura fios soltos. Ficou a pergunta: O que fica aqui?
+Sonhei com 15/11: Um exemplo qualquer de abertura. Ficou a pergunta: Exemplo de pergunta?
 ```
 
 Regras: respeita `proactive.quiet_hours`, reserva `meta` antes de falar (TUI e

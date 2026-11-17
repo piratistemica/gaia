@@ -1321,3 +1321,30 @@ indexação incremental noturna (1 a 2 notas) é desprezível.
    depende do modelo de embedding.
 4. Só então vale pensar em *clusterizar* sonhos recorrentes (o mesmo tema
    voltando em noites diferentes), que é o próximo salto de qualidade.
+
+### 17.6 Estado real: Ollama local no mini
+
+Instalado sem sudo, em `~/.local/ollama`, com unit de usuário
+`ollama.service` (`OLLAMA_HOST=127.0.0.1:11434`,
+`OLLAMA_MODELS=~/.local/share/ollama/models`). Modelo escolhido: **`bge-m3`**
+(1,2 GB, multilíngue de verdade — `nomic-embed-text` é fraco em português,
+que é justamente onde a busca falha).
+
+Medição feita no mini com o serviço no ar:
+
+| Par | Cosseno (`bge-m3`) |
+|---|---|
+| "a vontade de mudar de área" × "impulsão para recomeçar" | **0,53** |
+| "a vontade de mudar de área" × "planilha de rotina" | 0,45 |
+
+Conclusão prática: o piso `min_score = 0,2` que eu tinha deixado era frouxo —
+0,45 é o ruído de fundo entre frases sem relação (mesma língua, mesmo
+comprimento). Daí `secondbrain.embed_min_score = 0.5`, configurável, e o sonho
+cai para a busca lexical quando nada passa do piso.
+
+```toml
+[secondbrain]
+embed_model = "bge-m3"
+embed_base_url = "http://127.0.0.1:11434/v1"   # sem chave: é local
+embed_min_score = 0.5
+```
