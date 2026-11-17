@@ -1102,3 +1102,73 @@ documenta no topo do arquivo.
 `facts`. Dar recall antes de ter `fatos.md` já melhora a conversa, e separa os dois
 riscos: um é tokenizer/migração, o outro é formato de arquivo/sync. Juntar as duas
 numa etapa só faria um erro de FTS parecer um erro de sync.
+
+## 16. Sonho noturno — implementado
+
+`zaya/memory/dream.py` (`Dreamer`) é o primeiro pedaço desta etapa que saiu do
+papel. Ele fica **fora** do `FactBook` e do `fact_candidates`: o sonho não extrai
+fato, não pede confirmação e não entra no `fatos.md`. Ele lê o que a memória já
+consolidou e escreve uma nota nova.
+
+### 16.1 O que faz
+
+1. Só roda com `memory.dream_enabled` e dentro da janela `[dream_at,
+   dream_until)` (`02:00`–`08:00`, pode virar a meia-noite).
+2. O dia sonhado é o último dia fechado: ontem de madrugada, hoje à noite.
+   Antes de sonhar, chama `consolidate_day(dia)` — o sonho precisa da memória do
+   dia pronta; se ela não existir, é criada na hora.
+3. Coleta duas coisas: a nota `Memoria/Memória <dia>.md` e as memórias antigas
+   do índice (`search` com o texto do dia + `recent`), excluindo a própria nota
+   do dia, sonhos anteriores e duplicatas. Teto de 5.
+4. Manda os dois blocos para o modelo com um prompt de sonho (seções **Ecos do
+   dia**, **Ressonâncias**, **Pergunta para amanhã**).
+5. Escreve `Memoria/Sonho <dia>.md` (tags `sonho`, `memoria`, a data), indexa e
+   registra em `records` com `kind='dream'`.
+6. Guarda `meta['memory_dreamed:<dia>']` — um sonho por dia, como a
+   consolidação. `force=True` refaz.
+
+### 16.2 Por que depois da consolidação e não junto dela
+
+Porque o insumo do sonho é a nota consolidada. Sonhar às 23:00 junto com a
+consolidação significaria sonhar sobre um dia que ainda não foi escrito, e o
+`force` da consolidação apagaria o contexto no meio. Duas horas de distância
+(23:00 → 02:00) resolvem isso sem nenhuma coordenação entre os dois.
+
+### 16.3 Por que silencioso
+
+`_maybe_dream` roda no `_memory_loop`, não no `_proactive_loop`. Sonho não é
+iniciativa: é trabalho interno. Não fala, não manda no Telegram, não conta no
+`daily_max` e por isso não precisa respeitar `quiet_hours` — ele só roda dentro
+delas. O ganho que a pessoa vê é indireto: a nota entra no índice e volta como
+contexto na busca.
+
+### 16.4 Fallback
+
+Se o modelo falhar ou `use_llm=false`, `compose_dream_note` monta a nota com o
+trecho da memória do dia, a lista de memórias antigas e uma pergunta fixa. Igual
+à consolidação: nunca se perde o dia por causa do provedor.
+
+### 16.5 Testes
+
+`tests/test_dream.py`: sonha uma vez por dia e não repete; sonho pelo modelo
+(deleta a sessão); fallback quando o provedor falha; sonha só com memórias
+antigas quando o dia não foi consolidado; não sonha sem nada; não sonha com
+`dream_enabled=false`; `compose_dream_note` lista as memórias revisitadas.
+
+### 16.6 Janela noturna e dia sonhado (correção)
+
+A primeira versão comparava `now.strftime("%H:%M") < dream_at`. Com
+`dream_at = "02:00"`, às 9h da manhã `"09:00" < "02:00"` é falso e a Zaya
+sonhava no meio da manhã, sobre um dia que mal começou. Duas correções:
+
+- **Janela explícita** `[dream_at, dream_until)` (`02:00`–`08:00`), com virada de
+  meia-noite para quem preferir `23:30`. Fora da janela, não sonha.
+- **Dia alvo** (`dream_target_day`): o último dia fechado. De madrugada é ontem,
+  depois do meio-dia é hoje. Antes disso, a checagem das 3h chamava
+  `consolidate_day(hoje)`, que não acha turno nenhum, e sonhava sobre o vazio.
+
+A guarda continua sendo `meta['memory_dreamed:<dia>']`, então uma madrugada
+perdida (máquina desligada) não perde o sonho: a próxima ainda sonha sobre o
+mesmo dia fechado. O teste de regressão vive em `tests/test_dream.py`
+(`test_janela_de_sonho_padrao`, `test_janela_de_sonho_que_vira_a_meia_noite`,
+`test_dia_alvo_do_sonho`).

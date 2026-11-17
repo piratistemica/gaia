@@ -199,6 +199,13 @@ class MemoryConfig(BaseModel):
     # Resumo pelo modelo; se falhar, cai no resumo local deterministico.
     use_llm: bool = True
     folder: str = "Memoria"
+    # Sonho noturno: quando ociosa de madrugada, cruza a memoria do dia com
+    # as memorias antigas e escreve uma nota de sonho no Second Brain.
+    dream_enabled: bool = True
+    dream_at: str = "02:00"
+    # Fim da janela do sonho (a janela pode virar a meia-noite).
+    dream_until: str = "08:00"
+    dream_folder: str = "Memoria"
     max_turns: int = 120
     max_chars: int = 16000
     llm_timeout_seconds: float = 90.0
@@ -536,6 +543,10 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_AGENT_TOOL_RESULT_CHARS": ("agent", "tool_result_chars"),
     "ZAYA_AGENT_USAGE": ("agent", "usage"),
     "ZAYA_MEMORY_AT": ("memory", "at"),
+    "ZAYA_MEMORY_DREAM_AT": ("memory", "dream_at"),
+    "ZAYA_MEMORY_DREAM_ENABLED": ("memory", "dream_enabled"),
+    "ZAYA_MEMORY_DREAM_FOLDER": ("memory", "dream_folder"),
+    "ZAYA_MEMORY_DREAM_UNTIL": ("memory", "dream_until"),
     "ZAYA_MEMORY_ENABLED": ("memory", "enabled"),
     "ZAYA_MEMORY_FOLDER": ("memory", "folder"),
     "ZAYA_MEMORY_ON_EXIT": ("memory", "on_exit"),
@@ -869,6 +880,11 @@ at = "23:00"
 on_exit = true
 use_llm = true
 folder = "Memoria"
+# Sonho noturno: quando ociosa de madrugada, cruza o dia com memorias antigas.
+dream_enabled = true
+dream_at = "02:00"          # janela noturna: pode virar a meia-noite
+dream_until = "08:00"
+dream_folder = "Memoria"
 
 [briefing]
 # Bom dia, meio-dia e fecho da noite no Telegram, direto da Agenda.

@@ -155,7 +155,25 @@ class OrchestratorContract(ABC):
         ...
 
     @abstractmethod
+    async def dream_day(
+        self,
+        day: date | None = None,
+        *,
+        force: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> str | None:
+        ...
+
+    @abstractmethod
+    async def _maybe_dream(self, now: datetime) -> None:
+        ...
+
+    @abstractmethod
     async def _handle_consolidate(self, argument: str) -> None:
+        ...
+
+    @abstractmethod
+    async def _handle_dream(self, argument: str) -> None:
         ...
 
     # --- metodos que um mixin chama de outro (implementados nos mixins) ---

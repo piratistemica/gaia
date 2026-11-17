@@ -353,6 +353,93 @@ async def test_comando_consolidar_usa_o_dia_pedido(orch, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_comando_sonhar_usa_o_dia_pedido_e_consolida(orch, monkeypatch):
+    consolidados: list = []
+    sonhados: list[tuple] = []
+
+    async def fake_consolidar(day=None, *, force=False, timeout_seconds=None):
+        consolidados.append(day)
+        return None
+
+    async def fake_sonhar(day=None, *, force=False, timeout_seconds=None):
+        sonhados.append((day, force))
+        return "Memoria/Sonho teste.md"
+
+    monkeypatch.setattr(orch, "consolidate_day", fake_consolidar)
+    monkeypatch.setattr(orch, "dream_day", fake_sonhar)
+
+    await orch._handle_command("/sonhar ontem forcar")
+
+    esperado = datetime.now().astimezone().date() - timedelta(days=1)
+    assert consolidados == [esperado]
+    assert sonhados == [(esperado, True)]
+    assert orch.ui.called("success")
+
+
+@pytest.mark.asyncio
+async def test_sonho_so_acontece_depois_do_horario(orch, monkeypatch):
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_at = "02:00"
+    chamadas: list = []
+
+    async def fake_consolidar(day=None, *, force=False, timeout_seconds=None):
+        return None
+
+    async def fake_sonhar(day=None, *, force=False, timeout_seconds=None):
+        chamadas.append(day)
+        return "Memoria/Sonho teste.md"
+
+    monkeypatch.setattr(orch, "consolidate_day", fake_consolidar)
+    monkeypatch.setattr(orch, "dream_day", fake_sonhar)
+
+    manha = datetime.now().astimezone().replace(hour=9, minute=0)
+    await orch._maybe_dream(manha)
+    assert chamadas == []
+
+    madrugada = datetime.now().astimezone().replace(hour=3, minute=0)
+    await orch._maybe_dream(madrugada)
+    # De madrugada o sonho e sobre o dia que acabou (ontem).
+    assert chamadas == [madrugada.date() - timedelta(days=1)]
+
+
+@pytest.mark.asyncio
+async def test_sonho_da_noite_sonha_sobre_hoje(orch, monkeypatch):
+    orch.cfg.memory.dream_enabled = True
+    orch.cfg.memory.dream_at = "23:30"
+    orch.cfg.memory.dream_until = "08:00"
+    chamadas: list = []
+
+    async def fake_consolidar(day=None, *, force=False, timeout_seconds=None):
+        return None
+
+    async def fake_sonhar(day=None, *, force=False, timeout_seconds=None):
+        chamadas.append(day)
+        return "Memoria/Sonho teste.md"
+
+    monkeypatch.setattr(orch, "consolidate_day", fake_consolidar)
+    monkeypatch.setattr(orch, "dream_day", fake_sonhar)
+
+    noite = datetime.now().astimezone().replace(hour=23, minute=45)
+    await orch._maybe_dream(noite)
+    assert chamadas == [noite.date()]
+
+
+@pytest.mark.asyncio
+async def test_sonho_desabilitado_nao_sonha(orch, monkeypatch):
+    orch.cfg.memory.dream_enabled = False
+    chamadas: list = []
+
+    async def fake_sonhar(day=None, *, force=False, timeout_seconds=None):
+        chamadas.append(day)
+        return None
+
+    monkeypatch.setattr(orch, "dream_day", fake_sonhar)
+
+    await orch._maybe_dream(datetime.now().astimezone().replace(hour=3, minute=0))
+    assert chamadas == []
+
+
+@pytest.mark.asyncio
 async def test_auto_approve_warns(orch):
     await orch._handle_command("/autoaprovar on")
     assert orch.cfg.agent.auto_approve is True

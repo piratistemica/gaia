@@ -129,6 +129,8 @@ class CommandsMixin(OrchestratorContract):
             self._toggle_chinese(argument)
         elif command in {"/consolidar", "/memoria", "/memória"}:
             await self._handle_consolidate(argument)
+        elif command in {"/sonhar", "/sonho"}:
+            await self._handle_dream(argument)
         elif command in {"/preferencia", "/preferência"}:
             if not argument:
                 self.ui.warning("uso: /preferencia <texto>")

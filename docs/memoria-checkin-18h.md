@@ -865,3 +865,30 @@ proativos para a mesma pergunta. Desligar a fala nessa mensagem é o menor diff.
 não acontece e os pendentes esperam. Isso é intencional: chegar às 21h05 com "o que
 eu guardo de hoje?" compete com a consolidação das 23h e com o fim do dia. A janela
 é o contrato.
+
+## Sonho noturno — o que muda aqui
+
+O sonho (`zaya/memory/dream.py`, ver `docs/memoria-plano.md`, seção 16) não
+disputa a noite da revisão das 18h. A ordem das rotinas noturnas passa a ser:
+
+| Hora | Rotina | Onde |
+|---|---|---|
+| 18:00 | revisão de fatos (check-in) | `_check_memory_review` |
+| 23:00 | consolidação do dia + extração fallback | `_maybe_consolidate` |
+| 02:00–08:00 | sonho (janela noturna, sobre o dia que fechou) | `_maybe_dream` |
+
+Consequências para o desenho deste documento:
+
+- **Nada do check-in muda.** O sonho não cria `fact_candidates`, não altera o
+  `meta` da noite e não acorda a lista de revisão. `review_enabled=false` não
+  desliga o sonho; `dream_enabled=false` não desliga a revisão.
+- **O sonho depende da consolidação, não da revisão.** `_maybe_dream` chama
+  `consolidate_day` antes de sonhar. Se a consolidação já rodou, é um no-op; se
+  a Zaya estava fechada às 23:00, o sonho das 02:00 consolida e sonha na mesma
+  volta. É o catch-up que faltava para quem usa a máquina à noite.
+- **Sonho não fala.** `_maybe_dream` vive no `_memory_loop`, que só checa
+  `_busy`/`_recording`/`_listening`. Não há mensagem, não há disputa por
+  `daily_max` e não há risco de o sonho roubar a resposta da revisão no chat.
+- **`record_note(kind='dream')` não entra em `records` do briefing.** O fecho da
+  noite lista `kind='memory'`; o sonho fica fora da lista de tarefas e de notas
+  do dia, e aparece quando a busca o encontra.

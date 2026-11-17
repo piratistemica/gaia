@@ -213,6 +213,33 @@ zaya note "Diário de campo"
 Consolida o pendente ao sair e recupera o dia anterior se você abrir sem ter
 fechado. Se o modelo falhar, cai num resumo local determinístico.
 
+**Sonho:** na janela `memory.dream_at`–`memory.dream_until` (02:00–08:00), se
+a Zaya estiver ociosa, ela sonha. O sonho lê a memória do dia, procura no
+índice as memórias antigas que ressoam com ele e escreve
+`Memoria/Sonho AAAA-MM-DD.md` — parágrafo onírico, **Ecos do dia**,
+**Ressonâncias**, **Pergunta para amanhã** e a lista de memórias revisitadas.
+Acontece uma vez por dia, em silêncio (não fala nada), e só é interrompido pelo
+uso normal da Zaya. De madrugada o sonho é sobre o dia que acabou; à noite (se
+a janela começar antes da meia-noite) é sobre o dia em curso. Se o modelo
+falhar, a nota sai de qualquer forma com a costura determinística do dia com as
+notas antigas.
+
+```toml
+[memory]
+dream_enabled = true
+dream_at = "02:00"       # início da janela noturna (pode virar a meia-noite)
+dream_until = "08:00"    # fim da janela
+dream_folder = "Memoria" # pasta do sonho (padrão: a mesma da memória diária)
+```
+
+Para sonhar na hora — sobre hoje, ontem ou um dia específico:
+
+```
+/sonhar           # hoje
+/sonhar ontem     # recupera a noite passada
+/sonhar 2026-11-09 forcar
+```
+
 ## Automações
 
 Determinísticas, sem custo de token:
@@ -241,6 +268,9 @@ quiet_hours = "23:00-08:00"
 [memory]
 at = "23:00"
 use_llm = true
+dream_enabled = true
+dream_at = "02:00"
+dream_until = "08:00"
 ```
 
 O método da rotina de vagas (fontes, filtros, rubrica de score) vive em
@@ -288,7 +318,7 @@ zaya browser screenshot https://exemplo.com captura.png
 |---|---|
 | `/ajuda` · `/status` · `/tokens` | comandos · provedor/modelo/sessão · consumo |
 | `/buscar <termo>` · `/nota <título>` | Second Brain |
-| `/indexar` · `/novo` · `/consolidar [dia]` | reindexa · nova conversa · memória do dia |
+| `/indexar` · `/novo` · `/consolidar [dia]` · `/sonhar [dia]` | reindexa · nova conversa · memória do dia · sonho noturno |
 | `/modelo [nº\|slug]` · `/modo [nome]` | lista/troca modelo · troca persona |
 | `/bolsa <ticker>` · `/carteira` | cotação · carteira |
 | `/metas` · `/painel` · `/foco` | metas do ciclo · painel · foco |
@@ -330,7 +360,7 @@ zaya/
   stt/            # faster-whisper
   tts/            # edge-tts, say, limpeza de Markdown
   secondbrain/    # índice FTS5, frontmatter, notas
-  memory/         # conversas e turnos (SQLite)
+  memory/         # conversas e turnos (SQLite), consolidação e sonho
   controller/     # intenções, personas, iniciativa, prompt
   interface/      # TUI Textual e terminal Rich
   cli*.py         # parser, comandos, runtime
