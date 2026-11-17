@@ -359,14 +359,19 @@ class Dreamer:
             seen.add(hit.rel_path)
 
         if day_note:
-            query = " ".join(keywords(f"{day_note.title} {day_note.body[:2000]}"))
-            if query:
-                for hit in self.index.search(query, limit=limit * 4):
-                    if not relevant(hit.rel_path):
-                        continue
-                    take(hit)
-                    if len(hits) >= limit:
-                        return hits
+            texto = f"{day_note.title} {day_note.body[:2000]}"
+            # Com embeddings, "impulsao" encontra "vontade" de um mes atras;
+            # sem eles, cai na busca lexical de sempre (nenhuma regressao).
+            candidatos = self.index.semantic_search(texto, limit=limit * 4, min_score=0.2)
+            if not candidatos:
+                query = " ".join(keywords(texto))
+                candidatos = self.index.search(query, limit=limit * 4) if query else []
+            for hit in candidatos:
+                if not relevant(hit.rel_path):
+                    continue
+                take(hit)
+                if len(hits) >= limit:
+                    return hits
         for hit in self.index.recent(limit=limit * 3):
             if hit.rel_path in seen or not relevant(hit.rel_path):
                 continue

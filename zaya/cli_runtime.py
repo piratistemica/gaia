@@ -15,7 +15,7 @@ from zaya.controller.orchestrator import Orchestrator
 from zaya.interface.terminal import TerminalUI
 from zaya.logging_setup import setup_logging
 from zaya.memory.store import MemoryStore
-from zaya.secondbrain.index import SecondBrainIndex
+from zaya.secondbrain.index import open_index
 from zaya.secondbrain.notes import SecondBrain
 from zaya.stt.faster_whisper import WhisperTranscriber
 from zaya.tts.manager import TTSManager
@@ -31,7 +31,7 @@ def _build_app(
     logger = setup_logging(cfg.log_dir(), verbose=verbose)
     ui = TerminalUI(quiet=quiet)
     store = MemoryStore(cfg.db_path())
-    index = SecondBrainIndex(cfg.secondbrain, cfg.index_path())
+    index = open_index(cfg.secondbrain, cfg.index_path())
     brain = SecondBrain(cfg.secondbrain, index)
     if not voice:
         cfg.tts.enabled = False

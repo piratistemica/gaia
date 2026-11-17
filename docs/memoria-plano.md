@@ -1254,3 +1254,70 @@ prosa (contagem de ocorrência = 1), sonho fora do formato ainda gerando aviso,
 continuidade (sonho anterior no prompt, sonho do próprio dia fora), descarte
 (não sonha de novo, `force` ainda sonha), corrida (adota a nota), aviso com
 `/proativo off` e aviso vazio registrado em `WARNING`.
+
+## 17. Embedding: busca por sentido (fundação pronta, desligada)
+
+A seção 16.7 fechou as lacunas de comportamento, mas a seleção do sonho
+continua **lexical**: "impulsão" hoje não encontra "vontade" de um mês atrás. O
+embedding resolve isso e é a única mudança que ainda muda a qualidade do sonho.
+
+### 17.1 O que já existe
+
+| Peça | Onde | Estado |
+|---|---|---|
+| `Embedder` (protocolo), `NullEmbedder`, `OpenAIEmbedder` | `zaya/secondbrain/embeddings.py` | pronto |
+| `chunk_vectors(chunk_id, model, vector, updated_at)` | `SecondBrainIndex._init_schema` | criada sempre, vazia sem embedder |
+| `semantic_search`, `embed_missing`, `vectors_pending` | `SecondBrainIndex` | pronto |
+| backfill no `reindex()` (`embedded` no retorno) | `SecondBrainIndex.reindex` | pronto |
+| sonho preferindo semântico com fallback lexical | `Dreamer._old_memories` | pronto |
+| `open_index()` (índice já com o embedder da config) | `zaya/secondbrain/index.py` | pronto |
+
+`cosine` é Python puro (sem numpy) e os vetores são float32 em BLOB: com
+algumas centenas de chunks, isso custa milissegundos. Se o acervo passar de
+~20 mil chunks, aí sim vale trocar por numpy ou um índice vetorial de verdade.
+
+### 17.2 Por que desligado por padrão
+
+`secondbrain.embed_model = ""` significa `NullEmbedder`: nada de rede, nada de
+custo, nada de dependência nova, e a busca continua a de hoje. O índice
+funciona com ou sem vetores — `chunk_vectors` pode estar vazia para sempre.
+
+### 17.3 Como ligar
+
+```toml
+[secondbrain]
+embed_model = "text-embedding-3-small"     # 1536 dims
+embed_base_url = "https://api.openai.com/v1"
+```
+
+```bash
+# no .env (nunca no TOML)
+ZAYA_SB_EMBED_API_KEY=...
+```
+
+Depois, uma passada de backfill:
+
+```bash
+zaya index --force    # o retorno traz "embedded": N
+```
+
+O mesmo dialeto serve para Ollama (`embed_base_url = "http://localhost:11434/v1"`
+com `embed_model = "nomic-embed-text"`) e LM Studio — quem preferir rodar
+local não precisa de chave nem de conta.
+
+### 17.4 Custo estimado
+
+Acervo atual do mini: 26 notas, ~130 chunks. `text-embedding-3-small` custa
+US$ 0,02 por milhão de tokens; o backfill inteiro fica abaixo de US$ 0,01 e a
+indexação incremental noturna (1 a 2 notas) é desprezível.
+
+### 17.5 O que ainda falta para "sonhar de verdade"
+
+1. **Escolher o provedor** (OpenAI vs Ollama local) — é a única decisão que não
+   é minha: envolve custo e privacidade.
+2. **Backfill no acervo real** e medir se as vizinhanças fazem sentido
+   (inspecionar `semantic_search` com frases do dia).
+3. **Ajustar `min_score`** (hoje 0,2 no sonho) com dados reais — o número certo
+   depende do modelo de embedding.
+4. Só então vale pensar em *clusterizar* sonhos recorrentes (o mesmo tema
+   voltando em noites diferentes), que é o próximo salto de qualidade.

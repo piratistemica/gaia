@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
@@ -11,6 +12,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from zaya.config import SecondBrainConfig
+from zaya.secondbrain.embeddings import (
+    Embedder,
+    NullEmbedder,
+    build_embedder,
+    cosine,
+    pack,
+    unpack,
+)
 from zaya.secondbrain.frontmatter import (
     extract_links,
     extract_title,
@@ -45,8 +54,15 @@ class SearchHit:
 
 
 class SecondBrainIndex:
-    def __init__(self, cfg: SecondBrainConfig, index_path: Path):
+    def __init__(
+        self,
+        cfg: SecondBrainConfig,
+        index_path: Path,
+        embedder: Embedder | None = None,
+    ):
         self.cfg = cfg
+        # Sem embedder configurado nada muda: a busca segue lexical.
+        self.embedder = embedder or NullEmbedder()
         self.root = Path(cfg.path).expanduser().resolve()
         self.index_path = Path(index_path).expanduser().resolve()
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +122,18 @@ class SecondBrainIndex:
                 """
             )
             self._conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path)")
+            # Vetores ficam em tabela propria: o indice funciona (e ja funciona
+            # hoje) sem eles; quem nao usa embedding nao paga nada.
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chunk_vectors (
+                    chunk_id INTEGER PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    vector BLOB NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
             try:
                 self._conn.execute(
                     """
@@ -193,8 +221,14 @@ class SecondBrainIndex:
         if not self._has_chunks:
             return
         path = record["path"]
+        self._conn.execute(
+            "DELETE FROM chunk_vectors WHERE chunk_id IN "
+            "(SELECT id FROM chunks WHERE path = ?)",
+            (path,),
+        )
         self._conn.execute("DELETE FROM chunks WHERE path = ?", (path,))
         self._conn.execute("DELETE FROM chunks_fts WHERE path = ?", (path,))
+        self._pending_chunks: list[tuple[int, str]] = []
         position = 0
         for section, content in _split_sections(record["body"]):
             for piece in _chunk_text(content):
@@ -220,7 +254,113 @@ class SecondBrainIndex:
                     """,
                     (cursor.lastrowid, path, record["title"], section, piece),
                 )
+                if cursor.lastrowid is not None:
+                    self._pending_chunks.append((int(cursor.lastrowid), piece))
                 position += 1
+        self._flush_vectors()
+
+    # ----------------------------------------------------------------- vectors
+    def _flush_vectors(self) -> None:
+        """Embeda os chunks pendentes e grava. Silencioso se nao ha embedder."""
+        if not self.embedder.enabled or not self._pending_chunks:
+            self._pending_chunks = []
+            return
+        ids = [chunk_id for chunk_id, _ in self._pending_chunks]
+        texts = [text for _, text in self._pending_chunks]
+        self._pending_chunks = []
+        vectors = self.embedder.embed(texts)
+        if len(vectors) != len(ids):
+            return
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            for chunk_id, vector in zip(ids, vectors, strict=False):
+                if not vector:
+                    continue
+                self._conn.execute(
+                    "INSERT INTO chunk_vectors (chunk_id, model, vector, updated_at) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET "
+                    "model=excluded.model, vector=excluded.vector, updated_at=excluded.updated_at",
+                    (chunk_id, self.embedder.model, pack(vector), now),
+                )
+
+    def vectors_pending(self) -> int:
+        """Chunks sem vetor do modelo atual (para o backfill de /indexar)."""
+        if not self.embedder.enabled:
+            return 0
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM chunks c LEFT JOIN chunk_vectors v "
+                "ON v.chunk_id = c.id AND v.model = ? WHERE v.chunk_id IS NULL",
+                (self.embedder.model,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def embed_missing(self, limit: int = 2000) -> int:
+        """Backfill: embeda chunks antigos que nunca passaram pelo embedder."""
+        if not self.embedder.enabled:
+            return 0
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT c.id, c.content FROM chunks c LEFT JOIN chunk_vectors v "
+                "ON v.chunk_id = c.id AND v.model = ? WHERE v.chunk_id IS NULL "
+                "LIMIT ?",
+                (self.embedder.model, limit),
+            ).fetchall()
+        if not rows:
+            return 0
+        vectors = self.embedder.embed([row["content"] for row in rows])
+        if len(vectors) != len(rows):
+            return 0
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            for row, vector in zip(rows, vectors, strict=False):
+                if not vector:
+                    continue
+                self._conn.execute(
+                    "INSERT INTO chunk_vectors (chunk_id, model, vector, updated_at) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(chunk_id) DO UPDATE SET "
+                    "model=excluded.model, vector=excluded.vector, updated_at=excluded.updated_at",
+                    (int(row["id"]), self.embedder.model, pack(vector), now),
+                )
+        return len(rows)
+
+    def semantic_search(
+        self, query: str, limit: int = 5, min_score: float = 0.0
+    ) -> list[SearchHit]:
+        """Busca por sentido. Lista vazia quando nao ha embedder ou vetores."""
+        if not self.embedder.enabled or not (query or "").strip():
+            return []
+        query_vectors = self.embedder.embed([query])
+        if not query_vectors or not query_vectors[0]:
+            return []
+        target = query_vectors[0]
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT c.path, c.rel_path, c.title, c.section, c.content, v.vector
+                FROM chunk_vectors v
+                JOIN chunks c ON c.id = v.chunk_id
+                WHERE v.model = ?
+                """,
+                (self.embedder.model,),
+            ).fetchall()
+        scored: list[tuple[float, sqlite3.Row]] = []
+        for row in rows:
+            score = cosine(target, unpack(row["vector"]))
+            if score > min_score:
+                scored.append((score, row))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            SearchHit(
+                path=row["path"],
+                rel_path=row["rel_path"],
+                title=row["title"],
+                section=row["section"],
+                snippet=_preview(row["content"], limit=1400),
+                score=round(score, 4),
+            )
+            for score, row in scored[:limit]
+        ]
 
     def remove_missing(self) -> int:
         removed = 0
@@ -267,7 +407,14 @@ class SecondBrainIndex:
             if self.index_note(path):
                 indexed += 1
         removed = self.remove_missing()
-        return {"indexed": indexed, "skipped": skipped, "removed": removed, "total": self.count()}
+        embedded = self.embed_missing()
+        return {
+            "indexed": indexed,
+            "skipped": skipped,
+            "removed": removed,
+            "total": self.count(),
+            "embedded": embedded,
+        }
 
     # ----------------------------------------------------------------- search
     @staticmethod
@@ -488,3 +635,16 @@ def _chunk_text(text: str, max_chars: int = 2500) -> list[str]:
     if current:
         chunks.append(current)
     return [chunk for chunk in chunks if chunk.strip()]
+
+
+def open_index(
+    cfg: SecondBrainConfig,
+    index_path: Path,
+    logger: logging.Logger | None = None,
+) -> SecondBrainIndex:
+    """Indice ja com o embedder da config (desligado por padrao)."""
+    return SecondBrainIndex(
+        cfg,
+        index_path,
+        build_embedder(cfg.embed_model, cfg.embed_base_url, cfg.embed_api_key, logger),
+    )

@@ -12,7 +12,7 @@ from zaya.audio.player import find_player
 from zaya.audio.recorder import Recorder
 from zaya.config import Config, write_default_config
 from zaya.interface.terminal import TerminalUI
-from zaya.secondbrain.index import SecondBrainIndex
+from zaya.secondbrain.index import SecondBrainIndex, open_index
 from zaya.secondbrain.notes import SecondBrain
 
 
@@ -27,10 +27,12 @@ def _config_command(cfg: Config, ui: TerminalUI, init: bool, force: bool) -> Non
 
 
 def _index_command(cfg: Config, ui: TerminalUI, force: bool) -> None:
-    index = SecondBrainIndex(cfg.secondbrain, cfg.index_path())
+    index = open_index(cfg.secondbrain, cfg.index_path())
     brain = SecondBrain(cfg.secondbrain, index)
     try:
         ui.info(f"indexando {brain.root} ...")
+        # reindex() tambem embeda o que falta quando secondbrain.embed_model
+        # esta configurado; sem ele, "embedded" fica 0 e nada muda.
         stats = index.reindex(force=force)
         ui.success(json.dumps(stats, ensure_ascii=False))
     finally:
@@ -44,7 +46,7 @@ def _ensure_indexed(index: SecondBrainIndex, cfg: Config) -> None:
 
 
 def _search_command(cfg: Config, ui: TerminalUI, query: str) -> None:
-    index = SecondBrainIndex(cfg.secondbrain, cfg.index_path())
+    index = open_index(cfg.secondbrain, cfg.index_path())
     try:
         _ensure_indexed(index, cfg)
         hits = index.search(query, limit=8)
@@ -54,7 +56,7 @@ def _search_command(cfg: Config, ui: TerminalUI, query: str) -> None:
 
 
 def _note_command(cfg: Config, ui: TerminalUI, name: str) -> None:
-    index = SecondBrainIndex(cfg.secondbrain, cfg.index_path())
+    index = open_index(cfg.secondbrain, cfg.index_path())
     brain = SecondBrain(cfg.secondbrain, index)
     try:
         _ensure_indexed(index, cfg)
@@ -155,7 +157,7 @@ async def _doctor(cfg: Config, ui: TerminalUI, verbose: bool) -> None:
     root = cfg.second_brain_path()
     ui.check(root.exists(), "Second Brain", str(root) if root.exists() else f"não existe: {root}")
     if root.exists():
-        index = SecondBrainIndex(cfg.secondbrain, cfg.index_path())
+        index = open_index(cfg.secondbrain, cfg.index_path())
         try:
             ui.check(True, "índice do Second Brain", f"{index.count()} nota(s) indexada(s)")
         finally:

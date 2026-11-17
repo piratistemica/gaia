@@ -33,7 +33,9 @@ models/
 tmp/
 *.personal.md
 memoria*.md
-SecondBrain/
+# Ancorado na raiz e so no topo: sem a barra inicial, o macOS
+# (case-insensitive) ignorava o pacote zaya/secondbrain/ inteiro.
+/SecondBrain/
 cv/
 curriculo*.md
 *.pdf

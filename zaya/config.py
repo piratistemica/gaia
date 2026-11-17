@@ -149,6 +149,12 @@ class SecondBrainConfig(BaseModel):
     reindex_on_start: bool = False
     backup_before_write: bool = True
     default_folder: str = "Inbox"
+    # Embeddings: vazio = desligado, a busca segue lexical (padrao).
+    # Ex.: "text-embedding-3-small" (OpenAI) ou "nomic-embed-text" (Ollama).
+    embed_model: str = ""
+    embed_base_url: str = "https://api.openai.com/v1"
+    # A chave vai no .env como ZAYA_SB_EMBED_API_KEY, nunca no TOML.
+    embed_api_key: str = ""
     # Vazio => <secondbrain.path>/preferences.md
     preferences_file: str = ""
     exclude: list[str] = Field(
@@ -448,6 +454,8 @@ class Config(BaseModel):
                 data["whatsapp"][field] = "***"
         if data.get("telegram", {}).get("bot_token"):
             data["telegram"]["bot_token"] = "***"
+        if data.get("secondbrain", {}).get("embed_api_key"):
+            data["secondbrain"]["embed_api_key"] = "***"
         return data
 
     # ------------------------------------------------------------------ load
@@ -602,6 +610,9 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_SB_CONTEXT_RESULTS": ("secondbrain", "context_results"),
     "ZAYA_SECOND_BRAIN_INDEX": ("secondbrain", "index_db"),
     "ZAYA_SECOND_BRAIN_PATH": ("secondbrain", "path"),
+    "ZAYA_SB_EMBED_API_KEY": ("secondbrain", "embed_api_key"),
+    "ZAYA_SB_EMBED_BASE_URL": ("secondbrain", "embed_base_url"),
+    "ZAYA_SB_EMBED_MODEL": ("secondbrain", "embed_model"),
     "ZAYA_SB_PREFERENCES_FILE": ("secondbrain", "preferences_file"),
     "ZAYA_SB_REINDEX_ON_START": ("secondbrain", "reindex_on_start"),
     "ZAYA_SB_REQUIRE_CONFIRMATION": ("secondbrain", "require_confirmation"),
@@ -824,6 +835,9 @@ auto_mute_seconds = 30          # silencio que desliga o microfone (0 = nunca)
 
 [secondbrain]
 path = "~/SecondBrain"
+# Embeddings para busca por sentido e para o sonho. Vazio = desligado.
+embed_model = ""            # ex.: text-embedding-3-small | nomic-embed-text
+embed_base_url = "https://api.openai.com/v1"
 context_results = 2            # 2-3 trechos curtos bastam
 context_chars = 480            # por trecho
 context_max_chars = 1200       # teto do bloco inteiro

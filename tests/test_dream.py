@@ -470,3 +470,132 @@ async def test_corrida_entre_processos_adota_a_nota_existente(sonho):
 
     assert caminho == rel
     assert "ganhou a corrida" in brain.read_note(caminho).body
+
+
+class _FakeEmbedder:
+    """Duplo de embedder: vetores deterministicos por palavra-chave."""
+
+    enabled = True
+    model = "fake-embed"
+
+    def __init__(self) -> None:
+        self.chamadas: list[list[str]] = []
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.chamadas.append(list(texts))
+        vetores = []
+        for text in texts:
+            baixo = (text or "").lower()
+            # "vontade" e "impulsao" caem no mesmo eixo: sinonimo aproximado.
+            querer = 1.0 if ("vontade" in baixo or "impuls" in baixo) else 0.0
+            agenda = 1.0 if "agenda" in baixo else 0.0
+            vetores.append([querer, agenda, 0.1])
+        return vetores
+
+
+def test_busca_semantica_encontra_sinonimo_que_a_lexical_perde(tmp_path):
+    from zaya.secondbrain.index import SecondBrainIndex
+
+    sb_cfg = SecondBrainConfig(path=str(tmp_path / "brain"))
+    embedder = _FakeEmbedder()
+    index = SecondBrainIndex(sb_cfg, tmp_path / "sb.db", embedder=embedder)
+    try:
+        raiz = tmp_path / "brain"
+        (raiz / "Inbox").mkdir(parents=True)
+        antiga = raiz / "Inbox" / "Vontade.md"
+        antiga.write_text("## Notas\nminha vontade de mudar de area", encoding="utf-8")
+        index.index_note(antiga)
+
+        # Lexical: "impulsao" nao casa com "vontade".
+        assert index.search("impulsao", limit=3) == []
+        # Semantico: casa, porque o embedder coloca as duas no mesmo eixo.
+        hits = index.semantic_search("impulsao de mudar", limit=3, min_score=0.2)
+        assert [h.rel_path for h in hits] == ["Inbox/Vontade.md"]
+    finally:
+        index.close()
+
+
+def test_index_sem_embedder_nao_cria_vetores(tmp_path):
+    from zaya.secondbrain.index import SecondBrainIndex
+
+    sb_cfg = SecondBrainConfig(path=str(tmp_path / "brain"))
+    index = SecondBrainIndex(sb_cfg, tmp_path / "sb.db")
+    try:
+        raiz = tmp_path / "brain"
+        raiz.mkdir(parents=True, exist_ok=True)
+        nota = raiz / "a.md"
+        nota.write_text("## X\ntexto", encoding="utf-8")
+        index.index_note(nota)
+        assert index.vectors_pending() == 0
+        assert index.semantic_search("texto") == []
+    finally:
+        index.close()
+
+
+def test_backfill_embeda_chunks_antigos(tmp_path):
+    from zaya.secondbrain.index import SecondBrainIndex
+
+    sb_cfg = SecondBrainConfig(path=str(tmp_path / "brain"))
+    raiz = tmp_path / "brain"
+    raiz.mkdir(parents=True)
+    nota = raiz / "a.md"
+    nota.write_text("## X\nquero mudar", encoding="utf-8")
+
+    sem = SecondBrainIndex(sb_cfg, tmp_path / "sb.db")
+    sem.index_note(nota)
+    sem.close()
+
+    embedder = _FakeEmbedder()
+    com = SecondBrainIndex(sb_cfg, tmp_path / "sb.db", embedder=embedder)
+    try:
+        assert com.vectors_pending() > 0
+        assert com.embed_missing() > 0
+        assert com.vectors_pending() == 0
+        assert len(com.semantic_search("vontade", limit=3)) == 1
+    finally:
+        com.close()
+
+
+def test_cosine_e_pack_unpack():
+    from zaya.secondbrain.embeddings import cosine, pack, unpack
+
+    vetor = [0.5, -0.25, 1.0]
+    assert unpack(pack(vetor)) == vetor
+    assert abs(cosine([1, 0], [1, 0]) - 1.0) < 1e-9
+    assert cosine([1, 0], [0, 1]) == 0.0
+    assert cosine([], [1.0]) == 0.0
+    assert cosine([0.0, 0.0], [1.0, 1.0]) == 0.0
+
+
+def test_embedder_desligado_sem_modelo():
+    from zaya.secondbrain.embeddings import build_embedder
+
+    assert build_embedder("").enabled is False
+    assert build_embedder("  ").enabled is False
+    ligado = build_embedder("text-embedding-3-small", "https://x/v1", "k")
+    assert ligado.enabled is True
+    assert ligado.model == "text-embedding-3-small"
+
+
+async def test_sonho_prefere_busca_semantica(sonho, tmp_path):
+    """Com embedder, o sonho acha nota antiga por sentido, nao por palavra."""
+    from zaya.secondbrain.index import SecondBrainIndex
+
+    cfg, store, brain, _index, proj = sonho
+    dia = date.today()
+    _criar_memoria_dia(brain, dia)
+
+    raiz = tmp_path / "brain"
+    _criar_memoria_antiga(brain)
+    # Mesmo brain do fixture, mas com embedder e indice proprio.
+    sb_cfg = SecondBrainConfig(path=str(raiz), default_folder="Inbox")
+    semantico = SecondBrainIndex(sb_cfg, tmp_path / "sb_sem.db", embedder=_FakeEmbedder())
+    try:
+        for nota in raiz.rglob("*.md"):
+            semantico.index_note(nota)
+        dreamer = Dreamer(cfg, store, brain, semantico, _FakeClient(), proj)
+        antigas = dreamer._old_memories(dia, dreamer._day_note(dia))
+        assert antigas, "a busca semantica deveria trazer a nota antiga"
+        assert any("Diário de campo" in hit.title for hit in antigas)
+    finally:
+        semantico.close()
