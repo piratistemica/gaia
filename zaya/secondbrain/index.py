@@ -646,5 +646,12 @@ def open_index(
     return SecondBrainIndex(
         cfg,
         index_path,
-        build_embedder(cfg.embed_model, cfg.embed_base_url, cfg.embed_api_key, logger),
+        build_embedder(
+            cfg.embed_model,
+            cfg.embed_base_url,
+            cfg.embed_api_key,
+            timeout=cfg.embed_timeout,
+            batch_size=cfg.embed_batch_size,
+            logger=logger,
+        ),
     )

@@ -158,6 +158,9 @@ class SecondBrainConfig(BaseModel):
     # Cosseno minimo para considerar que "ressoa". Medido com bge-m3:
     # frases sem relacao ficam ~0.45, entao 0.5 e o piso honesto.
     embed_min_score: float = 0.5
+    # CPU (mini PC) demora: lote pequeno e timeout folgado evitam timeouts.
+    embed_batch_size: int = 8
+    embed_timeout: float = 120.0
     # Vazio => <secondbrain.path>/preferences.md
     preferences_file: str = ""
     exclude: list[str] = Field(
@@ -615,7 +618,9 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_SECOND_BRAIN_PATH": ("secondbrain", "path"),
     "ZAYA_SB_EMBED_API_KEY": ("secondbrain", "embed_api_key"),
     "ZAYA_SB_EMBED_BASE_URL": ("secondbrain", "embed_base_url"),
+    "ZAYA_SB_EMBED_BATCH_SIZE": ("secondbrain", "embed_batch_size"),
     "ZAYA_SB_EMBED_MIN_SCORE": ("secondbrain", "embed_min_score"),
+    "ZAYA_SB_EMBED_TIMEOUT": ("secondbrain", "embed_timeout"),
     "ZAYA_SB_EMBED_MODEL": ("secondbrain", "embed_model"),
     "ZAYA_SB_PREFERENCES_FILE": ("secondbrain", "preferences_file"),
     "ZAYA_SB_REINDEX_ON_START": ("secondbrain", "reindex_on_start"),

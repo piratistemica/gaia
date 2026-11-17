@@ -25,8 +25,10 @@ from typing import Protocol
 
 import httpx
 
-# Lote por requisicao: provedores limitam o numero de inputs por chamada.
-_MAX_BATCH = 32
+# Lote por requisicao. Em CPU (mini PC) um lote grande passa facil dos 30s:
+# 8 trechos por chamada e o que mantem cada requisicao curta.
+_DEFAULT_BATCH = 8
+_DEFAULT_TIMEOUT = 120.0
 
 
 class Embedder(Protocol):
@@ -56,13 +58,15 @@ class OpenAIEmbedder:
         model: str,
         base_url: str = "https://api.openai.com/v1",
         api_key: str = "",
-        timeout: float = 30.0,
+        timeout: float = _DEFAULT_TIMEOUT,
+        batch_size: int = _DEFAULT_BATCH,
         logger: logging.Logger | None = None,
     ):
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.batch_size = max(1, int(batch_size))
         self.logger = logger or logging.getLogger(__name__)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -75,8 +79,8 @@ class OpenAIEmbedder:
         vectors: list[list[float]] = []
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                for start in range(0, len(clean), _MAX_BATCH):
-                    batch = clean[start : start + _MAX_BATCH]
+                for start in range(0, len(clean), self.batch_size):
+                    batch = clean[start : start + self.batch_size]
                     response = client.post(
                         f"{self.base_url}/embeddings",
                         json={"model": self.model, "input": batch},
@@ -101,7 +105,12 @@ class OpenAIEmbedder:
 
 
 def build_embedder(
-    model: str, base_url: str = "", api_key: str = "", logger: logging.Logger | None = None
+    model: str,
+    base_url: str = "",
+    api_key: str = "",
+    timeout: float = _DEFAULT_TIMEOUT,
+    batch_size: int = _DEFAULT_BATCH,
+    logger: logging.Logger | None = None,
 ) -> Embedder:
     """Embedder pela config: modelo vazio significa desligado."""
     if not (model or "").strip():
@@ -110,6 +119,8 @@ def build_embedder(
         model=model.strip(),
         base_url=(base_url or "https://api.openai.com/v1").strip(),
         api_key=api_key,
+        timeout=timeout,
+        batch_size=batch_size,
         logger=logger,
     )
 
