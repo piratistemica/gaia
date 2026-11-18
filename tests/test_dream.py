@@ -630,3 +630,24 @@ def test_limiar_de_ressonancia_vem_da_config(tmp_path):
         assert index.semantic_search("outra coisa", min_score=0.35) == []
     finally:
         index.close()
+
+
+async def test_sonho_ignora_notas_de_andaime(sonho):
+    """README e "Boas-vindas" do vault falam de tudo: nao podem resonar."""
+    cfg, store, brain, index, proj = sonho
+    dia = date.today()
+    _criar_memoria_dia(brain, dia)
+    brain.create_note(
+        "Boas-vindas",
+        "Esta é a nota inicial do seu Second Brain de exemplo. Ideias "
+        "capturadas por voz pela Zaya aparecem aqui.",
+        folder="Inbox",
+        confirm=True,
+    )
+    assert cfg.memory.dream_ignore
+    dreamer = Dreamer(cfg, store, brain, index, _FakeClient(), proj)
+
+    antigas = dreamer._old_memories(dia, dreamer._day_note(dia))
+
+    caminhos = [hit.rel_path for hit in antigas]
+    assert all("Boas-vindas" not in caminho for caminho in caminhos)

@@ -348,8 +348,13 @@ class Dreamer:
         per_note: dict[str, int] = {}
         self_rel = f"{self.cfg.memory.dream_folder}/Sonho {day.isoformat()}.md"
 
+        ignoradas = tuple(self.cfg.memory.dream_ignore or ())
+
         def relevant(rel_path: str) -> bool:
             if rel_path in {day_rel, self_rel} or rel_path.startswith(dream_prefix):
+                return False
+            # Nota de exemplo/andaime do vault nao ressoa com nada de verdade.
+            if any(rel_path.startswith(prefix) for prefix in ignoradas):
                 return False
             return per_note.get(rel_path, 0) < _PER_NOTE
 

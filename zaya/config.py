@@ -220,6 +220,11 @@ class MemoryConfig(BaseModel):
     dream_until: str = "08:00"
     # Os sonhos ficam em pasta propria, separada do diario consolidado.
     dream_folder: str = "Sonhos"
+    # Notas de andaime/exemplo que nunca devem entrar no sonho: elas falam de
+    # tudo e de nada, e a busca por sentido as traz para o topo sempre.
+    dream_ignore: list[str] = Field(
+        default_factory=lambda: ["README.md", "Inbox/Boas-vindas.md"]
+    )
     # Aviso no dia seguinte: uma linha sobre o sonho, sem segunda chamada ao
     # modelo. Vai pelo canal em uso (TUI ou Telegram), fora das quiet hours.
     dream_notify: bool = True
