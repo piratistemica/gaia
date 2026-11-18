@@ -459,3 +459,149 @@ async def test_texto_entrando_nao_gera_audio_por_padrao():
     await service._handle_update({"message": {"chat": {"id": 42}, "text": "oi"}})
 
     assert tg.audios == []
+
+
+class _MetaStore:
+    """Store minimo: so o meta que o offset usa."""
+
+    def __init__(self) -> None:
+        self.meta: dict[str, str] = {}
+
+    def get_meta(self, key, default=None):
+        return self.meta.get(key, default)
+
+    def set_meta(self, key, value):
+        self.meta[key] = str(value)
+
+
+class _OffsetOrchestrator:
+    last_error = ""
+
+    def __init__(self) -> None:
+        self.store = _MetaStore()
+        self.recebidas: list[str] = []
+
+    def start_briefing(self) -> None:
+        pass
+
+    def start_career(self) -> None:
+        pass
+
+    def start_proactive(self) -> None:
+        pass
+
+    def start_memory(self) -> None:
+        pass
+
+    async def answer_once(self, text, speak=False, close=False):
+        self.recebidas.append(text)
+        return "ok"
+
+
+class _OffsetClient:
+    def __init__(self) -> None:
+        self.offsets: list[int | None] = []
+        self.enviadas: list[str] = []
+
+    async def get_me(self):
+        return {"username": "teste"}
+
+    async def send_chat_action(self, *args, **kwargs) -> None:
+        pass
+
+    async def send_message(self, text, chat_id=None, **kwargs) -> None:
+        self.enviadas.append(text)
+
+    async def get_updates(self, offset=None):
+        self.offsets.append(offset)
+        if len(self.offsets) == 1:
+            return [{"update_id": 7, "message": {"chat": {"id": 42}, "text": "oi"}}]
+        # Dorme ate o teste cancelar, sem girar em loop.
+        await asyncio.sleep(3600)
+        return []
+
+
+@pytest.mark.asyncio
+async def test_serve_retoma_offset_salvo_e_persiste_o_novo():
+    """Restart nao pode reentregar update ja respondido: offset fica no meta."""
+    import logging
+
+    cfg = Config()
+    cfg.telegram.allowed_chat_id = "42"
+    orch = _OffsetOrchestrator()
+    orch.store.meta["telegram:offset"] = "7"
+    client = _OffsetClient()
+    service = TelegramService(
+        cfg, orch, client, None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    task = asyncio.create_task(service.run())
+    for _ in range(100):
+        if len(client.offsets) > 1:
+            break
+        await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert client.offsets[0] == 7
+    assert orch.recebidas == ["oi"]
+    assert client.offsets[1] == 8
+    assert orch.store.meta["telegram:offset"] == "8"
+
+
+def test_offset_salvo_invalido_nao_quebra_o_boot():
+    import logging
+
+    cfg = Config()
+    orch = _OffsetOrchestrator()
+    orch.store.meta["telegram:offset"] = "lixo"
+    service = TelegramService(
+        cfg, orch, None, None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    assert service._load_offset() is None
+
+
+def test_servico_sem_store_nao_quebra_o_offset():
+    import logging
+
+    cfg = Config()
+    service = TelegramService(
+        cfg, None, None, None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    assert service._load_offset() is None
+    service._save_offset(9)
+
+
+def test_offset_persiste_no_sqlite_de_verdade(tmp_path):
+    """Round-trip com o MemoryStore real: o meta precisa sobreviver ao processo."""
+    import logging
+
+    from zaya.memory.store import MemoryStore
+
+    cfg = Config()
+    orch = _OffsetOrchestrator()
+    db = tmp_path / "zaya.db"
+    orch.store = MemoryStore(db)
+    service = TelegramService(
+        cfg, orch, None, None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    service._save_offset(4312)
+    orch.store.close()
+
+    reaberto = MemoryStore(db)
+    try:
+        service2 = TelegramService(
+            cfg,
+            type("O", (), {"store": reaberto})(),
+            None,
+            None,
+            TerminalUI(quiet=True),
+            logging.getLogger("t"),
+        )
+        assert service2._load_offset() == 4312
+    finally:
+        reaberto.close()

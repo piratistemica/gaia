@@ -19,6 +19,11 @@ from zaya.telegram.client import TelegramClient, TelegramError
 # de requisicoes a cada 2s durante todo o incidente.
 _MAX_BACKOFF = 30.0
 
+# Chave do meta onde o offset do getUpdates sobrevive a reinicio. Sem isso o
+# processo volta com offset None, o Telegram reentrega os updates nao
+# confirmados das ultimas 24h e a Zaya responde de novo o que ja respondeu.
+_OFFSET_META_KEY = "telegram:offset"
+
 
 # Ferramentas que dão shell ou escrevem arquivo: nunca pelo chat remoto sem
 # opt-in explícito (telegram.shell_access).
@@ -92,7 +97,7 @@ class TelegramService:
         # Consolidacao das 23:00 e sonho das 02:00 tambem precisam subir sem
         # mensagem: headless, ninguem fala com ela de madrugada.
         self.orchestrator.start_memory()
-        offset: int | None = None
+        offset: int | None = self._load_offset()
         backoff = 2.0
         while True:
             try:
@@ -110,7 +115,36 @@ class TelegramService:
                 except Exception as exc:  # pragma: no cover - depende da rede/agente
                     self.logger.exception("falha ao processar update")
                     await self._safe_reply(update, f"Deu erro aqui: {exc}")
+                # O update ja foi respondido (ou virou mensagem de erro):
+                # confirma-lo evita responder duas vezes depois de um restart.
+                self._save_offset(offset)
             await asyncio.sleep(0.05)
+
+    def _load_offset(self) -> int | None:
+        """Retoma de onde parou; sem valor salvo, comeca do pendente."""
+        store = getattr(self.orchestrator, "store", None)
+        if store is None:
+            return None
+        try:
+            raw = store.get_meta(_OFFSET_META_KEY)
+        except Exception:
+            self.logger.debug("falha ao ler o offset salvo", exc_info=True)
+            return None
+        try:
+            return int(str(raw)) if raw else None
+        except (TypeError, ValueError):
+            self.logger.warning("offset salvo invalido: %r", raw)
+            return None
+
+    def _save_offset(self, offset: int) -> None:
+        store = getattr(self.orchestrator, "store", None)
+        if store is None:
+            return
+        try:
+            store.set_meta(_OFFSET_META_KEY, str(offset))
+        except Exception:
+            # Perder a marca so custa um replay depois; nao pode matar o laco.
+            self.logger.debug("falha ao salvar o offset", exc_info=True)
 
     def _allowed(self, chat_id: Any) -> bool:
         allowed = str(self.cfg.telegram.allowed_chat_id or "").strip()
