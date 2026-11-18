@@ -99,11 +99,25 @@ class TelegramService:
         self.orchestrator.start_memory()
         offset: int | None = self._load_offset()
         backoff = 2.0
+        conflict_warned = False
         while True:
             try:
                 updates = await self.client.get_updates(offset=offset)
                 backoff = 2.0
+                if conflict_warned:
+                    conflict_warned = False
+                    self.logger.info("getUpdates voltou a funcionar")
             except TelegramError as exc:
+                # 409 Conflict tem causa certa e acionavel; o aviso completo
+                # so sai uma vez por sequencia para nao inundar o journal.
+                if "Conflict" in str(exc) and not conflict_warned:
+                    conflict_warned = True
+                    self.logger.warning(
+                        "getUpdates recusado: outro processo esta usando o mesmo bot "
+                        "token. Rode `ps aux | grep 'zaya telegram serve'` no Mac e no "
+                        "mini e deixe so um: %s",
+                        exc,
+                    )
                 self.logger.warning("getUpdates falhou: %s", exc)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, _MAX_BACKOFF)
