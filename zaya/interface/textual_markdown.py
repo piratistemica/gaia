@@ -9,7 +9,7 @@ própria — sem competir com o fundo do card.
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
@@ -83,9 +83,9 @@ def _safe_lexer(name: str) -> str:
 class _ZayaHeading(Heading):
     """Título alinhado à esquerda com marcador colorido por nível."""
 
-    LEVEL_ALIGN: ClassVar[dict[str, str]] = {
-        f"h{index}": "left" for index in range(1, 7)
-    }
+    LEVEL_ALIGN: ClassVar[
+        dict[str, Literal["default", "left", "center", "right", "full"]]
+    ] = {f"h{index}": "left" for index in range(1, 7)}
 
     def __rich_console__(self, console, options):
         text = self.text.copy()

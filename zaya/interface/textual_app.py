@@ -241,7 +241,7 @@ class ZayaTextualApp(App):
         self._listen_task: asyncio.Task | None = None
         self._insert_mode = False
         self._selection_mode = bool(start_selecting)
-        self.ALLOW_SELECT = self._selection_mode
+        type(self).ALLOW_SELECT = self._selection_mode
         self._show_dashboard = True
         self._turn_running = False
         self._status_base = ""
@@ -1046,7 +1046,7 @@ class ZayaTextualApp(App):
 
     def _start_with_selection(self) -> None:
         """Liga a seleção nativa de texto ao abrir (se configurada)."""
-        self.ALLOW_SELECT = self._selection_mode
+        type(self).ALLOW_SELECT = self._selection_mode
         if self._selection_mode:
             self._set_status(
                 "seleção ligada: arraste no chat para copiar · Ctrl+C copia · F4 desliga"
@@ -1055,7 +1055,7 @@ class ZayaTextualApp(App):
     def action_toggle_mouse(self) -> None:
         """Liga/desliga a seleção de texto com destaque."""
         self._selection_mode = not self._selection_mode
-        self.ALLOW_SELECT = self._selection_mode
+        type(self).ALLOW_SELECT = self._selection_mode
         if not self._selection_mode:
             self.clear_selection()
         if self._selection_mode:

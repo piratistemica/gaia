@@ -303,16 +303,16 @@ def _intervalo(bruto: str, total: int) -> tuple[int, int]:
     if not texto:
         return 1, total
     if "-" in texto:
-        inicio, _, fim = texto.replace(" ", "").partition("-")
+        inicio_txt, _, fim_txt = texto.replace(" ", "").partition("-")
         try:
-            return max(1, int(inicio)), max(1, int(fim))
+            return max(1, int(inicio_txt)), max(1, int(fim_txt))
         except ValueError:
             raise ToolError(f"intervalo inválido: {texto} (use 10-25)") from None
     try:
-        inicio = max(1, int(texto))
+        unico = max(1, int(texto))
     except ValueError:
         raise ToolError(f"intervalo inválido: {texto}") from None
-    return inicio, total
+    return unico, total
 
 
 def planilha(arguments: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -386,7 +386,7 @@ def planilha(arguments: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult.failure(str(exc))
     selecionadas = [(n, v) for n, v in dados if inicio <= n <= fim][:limite]
     largura = max((len(valores) for _, valores in selecionadas), default=0)
-    cabeca = [
+    cabecalho = [
         f"{arquivo.name} | {aba.nome} | {len(dados)} linhas x {largura} colunas",
         "colunas: " + " | ".join(_letra(i) for i in range(largura)) if largura else "",
         f"linhas {inicio}-{fim}, {len(selecionadas)} com conteúdo",
@@ -394,7 +394,7 @@ def planilha(arguments: dict[str, Any], ctx: ToolContext) -> ToolResult:
     corpo = [_linha_texto(numero, valores) for numero, valores in selecionadas]
     if not corpo:
         corpo = ["(nenhuma linha neste intervalo)"]
-    return ToolResult.success("\n".join([linha for linha in cabeca if linha] + corpo))
+    return ToolResult.success("\n".join([linha for linha in cabecalho if linha] + corpo))
 
 
 PLANILHA_TOOL: dict[str, Any] = {
