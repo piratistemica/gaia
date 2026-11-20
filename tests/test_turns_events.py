@@ -53,7 +53,9 @@ class FakeUI:
     def warning(self, text: str) -> None:
         self.warnings.append(text)
 
-    def permission(self, tool: str, patterns: list[str]) -> str:
+    def permission(
+        self, tool: str, patterns: list[str], request_id: str = ""
+    ) -> str:
         self.permissions.append((tool, patterns))
         return "once"
 

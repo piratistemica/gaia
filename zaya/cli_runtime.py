@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from zaya.agent import AgentClient
 from zaya.audio.recorder import Recorder
@@ -27,9 +28,11 @@ def _build_app(
     voice: bool = True,
     quiet: bool = False,
     channel: str = "cli",
+    ui: Any = None,
 ):
     logger = setup_logging(cfg.log_dir(), verbose=verbose)
-    ui = TerminalUI(quiet=quiet)
+    if ui is None:
+        ui = TerminalUI(quiet=quiet)
     store = MemoryStore(cfg.db_path())
     index = open_index(cfg.secondbrain, cfg.index_path())
     brain = SecondBrain(cfg.secondbrain, index)

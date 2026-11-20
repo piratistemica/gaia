@@ -13,6 +13,7 @@ refatorar o cliente.
 from __future__ import annotations
 
 import dataclasses
+import threading
 from collections import deque
 from datetime import date, datetime
 from pathlib import Path
@@ -66,7 +67,13 @@ RENDER_METHODS = (
 )
 
 # Metodos que o transporte usa (o servidor assina o stream), nao a UI.
-STREAM_METHODS = ("subscribe", "unsubscribe")
+STREAM_METHODS = (
+    "emit",
+    "subscribe",
+    "unsubscribe",
+    "resolve_permission",
+    "pendentes",
+)
 
 _LEVELS = {
     "hint": "hint",
@@ -136,6 +143,11 @@ class RemoteUI:
         # nao o usa (o runtime emite `PermissionAsked`), mas existir evita
         # quebra em quem testa `hasattr`.
         self.permission_callback: Any = None
+        # Pedidos de permissao esperando decisao do cliente remoto.
+        self._pendentes: dict[str, threading.Event] = {}
+        self._decisoes: dict[str, str] = {}
+        self._permission_lock = threading.Lock()
+        self.permission_timeout = 300.0
         self._seq = 0
         self._streaming = False
 
@@ -241,15 +253,52 @@ class RemoteUI:
     def reasoning(self, text: str) -> None:
         self.emit("reasoning", text=text)
 
-    def permission(self, tool: str, patterns: list[str]) -> str:
-        """Nao bloqueia e nao pergunta.
+    def permission(
+        self, tool: str, patterns: list[str], request_id: str = ""
+    ) -> str:
+        """Emite o pedido e **espera** a decisão que vem do cliente remoto.
 
-        O runtime ja emite `PermissionAsked` e espera num Future; a resposta vem
-        por `POST /permission/{id}`. Este metodo existe so para satisfazer a
-        superficie e nunca deve ser o caminho de uma aprovacao.
+        Chamado de uma thread (`asyncio.to_thread` em `_handle_permission`), então
+        bloquear aqui não trava o loop do agente. Sem `request_id` (interface
+        local não é o caso remoto) ou sem decisão a tempo, nega — negar é o
+        padrão seguro.
         """
-        self.emit("permission_ignored", tool=tool, resources=patterns)
-        return "reject"
+        # Com Telegram embutido no mesmo processo, a política do chat vale: o
+        # `telegram_permission` decide (auto_approve + allowed_chat_id) em vez
+        # de esperar um cliente HTTP que pode não existir.
+        if self.permission_callback is not None:
+            return self.permission_callback(tool, list(patterns))
+        if not request_id:
+            self.emit("permission_ignored", tool=tool, resources=patterns)
+            return "reject"
+        evento = threading.Event()
+        with self._permission_lock:
+            self._pendentes[request_id] = evento
+        self.emit(
+            "permission", request_id=request_id, tool=tool, resources=patterns
+        )
+        decidiu = evento.wait(timeout=self.permission_timeout)
+        with self._permission_lock:
+            self._pendentes.pop(request_id, None)
+            decisao = self._decisoes.pop(request_id, "reject")
+        if not decidiu:
+            self.emit("permission_timeout", request_id=request_id)
+            return "reject"
+        return decisao if decisao in {"once", "always", "reject"} else "reject"
+
+    def resolve_permission(self, request_id: str, decision: str) -> bool:
+        """Destrava o `permission()` que está esperando. False = ninguém esperava."""
+        with self._permission_lock:
+            evento = self._pendentes.get(request_id)
+            if evento is None:
+                return False
+            self._decisoes[request_id] = decision
+            evento.set()
+        return True
+
+    def pendentes(self) -> list[str]:
+        with self._permission_lock:
+            return list(self._pendentes)
 
     # ------------------------------------------------------------------ status
     def set_status(self, label: str, detail: str = "") -> None:

@@ -553,7 +553,9 @@ class TerminalUI:
             return default
         return raw in {"s", "sim", "y", "yes"}
 
-    def permission(self, tool: str, patterns: list[str]) -> str:
+    def permission(
+        self, tool: str, patterns: list[str], request_id: str = ""
+    ) -> str:
         if self.permission_callback is not None:
             return self.permission_callback(tool, list(patterns))
         if self._quiet:

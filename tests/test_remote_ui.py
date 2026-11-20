@@ -168,3 +168,52 @@ def test_historico_nao_estoura():
     for _ in range(HISTORY + 5):
         ui.info("x")
     assert len(ui.history) == HISTORY
+
+
+def test_permission_sem_id_nao_espera():
+    ui = RemoteUI()
+    assert ui.permission("bash", ["ls"]) == "reject"
+
+
+def test_permission_espera_a_decisao_vinda_do_cliente():
+    import threading
+    import time
+
+    ui = RemoteUI()
+    resultado: dict[str, str] = {}
+
+    def pedir() -> None:
+        resultado["r"] = ui.permission("write", ["a.py"], request_id="p1")
+
+    worker = threading.Thread(target=pedir)
+    worker.start()
+    for _ in range(100):
+        if "p1" in ui.pendentes():
+            break
+        time.sleep(0.01)
+    assert ui.resolve_permission("p1", "once") is True
+    worker.join(timeout=2)
+    assert resultado["r"] == "once"
+
+
+def test_resolve_permission_sem_pendente_devolve_false():
+    assert RemoteUI().resolve_permission("nao-existe", "once") is False
+
+
+def test_permission_nega_quando_a_decisao_e_lixo():
+    import threading
+    import time
+
+    ui = RemoteUI()
+    caixa: dict[str, str] = {}
+    t = threading.Thread(
+        target=lambda: caixa.setdefault("r", ui.permission("x", [], request_id="p2"))
+    )
+    t.start()
+    for _ in range(100):
+        if "p2" in ui.pendentes():
+            break
+        time.sleep(0.01)
+    ui.resolve_permission("p2", "sempre")
+    t.join(timeout=2)
+    assert caixa["r"] == "reject"

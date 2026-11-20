@@ -20,6 +20,7 @@ from zaya.cli_integrations import (
 )
 from zaya.cli_parser import build_parser
 from zaya.cli_runtime import _ask_command, _run_app, _watch_mode
+from zaya.cli_serve import _serve_command
 from zaya.config import Config
 from zaya.interface.terminal import TerminalUI
 
@@ -60,6 +61,10 @@ def main() -> None:
             asyncio.run(_browser_command(cfg, args, ui))
         elif args.command == "career":
             asyncio.run(_career_command(cfg, args, ui))
+        elif args.command == "serve":
+            codigo = asyncio.run(_serve_command(cfg, args))
+            if codigo:
+                raise SystemExit(codigo)
         else:
             asyncio.run(_run_app(cfg, args.verbose))
     except KeyboardInterrupt:

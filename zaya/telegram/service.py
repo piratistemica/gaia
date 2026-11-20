@@ -11,7 +11,6 @@ from typing import Any
 
 from zaya.config import Config, TelegramConfig
 from zaya.controller.orchestrator import Orchestrator
-from zaya.interface.terminal import TerminalUI
 from zaya.stt.faster_whisper import STTError, WhisperTranscriber
 from zaya.telegram.client import TelegramClient, TelegramError
 from zaya.telegram.thinking import ThinkingSink
@@ -67,7 +66,7 @@ class TelegramService:
         orchestrator: Orchestrator,
         client: TelegramClient,
         transcriber: WhisperTranscriber,
-        ui: TerminalUI,
+        ui: Any,
         logger: logging.Logger,
     ):
         self.cfg = cfg

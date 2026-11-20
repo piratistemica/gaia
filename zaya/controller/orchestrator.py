@@ -368,7 +368,13 @@ class Orchestrator(
     async def aclose(self) -> None:
         await self._shutdown()
 
-    async def start(self) -> None:
+    async def start_services(self) -> None:
+        """Sobe tudo menos o loop interativo.
+
+        `zaya serve` usa isto: o motor (bootstrap, workers de memória, briefing,
+        carreira, proatividade) precisa rodar sem ninguém lendo teclado. A TUI
+        chama `start()`, que é isto mais o `_loop()`.
+        """
         await self._bootstrap()
 
         if self.cfg.interface.show_banner:
@@ -410,6 +416,9 @@ class Orchestrator(
             await self._check_focus(datetime.now().astimezone())
         except Exception as exc:  # pragma: no cover
             self.logger.warning("falha ao checar foco: %s", exc, exc_info=True)
+
+    async def start(self) -> None:
+        await self.start_services()
 
         if not (self.cfg.audio.continuous and self._voice_available()):
             self.ui.hint(

@@ -502,7 +502,10 @@ class TurnMixin(OrchestratorContract):
             self._permission_active = True
             try:
                 answer = await asyncio.to_thread(
-                    self.ui.permission, event.tool, list(event.resources)
+                    self.ui.permission,
+                    event.tool,
+                    list(event.resources),
+                    request_id=event.request_id,
                 )
             finally:
                 self._permission_active = False
