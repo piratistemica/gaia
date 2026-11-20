@@ -73,3 +73,49 @@ def test_parser_remote_vale_antes_do_subcomando():
 
 def test_parser_remote_ausente_por_padrao():
     assert build_parser().parse_args([]).remote is None
+
+
+def test_remote_ask_fala_com_servidor_e_nao_com_o_motor_local(monkeypatch):
+    """Regressão: `ask` vinha antes do ramo remoto e rodava tudo no Mac.
+
+    O cliente fino não pode abrir banco nem indexar o Second Brain: o pedido
+    tem de ir por HTTP para o `zaya serve`.
+    """
+    import sys
+
+    import pytest
+
+    from zaya import cli
+
+    visto: dict = {}
+
+    class FakeClient:
+        def __init__(self, base: str, token: str = "", *, ui=None) -> None:
+            visto["base"] = base
+            visto["token"] = token
+
+        def pedir_um_turno(self, texto: str) -> str:
+            visto["texto"] = texto
+            return "ok"
+
+        def run(self) -> None:  # pragma: no cover - não é o caminho deste teste
+            visto["run"] = True
+
+    class FakeUI:
+        def info(self, *a, **k) -> None: ...
+        def error(self, *a, **k) -> None: ...
+
+    monkeypatch.setattr(cli, "RemoteClient", FakeClient)
+    monkeypatch.setattr(cli, "TerminalUI", lambda *a, **k: FakeUI())
+    monkeypatch.setattr(cli.Config, "load", classmethod(lambda cls, *a, **k: cls()))
+    monkeypatch.setattr(
+        cli, "_ask_command", lambda *a, **k: pytest.fail("rodou o motor local")
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["zaya", "--remote", "http://zaya:8799", "ask", "oi"]
+    )
+
+    cli.main()
+
+    assert visto["base"] == "http://zaya:8799"
+    assert visto["texto"] == "oi"

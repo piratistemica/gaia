@@ -42,7 +42,17 @@ def main() -> None:
     ui = TerminalUI()
 
     try:
-        if args.command == "doctor":
+        # `--remote` vem PRIMEIRO: o cliente fino nao pode construir o motor
+        # local. Com `ask` antes deste ramo, `zaya --remote ... ask` rodava
+        # tudo no Mac — inclusive abrindo e indexando o banco local.
+        if args.command == "ask" and args.remote:
+            cliente = RemoteClient(args.remote, cfg.serve.token, ui=ui)
+            resposta = cliente.pedir_um_turno(" ".join(args.message))
+            if not resposta:
+                raise SystemExit(1)
+        elif args.remote and args.command is None:
+            RemoteClient(args.remote, cfg.serve.token, ui=ui).run()
+        elif args.command == "doctor":
             asyncio.run(_doctor(cfg, ui, args.verbose))
         elif args.command == "config":
             _config_command(cfg, ui, args.init, args.force)
@@ -72,6 +82,7 @@ def main() -> None:
             if codigo:
                 raise SystemExit(codigo)
         elif args.remote:
+            # Subcomando que nao e `ask` com --remote: ainda assim remoto.
             RemoteClient(args.remote, cfg.serve.token, ui=ui).run()
         else:
             asyncio.run(_run_app(cfg, args.verbose))
