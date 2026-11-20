@@ -1,0 +1,26 @@
+# `zaya serve`: o motor num processo e o Telegram dentro dele.
+# Instalar como unidade de USUARIO (nada de root):
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now zaya-serve.service
+#
+# Requisitos: ~/.config/zaya/.env com ZAYA_AGENT_API_KEY e ZAYA_SERVE_TOKEN.
+# A guarda do config recusa escutar fora do loopback sem token.
+[Unit]
+Description=Zaya (motor + API/SSE para clientes remotos)
+After=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/zaya
+# 100.x = endereco do proprio mini no tailnet; loopback nunca exige token.
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/.config/zaya/.env
+ExecStart=%h/zaya/.venv/bin/zaya serve --host 127.0.0.1
+Restart=always
+RestartSec=5
+# Um turno interrompido nao pode virar tempestade de reinicios.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Install]
+WantedBy=default.target

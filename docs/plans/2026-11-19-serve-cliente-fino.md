@@ -1,7 +1,8 @@
 # Plano — `zaya serve` + cliente fino (uma inteligência, várias telas)
 
 **Data:** 2026-11-19
-**Status:** fase 1 aprovada para implementação; partes 2 e 3 são backlog
+**Status:** fase 1 **implementada e commitada** (tasks 1–5); task 6 preparada, sem
+cutover. Partes 2 e 3 são backlog.
 **Decisão da Talita (2026-11-19):** o **mini PC é a fonte da verdade**. Ele
 processa, guarda o banco e o Second Brain, e é o único escritor. Mac, navegador e
 celular são **interface** — tela e entrada, nada de estado.
@@ -169,10 +170,23 @@ aprovação e sessões. Sem web ainda.
 - Teste: cliente com servidor falso reproduz a ordem `say → tool → stream → done`.
 
 ### Task 6 — Empacotamento no mini
-- `scripts/zmin.sh`: `zmin serve` (restart) e `zmin doctor` checando `/health`.
-- systemd: `zaya-serve.service` com `ExecStart=zaya serve --host 0.0.0.0`
-  **apenas** se `ZAYA_SERVE_TOKEN` existir; senão `127.0.0.1`.
+- `deploy/zaya-serve.service` (loopback) e
+  `deploy/zaya-serve-tailnet.service.example` (escuta no `100.x` com
+  `ZAYA_SERVE_ALLOW_REMOTE=true`).
+- `scripts/zmin.sh`: `zmin serve install` (copia a unidade, **não liga**),
+  `zmin serve cutover` (para `zaya-telegram` e liga `zaya-serve` — um processo
+  só), `zmin serve logs`, `zmin serve status`.
+  `zmin deploy` passa a reiniciar a unidade **ativa** (serve ou telegram).
 - Roadmap: `launchctl` do Mac continua **disabled** (poller é o mini).
+
+**Cutover (decisão pendente, só depois de testar o serve no mini):**
+1. `zmin deploy` (código novo no mini, sem trocar a unidade);
+2. `zmin serve install`;
+3. testar com a unidade parada: `zmin shell` + `zaya serve --port 8799` e
+   `curl /health`;
+4. `zmin serve cutover`;
+5. conferir no Telegram que uma mensagem responde e que o briefing das 12:00
+   não sai duas vezes.
 
 **Critério de aceite da fase 1:** no Mac, `zaya --remote http://zaya:8787`
 responde em streaming, mostra ferramenta rodando e pede aprovação; matar o

@@ -8,6 +8,10 @@
 #   zmin test              # smoke test das ferramentas/agenda no mini
 #   zmin agenda [AAAA-MM-DD]# o que a Zaya vê na Agenda
 #   zmin ask "pergunta"    # conversa com a Zaya do mini, sem Telegram
+#   zmin serve install     # instala a unidade zaya-serve (NAO liga)
+#   zmin serve cutover     # para o Telegram e liga o serve (um processo so)
+#   zmin serve logs [-f]   # journal do zaya-serve
+#   zmin serve status      # estado do zaya-serve e /health
 #   zmin shell             # sessão persistente (screen) no mini
 #   zmin sudo <comando…>   # roda com sudo; a senha é digitada AQUI
 #
@@ -19,6 +23,7 @@ LOCAL_REPO="${ZMIN_LOCAL_REPO:-$HOME/zaya}"
 REMOTE_REPO="${ZMIN_REMOTE_REPO:-/home/talita/zaya}"
 REMOTE_PY="$REMOTE_REPO/.venv/bin/python"
 UNIT="zaya-telegram.service"
+SERVE_UNIT="zaya-serve.service"
 
 SSH=(ssh -o ConnectTimeout=8 "$HOST")
 
@@ -83,10 +88,53 @@ cmd_logs() {
   fi
 }
 
+# Qual unidade é a dona agora: o serve (novo) ou o telegram (antigo).
+unit_ativo() {
+  "${SSH[@]}" "systemctl --user is-active $SERVE_UNIT >/dev/null 2>&1 \
+    && echo $SERVE_UNIT || echo $UNIT"
+}
+
 cmd_restart() {
   need_ssh
-  "${SSH[@]}" "systemctl --user restart $UNIT && sleep 3 && systemctl --user is-active $UNIT"
-  printf 'serviço reiniciado em %s\n' "$HOST"
+  local alvo
+  alvo="$(unit_ativo)"
+  "${SSH[@]}" "systemctl --user restart $alvo && sleep 3 && systemctl --user is-active $alvo"
+  printf 'serviço reiniciado em %s (%s)\n' "$HOST" "$alvo"
+}
+
+cmd_serve() {
+  local acao="${1:-status}"
+  need_ssh
+  case "$acao" in
+    install)
+      info "instalando $SERVE_UNIT (sem ligar)"
+      "${SSH[@]}" "mkdir -p ~/.config/systemd/user" || die "sem ~/.config/systemd/user"
+      scp -q "$LOCAL_REPO/deploy/zaya-serve.service" \
+        "$HOST:~/.config/systemd/user/$SERVE_UNIT" || die "falha ao copiar a unidade"
+      "${SSH[@]}" "systemctl --user daemon-reload" || die "daemon-reload falhou"
+      printf 'unidade instalada (inativa). Para trocar de dono do Telegram:\n'
+      printf '  zmin serve cutover\n'
+      ;;
+    cutover)
+      info "parando o Telegram ($UNIT) e ligando o serve ($SERVE_UNIT)"
+      "${SSH[@]}" "systemctl --user disable --now $UNIT 2>/dev/null || true; \
+        systemctl --user enable --now $SERVE_UNIT"
+      sleep 3
+      "${SSH[@]}" "systemctl --user is-active $SERVE_UNIT; \
+        systemctl --user is-active $UNIT || echo \"$UNIT parado (esperado)\""
+      printf 'dono do Telegram agora: %s em %s\n' "$SERVE_UNIT" "$HOST"
+      ;;
+    logs)
+      shift || true
+      "${SSH[@]}" "journalctl --user -u $SERVE_UNIT -n 80 --no-pager $*"
+      ;;
+    status)
+      "${SSH[@]}" "systemctl --user is-active $SERVE_UNIT; \
+        systemctl --user is-enabled $SERVE_UNIT; \
+        curl -sf -m 3 http://127.0.0.1:8787/health || echo 'health: sem resposta (token?)'"
+      ;;
+    *) die "use: zmin serve install|cutover|logs|status" ;;
+  esac
 }
 
 cmd_deploy() {
@@ -107,6 +155,8 @@ cmd_deploy() {
   fi
   "${SSH[@]}" "cd $REMOTE_REPO && $REMOTE_PY -c 'import zaya'" \
     || die "código enviado mas não importa no mini — serviço NÃO reiniciado"
+  # cmd_restart escolhe a unidade ativa, então o deploy não reinicia um
+  # serviço parado nem deixa o serve rodando código velho.
   cmd_restart
 }
 
@@ -194,6 +244,7 @@ main() {
     test|testes) cmd_test ;;
     agenda) cmd_agenda "${1:-}" ;;
     ask) cmd_ask "$@" ;;
+    serve) cmd_serve "$@" ;;
     shell|ssh) cmd_shell ;;
     sudo) cmd_sudo "$@" ;;
     -h|--help|help) sed -n '2,20p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' ;;

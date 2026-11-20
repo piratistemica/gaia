@@ -1,0 +1,19 @@
+# Variante para expor no tailnet (SSH + clientes de fora de casa).
+# Copie para zaya-serve.service e ajuste o IP depois de `tailscale ip -4`.
+[Unit]
+Description=Zaya (motor + API/SSE no tailnet)
+After=network-online.target tailscaled.service
+Requires=tailscaled.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/zaya
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/.config/zaya/.env
+Environment=ZAYA_SERVE_ALLOW_REMOTE=true
+ExecStart=%h/zaya/.venv/bin/zaya serve --host 100.66.45.57
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
