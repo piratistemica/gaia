@@ -221,3 +221,31 @@ def test_agenda_tool_sem_credencial_avisa(tmp_path):
     ctx = ToolContext(tmp_path, True, AgendaConfig(env_file=str(tmp_path / "nao.env")))
     with pytest.raises(ToolError, match="Agenda"):
         agenda_dia({}, ctx)
+
+
+def test_agenda_dia_nao_mostra_hashtags(tools_agenda, monkeypatch):
+    import zaya.agent.tools.agenda as modulo
+
+    notas = [
+        {"id": "a", "text": "fio dental #saude", "is_checkbox": True, "completed": False},
+        {"id": "b", "text": "#importante", "is_checkbox": True, "completed": False},
+    ]
+
+    class _ComTags(_FakeClient):
+        async def notes_on(self, date):
+            return notas
+
+    monkeypatch.setattr(modulo, "AgendaClient", _ComTags)
+    tools, ctx = tools_agenda
+    saida = tools["agenda_dia"].handler({}, ctx)
+    assert "#" not in saida.content
+    assert "fio dental" in saida.content
+    assert "Pendentes (1)" in saida.content
+
+
+def test_agenda_nova_tarefa_confirmacao_sem_hashtag(tools_agenda):
+    tools, ctx = tools_agenda
+    pedido = tools["agenda_nova_tarefa"].handler({"texto": "pagar boleto #financas"}, ctx)
+    assert pedido.ok is False
+    assert "#" not in pedido.content
+    assert "pagar boleto" in pedido.content

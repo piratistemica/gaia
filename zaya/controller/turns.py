@@ -199,6 +199,7 @@ class TurnMixin(OrchestratorContract):
             self.persona,
             self._preferences_block(),
             concise=self.cfg.interface.concise,
+            humor=self.cfg.interface.humor,
             short_prompt=self._is_short_prompt(text),
             fast=fast,
             now=datetime.now().astimezone(),
@@ -436,12 +437,15 @@ class TurnMixin(OrchestratorContract):
                         continue
                     emit_text(event.text)
                 elif isinstance(event, ReasoningDelta):
-                    if not self.cfg.interface.show_reasoning:
-                        continue
                     reasoning_text += event.text
-                    self.ui.reasoning(reasoning_text)
-                    if self._stream_sink is not None:
-                        self._stream_sink.reasoning(reasoning_text)
+                    if self.cfg.interface.show_reasoning:
+                        self.ui.reasoning(reasoning_text)
+                    sink = self._stream_sink
+                    if sink is not None and (
+                        self.cfg.interface.show_reasoning
+                        or getattr(sink, "wants_reasoning", False)
+                    ):
+                        sink.reasoning(reasoning_text)
                 elif isinstance(event, ToolStarted):
                     tool_running = True
                     label = TOOL_LABELS.get(event.name, event.name)

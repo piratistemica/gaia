@@ -10,9 +10,10 @@ import time
 from datetime import datetime
 
 from zaya.agenda.client import AgendaError
-from zaya.briefing.compose import has_text
+from zaya.briefing.compose import has_text, strip_tags
 from zaya.controller.contract import OrchestratorContract
 from zaya.controller.proactive import ReminderSpec, greeting_for, in_quiet_hours
+from zaya.controller.prompt import humor_directive
 from zaya.focus import RITUALS, principal_phase_today
 
 
@@ -141,12 +142,12 @@ class InitiativeMixin(OrchestratorContract):
         new_ids = ids - self._agenda_seen
         self._agenda_seen = ids
         self._agenda_pending_names = [
-            str(task.get("text") or "tarefa") for task in tasks
+            strip_tags(task.get("text")) for task in tasks
         ]
         if not new_ids:
             return
         new_tasks = [task for task in tasks if str(task.get("id")) in new_ids]
-        names = [str(task.get("text") or "tarefa") for task in new_tasks]
+        names = [strip_tags(task.get("text")) for task in new_tasks]
         shown = names[: cfg.max_items]
         if len(names) > len(shown):
             shown.append(f"e mais {len(names) - len(shown)}")
@@ -319,6 +320,9 @@ class InitiativeMixin(OrchestratorContract):
             "Você é a Zaya, assistente pessoal da Talita. Seja calorosa, "
             "carinhosa e espontânea, sem exageros."
         )
+        humor = humor_directive(self.cfg.interface.humor)
+        if humor:
+            system = f"{system} {humor}"
         try:
             if not self._initiative_session_id:
                 session = await self.client.create_session(

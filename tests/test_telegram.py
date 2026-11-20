@@ -605,3 +605,128 @@ def test_offset_persiste_no_sqlite_de_verdade(tmp_path):
         assert service2._load_offset() == 4312
     finally:
         reaberto.close()
+
+
+# --------------------------------------------------------------- raciocínio
+class _FakeThinkingClient:
+    """Cliente minimo que registra envio e edicao do raciocinio."""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+        self.edits: list[tuple[int, str]] = []
+
+    async def send_message(self, text, chat_id=None, **kwargs):
+        self.sent.append(text)
+        return {"message_id": len(self.sent)}
+
+    async def edit_message_text(self, message_id, text, chat_id=None, **kwargs):
+        self.edits.append((message_id, text))
+        return {"message_id": message_id}
+
+    async def send_chat_action(self, *args, **kwargs) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_thinking_sink_envia_uma_vez_e_depois_edita():
+    import logging
+
+    from zaya.telegram.thinking import ThinkingSink
+
+    client = _FakeThinkingClient()
+    sink = ThinkingSink(client, logging.getLogger("t"), 42, min_interval=0.0)
+    sink.reasoning("primeiro pensamento")
+    await sink.aclose()
+    sink.reasoning("primeiro pensamento, agora completo")
+    await sink.aclose()
+
+    assert len(client.sent) == 1
+    assert "🧠 pensando" in client.sent[0]
+    assert "primeiro pensamento" in client.sent[0]
+    assert client.edits[-1][1].endswith("agora completo")
+    assert len(client.sent) == 1  # so a primeira publicacao cria mensagem
+
+
+@pytest.mark.asyncio
+async def test_thinking_sink_corta_texto_longo_e_nao_quebra_com_falha():
+    import logging
+
+    from zaya.telegram.thinking import ThinkingSink
+
+    class ClienteRuim(_FakeThinkingClient):
+        async def send_message(self, text, chat_id=None, **kwargs):
+            raise RuntimeError("telegram fora do ar")
+
+    sink = ThinkingSink(ClienteRuim(), logging.getLogger("t"), 42, min_interval=0.0)
+    sink.reasoning("x" * 9000)
+    await sink.aclose()  # nao levanta
+
+    client = _FakeThinkingClient()
+    sink = ThinkingSink(client, logging.getLogger("t"), 42, min_interval=0.0, max_chars=500)
+    sink.reasoning("a" * 2000)
+    await sink.aclose()
+    assert len(client.sent[0]) < 1200
+
+
+@pytest.mark.asyncio
+async def test_edit_message_text_usa_endpoint_do_telegram():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 7}})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = TelegramClient(_cfg(), http=http)
+    await client.edit_message_text(7, "pensando…")
+    await http.aclose()
+
+    request = captured[0]
+    assert request.url.path == "/bot123:abc/editMessageText"
+    payload = json.loads(request.content)
+    assert payload["message_id"] == 7
+    assert payload["text"] == "pensando…"
+
+
+class _ReasoningOrchestrator:
+    last_error = ""
+
+    def __init__(self) -> None:
+        self.recebeu_sink = False
+
+    async def answer_stream(self, text, sink):
+        self.recebeu_sink = True
+        sink.tool("ler", "arquivo")
+        sink.reasoning("estou pensando na resposta")
+        sink.token("resposta final")
+        return "resposta final"
+
+    async def answer_once(self, text, speak=False, close=False):
+        return "resposta sem raciocinio"
+
+
+@pytest.mark.asyncio
+async def test_pensando_liga_o_raciocinio_no_chat_e_usa_answer_stream():
+    import logging
+
+    cfg = Config()
+    cfg.telegram.allowed_chat_id = "42"
+    tg = _FakeThinkingClient()
+    orch = _ReasoningOrchestrator()
+    service = TelegramService(
+        cfg, orch, tg, None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    await service._handle_update({"message": {"chat": {"id": 42}, "text": "/pensando on"}})
+    assert cfg.telegram.show_reasoning is True
+    assert any("raciocínio ligado" in text for text in tg.sent)
+
+    await service._handle_update({"message": {"chat": {"id": 42}, "text": "oi"}})
+    assert orch.recebeu_sink is True
+    assert any("🧠 pensando" in text for text in tg.sent)
+    assert any("estou pensando" in text for text in tg.sent + [e[1] for e in tg.edits])
+    assert "resposta final" in tg.sent[-1]
+
+    await service._handle_update({"message": {"chat": {"id": 42}, "text": "/pensando off"}})
+    assert cfg.telegram.show_reasoning is False
+    assert any("raciocínio desligado" in text for text in tg.sent)

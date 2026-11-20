@@ -21,6 +21,7 @@ from zaya.agent.tools.base import (
     schema,
     string,
 )
+from zaya.briefing.compose import strip_tags
 
 PAGE_LIMIT = 4000
 PAGES_LISTED = 20
@@ -57,7 +58,7 @@ def _day_label(raw: str) -> str:
 
 
 def _short(texto: object, limit: int = 80) -> str:
-    value = " ".join(str(texto or "").split())
+    value = " ".join(strip_tags(texto).split())
     return value if len(value) <= limit else value[: limit - 1] + "…"
 
 
@@ -157,11 +158,12 @@ def agenda_nova_tarefa(arguments: dict[str, Any], ctx: ToolContext) -> ToolResul
     texto = " ".join(str(arguments.get("texto") or "").split())
     if not texto:
         return ToolResult.failure("texto da tarefa vazio")
+    visivel = strip_tags(texto) or texto
     day = _day_label(str(arguments.get("data") or ""))
     if not _confirmado(arguments):
         return ToolResult.failure(
             "Confirmacao necessaria: mostre a Talita que a tarefa "
-            f"'{texto}' sera criada na Agenda de {day} e repita a chamada com "
+            f"'{visivel}' sera criada na Agenda de {day} e repita a chamada com "
             "confirm=true."
         )
     row = _run(
@@ -170,7 +172,7 @@ def agenda_nova_tarefa(arguments: dict[str, Any], ctx: ToolContext) -> ToolResul
         )
     )
     return ToolResult.success(
-        f"Tarefa criada na Agenda de {day}: {texto} [id: {row.get('id')}]"
+        f"Tarefa criada na Agenda de {day}: {visivel} [id: {row.get('id')}]"
     )
 
 

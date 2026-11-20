@@ -14,6 +14,7 @@ from zaya.controller.orchestrator import Orchestrator
 from zaya.interface.terminal import TerminalUI
 from zaya.stt.faster_whisper import STTError, WhisperTranscriber
 from zaya.telegram.client import TelegramClient, TelegramError
+from zaya.telegram.thinking import ThinkingSink
 
 # Teto do backoff do long polling. Sem isso, uma queda do Telegram vira rajada
 # de requisicoes a cada 2s durante todo o incidente.
@@ -28,6 +29,9 @@ _OFFSET_META_KEY = "telegram:offset"
 # Ferramentas que dão shell ou escrevem arquivo: nunca pelo chat remoto sem
 # opt-in explícito (telegram.shell_access).
 _SHELL_TOOLS = frozenset({"bash", "write", "edit"})
+
+
+_THINKING_COMMANDS = {"/pensando", "/pensar", "/thinking", "/raciocinio", "/raciocínio"}
 
 
 def telegram_permission(cfg: TelegramConfig) -> Callable[[str, list[str]], str]:
@@ -191,6 +195,9 @@ class TelegramService:
         if text == "/modelo" or text.startswith("/modelo ") or text in {"/modelos", "/model"}:
             await self._handle_model_command(text, chat_id)
             return
+        if text.partition(" ")[0].lower() in _THINKING_COMMANDS:
+            await self._handle_thinking_command(text, chat_id)
+            return
         if not text:
             text = await self._transcribe_message(message)
         if not text:
@@ -198,11 +205,23 @@ class TelegramService:
 
         await self.client.send_chat_action(chat_id, "typing")
         await self.client.send_message("⏳ trabalhando nisso…", chat_id=chat_id)
+        sink = (
+            ThinkingSink(self.client, self.logger, chat_id)
+            if self.cfg.telegram.show_reasoning
+            else None
+        )
         try:
-            answer = await self.orchestrator.answer_once(text, speak=False, close=False)
+            stream = getattr(self.orchestrator, "answer_stream", None)
+            if sink is not None and callable(stream):
+                answer = await stream(text, sink)
+            else:
+                answer = await self.orchestrator.answer_once(text, speak=False, close=False)
         except Exception as exc:
             self.logger.exception("falha no agente")
             answer = f"Deu erro aqui: {exc}"
+        finally:
+            if sink is not None:
+                await sink.aclose()
 
         if answer:
             await self.client.send_message(answer, chat_id=chat_id)
@@ -230,6 +249,28 @@ class TelegramService:
             await self.client.send_message(f"Não consegui criar: {exc}", chat_id=chat_id)
             return
         await self.client.send_message("Pronto, sessão nova. Contexto zerado.", chat_id=chat_id)
+
+    async def _handle_thinking_command(self, text: str, chat_id: Any) -> None:
+        """`/pensando [on|off]` alterna o raciocinio visivel neste chat."""
+        argument = text.partition(" ")[2].strip().lower()
+        if argument in {"on", "ligar", "ligado", "sim", "1"}:
+            self.cfg.telegram.show_reasoning = True
+        elif argument in {"off", "desligar", "desligado", "nao", "não", "0"}:
+            self.cfg.telegram.show_reasoning = False
+        else:
+            self.cfg.telegram.show_reasoning = not self.cfg.telegram.show_reasoning
+        if self.cfg.telegram.show_reasoning:
+            await self.client.send_message(
+                "🧠 raciocínio ligado: mando uma mensagem que vai sendo editada "
+                "enquanto eu penso. /pensando off desliga.",
+                chat_id=chat_id,
+            )
+        else:
+            await self.client.send_message(
+                "🧠 raciocínio desligado: volto a mandar só a resposta."
+                " /pensando liga de novo.",
+                chat_id=chat_id,
+            )
 
     async def _handle_model_command(self, text: str, chat_id: Any) -> None:
         """`/modelo` no Telegram: lista numerada ou troca pelo número/slug."""

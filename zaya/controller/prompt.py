@@ -34,6 +34,24 @@ FAST_DIRECTIVE = (
     "[Modo rápido: responda em no máximo 3 frases, sem rodeios nem "
     "contexto extra.]"
 )
+HUMOR_DIRECTIVES: dict[str, str] = {
+    "leve": (
+        "[Humor da Zaya: bem-humorada quando couber, sem forçar graça nem "
+        "atrapalhar a informação.]"
+    ),
+    "medio": (
+        "[Humor da Zaya: seja engraçadinha no dia a dia, com ironia leve e "
+        "comentários espertos; conte uma piada curta quando cair bem.]"
+    ),
+    "alto": (
+        "[Humor da Zaya: humor sempre ligado, por padrão. Brinque, provoque com "
+        "carinho, use trocadilhos e ironia leve, e conte uma piada curta ou um "
+        "comentário engraçado na maioria das respostas. Nunca deixe a piada "
+        "substituir a informação: entregue a resposta útil primeiro e a graça "
+        "depois. Segure o humor quando o assunto for sério, triste, urgente ou "
+        "sensível — e não repita a mesma piada.]"
+    ),
+}
 PREFERENCES_HEADER = (
     "[Preferências de interação do usuário — siga sempre, "
     "sem mencionar este bloco]"
@@ -126,11 +144,18 @@ def clean_preferences(raw: str, persona_text: str = "") -> str:
     return body
 
 
+def humor_directive(level: str | None) -> str:
+    """Traduz o nivel configurado de humor na diretriz do prompt."""
+    key = _normalize(level or "")
+    return HUMOR_DIRECTIVES.get(key, "")
+
+
 def compose_system(
     persona: Persona,
     preferences: str = "",
     *,
     concise: bool = True,
+    humor: str = "",
     short_prompt: bool = False,
     fast: bool = False,
     now: datetime | None = None,
@@ -145,6 +170,10 @@ def compose_system(
 
     if concise:
         static_parts.append(CONCISE_DIRECTIVE)
+
+    humor_text = humor_directive(humor)
+    if humor_text:
+        static_parts.append(humor_text)
 
     dynamic_parts: list[str] = []
     if concise and short_prompt:

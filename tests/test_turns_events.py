@@ -164,3 +164,59 @@ async def test_auto_approve_nao_pergunta(cfg):
     assert await orch._consume_events(queue) == "ok"
     assert ui.permissions == []
     assert client.replies == [("ses_abc", "per_1", "once")]
+
+
+class _SinkQueQuerRaciocinio:
+    """Como o sink do Telegram: pede o raciocinio mesmo com a tela desligada."""
+
+    wants_reasoning = True
+
+    def __init__(self) -> None:
+        self.textos: list[str] = []
+
+    def token(self, text: str) -> None:
+        pass
+
+    def reasoning(self, text: str) -> None:
+        self.textos.append(text)
+
+    def tool(self, name: str, detail: str = "") -> None:
+        pass
+
+    def diff(self, filename: str, patch: str) -> None:
+        pass
+
+
+class _SinkSemInteresse(_SinkQueQuerRaciocinio):
+    wants_reasoning = False
+
+
+@pytest.mark.asyncio
+async def test_sink_recebe_raciocinio_mesmo_com_a_tela_desligada(cfg):
+    cfg.interface.show_reasoning = False
+    orch, ui, _client = _make_orchestrator(cfg)
+    sink = _SinkQueQuerRaciocinio()
+    orch._stream_sink = sink
+    queue: asyncio.Queue = asyncio.Queue()
+    for event in _events():
+        queue.put_nowait(event)
+
+    await orch._consume_events(queue)
+
+    assert sink.textos[-1] == "pensando"
+    assert ui.reasoning_text == []  # a tela continua muda
+
+
+@pytest.mark.asyncio
+async def test_sink_que_nao_pede_raciocinio_nao_recebe(cfg):
+    cfg.interface.show_reasoning = False
+    orch, _ui, _client = _make_orchestrator(cfg)
+    sink = _SinkSemInteresse()
+    orch._stream_sink = sink
+    queue: asyncio.Queue = asyncio.Queue()
+    for event in _events():
+        queue.put_nowait(event)
+
+    await orch._consume_events(queue)
+
+    assert sink.textos == []

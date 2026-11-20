@@ -177,6 +177,8 @@ class InterfaceConfig(BaseModel):
     steering: bool = True
     # Pede respostas diretas ao agente, reduzindo exploracao desnecessaria.
     concise: bool = True
+    # Nivel de humor da persona: off | leve | medio | alto.
+    humor: str = "medio"
     # Mostrar raciocinio e diffs das ferramentas no terminal.
     show_reasoning: bool = True
     show_diffs: bool = True
@@ -250,6 +252,11 @@ class BriefingConfig(BaseModel):
     max_tasks: int = 15
     check_interval_seconds: float = 30.0
     retry_minutes: float = 10.0
+    # Comentario pessoal do modelo no briefing (uma frase feita pra ela hoje).
+    personalize: bool = False
+    # Quais briefings ganham o comentario: morning | noon.
+    personalize_slots: list[str] = Field(default_factory=lambda: ["morning"])
+    personalize_timeout_seconds: float = 20.0
     # Fecho da noite no Telegram: o que foi feito, o que nao foi e um insight.
     evening_enabled: bool = True
     evening_at: str = "18:00"
@@ -373,6 +380,9 @@ class TelegramConfig(BaseModel):
     # a Agenda pelas ferramentas agenda_* e não consegue rodar comando na
     # máquina.
     shell_access: bool = False
+    # Mostra o raciocínio do modelo no chat (uma mensagem editada ao vivo).
+    # Alterna no próprio chat com /pensando on|off.
+    show_reasoning: bool = False
 
 
 class Config(BaseModel):
@@ -549,6 +559,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_UI_SHOW_DIFFS": ("interface", "show_diffs"),
     "ZAYA_UI_SHOW_METAS_ON_START": ("interface", "show_metas_on_start"),
     "ZAYA_UI_SHOW_REASONING": ("interface", "show_reasoning"),
+    "ZAYA_TELEGRAM_SHOW_REASONING": ("telegram", "show_reasoning"),
     "ZAYA_UI_SELECTION_MODE": ("interface", "selection_mode"),
     "ZAYA_UI_MARKDOWN": ("interface", "markdown_render"),
     "ZAYA_UI": ("interface", "ui"),
@@ -870,6 +881,8 @@ show_banner = true
 speak_tool_activity = false
 steering = true
 concise = true
+# Humor da persona: off | leve | medio | alto (alto = brinca e conta piadas).
+humor = "medio"
 show_reasoning = true
 show_diffs = true
 show_metas_on_start = true
@@ -918,6 +931,7 @@ poll_timeout = 25
 voice_replies = false
 auto_approve = false      # true = aprova as ferramentas no chat autorizado
 shell_access = false      # true = libera write/edit/bash no chat (evite)
+show_reasoning = false    # mostra o raciocinio no chat (/pensando on|off)
 # bot_token vai apenas no .env/ambiente.
 
 [memory]
@@ -944,6 +958,11 @@ noon_at = "12:00"
 noon_until = "18:00"
 morning_routine = "matinal"
 max_tasks = 15
+# Comentario pessoal do modelo em cima da lista (uma frase feita pra ela hoje).
+personalize = false
+# Briefings que ganham o comentario: morning | noon.
+personalize_slots = ["morning"]
+personalize_timeout_seconds = 20.0
 # Fecho da noite: o que foi feito, o que ficou e um insight seu.
 evening_enabled = true
 evening_at = "18:00"

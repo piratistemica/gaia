@@ -290,3 +290,50 @@ def test_habito_sem_texto_some():
     habits, found = collect_habits(notes, "matinal")
     assert found is True
     assert [item.text for item in habits] == ["alongar"]
+
+
+def test_morning_message_anexa_comentario_pessoal():
+    tasks = collect_tasks(_notes())
+    text = morning_message("Talita", DAY, tasks, note="Hoje o dia pede calma.")
+    assert text.startswith("Bom dia, Talita!")
+    assert text.rstrip().endswith("Hoje o dia pede calma.")
+    # Sem comentario, a mensagem fica exatamente como era.
+    assert "Hoje o dia pede calma" not in morning_message("Talita", DAY, tasks)
+    assert morning_message("Talita", DAY, tasks).rstrip().endswith(
+        "☑ Ajustar seção de dados"
+    )
+
+
+def test_noon_message_anexa_comentario_pessoal():
+    tasks = collect_tasks(_notes())
+    text = noon_message("Talita", DAY, tasks, note="  já  é  metade  do dia  ")
+    assert text.rstrip().endswith("já é metade do dia")
+
+
+def test_comentario_vazio_nao_suja_a_mensagem():
+    tasks = collect_tasks(_notes())
+    assert morning_message("Talita", DAY, tasks, note="   ") == morning_message(
+        "Talita", DAY, tasks
+    )
+
+
+def test_strip_tags_limpa_hashtags_e_espacos():
+    from zaya.briefing.compose import strip_tags
+
+    assert strip_tags("Comprar #casa hoje") == "Comprar hoje"
+    assert strip_tags("Comprar #casa, depois #mercado!") == "Comprar, depois!"
+    assert strip_tags("#casa #mercado") == ""
+    assert strip_tags("sem tags") == "sem tags"
+    assert strip_tags("ver http://x.com/#secao agora") == "ver http://x.com/#secao agora"
+
+
+def test_tarefa_com_tag_nao_mostra_hashtag_nem_nota_so_de_tag():
+    notes = [
+        {"id": "t1", "text": "Comprar pão #casa", "is_checkbox": True,
+         "completed": False, "parent_id": None, "routine_id": None, "order": 1},
+        {"id": "t2", "text": "#importante", "is_checkbox": True,
+         "completed": False, "parent_id": None, "routine_id": None, "order": 2},
+    ]
+    tasks = collect_tasks(notes)
+    assert [item.text for item in tasks] == ["Comprar pão"]
+    assert "#" not in morning_message("Talita", DAY, tasks)

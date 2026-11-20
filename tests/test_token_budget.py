@@ -778,3 +778,25 @@ async def test_runtime_remove_tool_call_orfa_ao_abortar(tmp_path, isolated_env):
         )
     finally:
         await client.aclose()
+
+
+def test_humor_alto_entra_no_prefixo_e_pode_ser_desligado():
+    persona = PERSONAS["assistente"]
+    com_humor = compose_system(persona, humor="alto")
+    sem_humor = compose_system(persona, humor="off")
+
+    assert "Humor da Zaya" in com_humor.static
+    assert "piada" in com_humor.static
+    assert "Humor da Zaya" not in sem_humor.static
+    # O humor faz parte do prefixo estavel: nao muda entre turnos.
+    assert com_humor.static == compose_system(persona, humor="alto").static
+
+
+def test_humor_normaliza_nivel_e_ignora_desconhecido():
+    from zaya.controller.prompt import humor_directive
+
+    assert "engraçadinha" in humor_directive("MÉDIO")
+    assert "humor sempre ligado" in humor_directive("Alto")
+    assert humor_directive("off") == ""
+    assert humor_directive("sei_la") == ""
+    assert humor_directive(None) == ""

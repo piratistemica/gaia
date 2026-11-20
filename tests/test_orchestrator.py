@@ -298,6 +298,24 @@ async def test_toggle_commands_update_config(orch):
     assert orch.tts.enabled is False
 
 
+@pytest.mark.asyncio
+async def test_pensando_alterna_o_raciocinio_na_tela(orch):
+    orch.cfg.interface.show_reasoning = True
+
+    await orch._handle_command("/pensando off")
+    assert orch.cfg.interface.show_reasoning is False
+
+    await orch._handle_command("/pensando on")
+    assert orch.cfg.interface.show_reasoning is True
+
+    # Sem argumento, alterna (e nao mexe no interruptor do Telegram).
+    orch.cfg.telegram.show_reasoning = False
+    await orch._handle_command("/pensando")
+    assert orch.cfg.interface.show_reasoning is False
+    assert orch.cfg.telegram.show_reasoning is False
+    assert orch.ui.called("success")
+
+
 def test_voltar_ao_texto_para_escuta_e_desliga_voz(orch):
     orch.cfg.audio.continuous = True
     orch._voice_mode = True
@@ -1403,3 +1421,80 @@ async def test_dream_report_avisa_quando_a_nota_fica_sem_frase(orch, monkeypatch
 
     assert enviados == []
     assert any("sem frase nem pergunta" in r.message for r in caplog.records)
+
+
+class FakeClientNota(FakeClient):
+    """Modelo que devolve o comentario pessoal do briefing."""
+
+    def __init__(self, texto: str = "Hoje dá pra ir com calma.") -> None:
+        super().__init__()
+        self.texto = texto
+        self.prompts: list[tuple[str, str]] = []
+        self.deleted: list[str] = []
+
+    async def create_session(self, **kwargs):
+        return types.SimpleNamespace(id="ses-nota")
+
+    async def prompt_sync(self, session_id, prompt, system=None):
+        self.prompts.append((prompt, system or ""))
+        return types.SimpleNamespace(text=self.texto)
+
+    async def delete_session(self, session_id):
+        self.deleted.append(session_id)
+
+
+@pytest.mark.asyncio
+async def test_briefing_personalizado_usa_comentario_do_modelo(orch):
+    orch.agenda = FakeAgendaBriefing(_notas_briefing())
+    orch.telegram = FakeTelegram()
+    orch.cfg.briefing.personalize = True
+    orch.cfg.briefing.personalize_slots = ["morning"]
+    orch.cfg.interface.humor = "alto"
+    client = FakeClientNota("Hoje dá pra ir com calma, sem drama.")
+    orch.client = client
+    dia = datetime.now().astimezone().date()
+
+    assert await orch._send_briefing("morning", dia) is True
+    mensagem = orch.telegram.sent[0]
+    assert mensagem.rstrip().endswith("sem drama.")
+    assert "Bom dia" in mensagem
+    assert "Responder a Stefanini" in mensagem
+
+    prompt, system = client.prompts[0]
+    # O comentario nasce do contexto real dela, nao de um aviso generico.
+    assert "Responder a Stefanini" in prompt
+    assert "Metas ativas" in prompt
+    assert "humor sempre ligado" in system
+    assert client.deleted == ["ses-nota"]
+
+
+@pytest.mark.asyncio
+async def test_briefing_personalizado_so_nos_slots_escolhidos(orch):
+    orch.agenda = FakeAgendaBriefing(_notas_briefing())
+    orch.telegram = FakeTelegram()
+    orch.cfg.briefing.personalize = True
+    orch.cfg.briefing.personalize_slots = ["noon"]
+    client = FakeClientNota()
+    orch.client = client
+    dia = datetime.now().astimezone().date()
+
+    assert await orch._send_briefing("morning", dia) is True
+    assert client.prompts == []
+    assert not orch.telegram.sent[0].rstrip().endswith("com calma.")
+
+
+@pytest.mark.asyncio
+async def test_briefing_personalizado_cai_na_lista_se_o_modelo_falhar(orch):
+    class ClienteQuebrado(FakeClientNota):
+        async def prompt_sync(self, session_id, prompt, system=None):
+            raise RuntimeError("modelo fora do ar")
+
+    orch.agenda = FakeAgendaBriefing(_notas_briefing())
+    orch.telegram = FakeTelegram()
+    orch.cfg.briefing.personalize = True
+    orch.client = ClienteQuebrado()
+    dia = datetime.now().astimezone().date()
+
+    assert await orch._send_briefing("morning", dia) is True
+    assert orch.telegram.sent[0].startswith("Bom dia")
+    assert "Responder a Stefanini" in orch.telegram.sent[0]

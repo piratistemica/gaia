@@ -102,6 +102,21 @@ class TelegramClient:
         target = self._resolve_chat(chat_id)
         return await self._post("sendChatAction", json={"chat_id": target, "action": action})
 
+    async def edit_message_text(
+        self, message_id: int, text: str, chat_id: str | int | None = None
+    ) -> dict[str, Any]:
+        """Edita uma mensagem ja enviada (usado para o raciocinio ao vivo)."""
+        target = self._resolve_chat(chat_id)
+        return await self._post(
+            "editMessageText",
+            json={
+                "chat_id": target,
+                "message_id": message_id,
+                "text": _split_text(text)[0],
+                "disable_web_page_preview": True,
+            },
+        )
+
     async def get_updates(
         self, offset: int | None = None, timeout: int | None = None
     ) -> list[dict[str, Any]]:

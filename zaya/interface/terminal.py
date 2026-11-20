@@ -612,6 +612,7 @@ class TerminalUI:
             ("/contexto on|off", "liga/desliga contexto automático do Second Brain"),
             ("/rapido on|off", "modo rápido (sem contexto, respostas curtas)"),
             ("/chines on|off", "mostra chinês + pinyin de cada mensagem"),
+            ("/pensando on|off", "mostra (ou esconde) o raciocínio do modelo na tela"),
             ("/tarefas [sync|limpar]", "lista/sincroniza/limpa tarefas concluídas"),
             ("/voz on|off|edge|say|none", "controla a voz"),
             ("/preferencia <texto>", "aprende uma preferência (taste)"),

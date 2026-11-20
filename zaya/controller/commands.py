@@ -127,6 +127,8 @@ class CommandsMixin(OrchestratorContract):
             self._toggle_fast(argument)
         elif command in {"/chines", "/chinês", "/中文"}:
             self._toggle_chinese(argument)
+        elif command in {"/pensando", "/pensar", "/thinking", "/raciocinio", "/raciocínio"}:
+            self._toggle_reasoning(argument)
         elif command in {"/consolidar", "/memoria", "/memória"}:
             await self._handle_consolidate(argument)
         elif command in {"/sonhar", "/sonho"}:
@@ -647,6 +649,20 @@ class CommandsMixin(OrchestratorContract):
         except Exception as exc:  # pragma: no cover - depende do modelo/rede
             self.logger.warning("tradução zh falhou: %s", exc)
         return ""
+
+    def _toggle_reasoning(self, argument: str) -> None:
+        """Liga/desliga o raciocinio do modelo na tela (nao muda o do Telegram)."""
+        arg = argument.lower().strip()
+        if arg in {"on", "ligar", "ligado"}:
+            self.cfg.interface.show_reasoning = True
+        elif arg in {"off", "desligar", "desligado"}:
+            self.cfg.interface.show_reasoning = False
+        else:
+            self.cfg.interface.show_reasoning = not self.cfg.interface.show_reasoning
+        state = "ativado" if self.cfg.interface.show_reasoning else "desativado"
+        self.ui.success(f"raciocínio na tela {state}")
+        if not self.cfg.interface.show_reasoning:
+            self.ui.hint("o Telegram tem interruptor próprio: /pensando no chat")
 
     def _toggle_fast(self, argument: str) -> None:
         arg = argument.lower().strip()

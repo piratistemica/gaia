@@ -17,10 +17,25 @@ from zaya.briefing.compose import (
     habits_from_routines,
     morning_message,
     noon_message,
+    partition,
+    weekday_label,
 )
 from zaya.briefing.market import MarketRow, market_due, market_message
 from zaya.controller.contract import OrchestratorContract
+from zaya.controller.prompt import humor_directive
 from zaya.finance.quotes import fetch_quote
+
+_PERSONAL_NOTE_PROMPT = (
+    "Agora são {hora} de {weekday}, {date}. Você é a Zaya, agente pessoal da "
+    "Talita, e está mandando a mensagem do dia no Telegram.\n\n"
+    "O que você sabe agora:\n{context}\n\n"
+    "Escreva UMA frase curta (até 30 palavras), em português do Brasil, informal "
+    "e calorosa, que soe feita pra ela hoje — não um aviso genérico. Pode comentar "
+    "uma tarefa, o peso do dia, uma meta ou algo que você notou nela. Não repita a "
+    "lista, não use emoji, listas, título nem aspas, e não dê conselho "
+    "motivacional. Responda APENAS com a frase."
+)
+_SLOT_LABEL = {"morning": "início da manhã", "noon": "meio do dia"}
 
 _INSIGHT_PROMPT = (
     "Você é a Zaya, agente pessoal da Talita. É o fim da tarde de hoje e ela pediu "
@@ -201,11 +216,67 @@ class BriefingMixin(OrchestratorContract):
         tasks = collect_tasks(notes)
 
         name = self._user_name()
+        note = ""
+        if cfg.personalize and slot in cfg.personalize_slots:
+            note = await self._personal_note(slot, day, tasks)
+
         if slot == "morning":
             # A mensagem da manhã traz só as tarefas normais, sem rotinas.
-            return morning_message(name, day, tasks, max_items=cfg.max_tasks)
+            return morning_message(
+                name, day, tasks, max_items=cfg.max_tasks, note=note
+            )
 
-        return noon_message(name, day, tasks, max_items=cfg.max_tasks)
+        return noon_message(name, day, tasks, max_items=cfg.max_tasks, note=note)
+
+    async def _personal_note(self, slot: str, day: date, tasks) -> str:
+        """Uma frase feita pra ela hoje; falha vira string vazia, nunca quebra."""
+        cfg = self.cfg.briefing
+        try:
+            metas = await self._evening_metas()
+        except Exception:  # pragma: no cover - defensivo
+            metas = []
+        done_items, pending_items = partition(tasks)
+        pending = [item.text for item in pending_items][:6]
+        total = len(done_items) + len(pending_items)
+        done = len(done_items)
+        meta_lines = "\n".join(f"- {meta}" for meta in metas[:5]) or "- (nenhuma)"
+        task_lines = "\n".join(f"- {text}" for text in pending) or "- (nenhuma)"
+        context = (
+            f"Briefing: {_SLOT_LABEL.get(slot, slot)}\n"
+            f"Tarefas pendentes ({len(pending_items)} de {total}):\n{task_lines}\n"
+            f"Já feitas hoje: {done}\n"
+            f"Metas ativas:\n{meta_lines}"
+        )
+        prompt = _PERSONAL_NOTE_PROMPT.format(
+            hora=datetime.now().astimezone().strftime("%H:%M"),
+            weekday=weekday_label(day),
+            date=day.strftime("%d/%m/%Y"),
+            context=context,
+        )
+        system = "Você é a Zaya, assistente pessoal da Talita. Seja calorosa, informal e espontânea, sem exageros."
+        humor = humor_directive(self.cfg.interface.humor)
+        if humor:
+            system = f"{system} {humor}"
+        session_id = ""
+        try:
+            session = await self.client.create_session(title=f"briefing {slot} {day.isoformat()}")
+            session_id = session.id
+            message = await asyncio.wait_for(
+                self.client.prompt_sync(session_id, prompt, system=system),
+                timeout=max(5.0, cfg.personalize_timeout_seconds),
+            )
+            return " ".join(str(message.text or "").split()).strip().strip('"').strip("'")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pragma: no cover - depende do provedor
+            self.logger.warning("briefing: comentário pessoal falhou: %s", exc)
+            return ""
+        finally:
+            if session_id:
+                try:
+                    await self.client.delete_session(session_id)
+                except Exception as exc:  # pragma: no cover - depende do provedor
+                    self.logger.warning("briefing: falha ao limpar sessão: %s", exc)
 
     async def _compose_evening(self, day: date) -> str:
         """Lista do dia + insight curto gerado pelo modelo."""

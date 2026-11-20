@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
@@ -21,6 +22,9 @@ _WEEKDAYS = (
 _CHECKED = "☑"
 _UNCHECKED = "☐"
 
+# Mesma regra da Agenda: hashtag no texto, sem confundir fragmento de URL.
+_TAG = re.compile(r"(?<![\w/\\=&?%#-])#[\w][\w-]*", re.UNICODE)
+
 
 @dataclass(frozen=True)
 class Item:
@@ -35,9 +39,18 @@ def normalize(text: object) -> str:
     return " ".join(value.casefold().split())
 
 
+def strip_tags(text: object) -> str:
+    """Texto da tarefa sem hashtags, para avisos e listas da Zaya."""
+    value = _TAG.sub("", str(text or ""))
+    value = re.sub(r"[ \t]{2,}", " ", value)
+    value = re.sub(r"\s+([,.;:!?])", r"\1", value)
+    value = re.sub(r"^[,.;:!?]+\s*", "", value)
+    return value.strip()
+
+
 def has_text(note: dict[str, Any]) -> bool:
     """Nota com texto util. A Agenda deixa sobras em branco no banco."""
-    return bool(str(note.get("text") or "").strip())
+    return bool(strip_tags(note.get("text")))
 
 
 def _order(note: dict[str, Any]) -> tuple[int, str]:
@@ -50,7 +63,7 @@ def _order(note: dict[str, Any]) -> tuple[int, str]:
 
 def _item(note: dict[str, Any], children: Iterable[Item] = ()) -> Item:
     return Item(
-        text=str(note.get("text") or "").strip(),
+        text=strip_tags(note.get("text")),
         done=bool(note.get("completed")),
         children=tuple(children),
     )
@@ -165,16 +178,20 @@ def habits_from_routines(
             continue
         subtasks = routine.get("subtasks")
         habits = [
-            Item(str(subtask.get("text") or "").strip())
+            Item(strip_tags(subtask.get("text")))
             for subtask in (subtasks if isinstance(subtasks, list) else [])
-            if isinstance(subtask, dict) and str(subtask.get("text") or "").strip()
+            if isinstance(subtask, dict) and strip_tags(subtask.get("text"))
         ]
-        return (habits or [Item(str(routine.get("text") or "").strip())]), True
+        return (habits or [Item(strip_tags(routine.get("text")))]), True
     return [], False
 
 
+def weekday_label(day: date) -> str:
+    return _WEEKDAYS[day.weekday()]
+
+
 def _date_label(day: date) -> str:
-    return f"{_WEEKDAYS[day.weekday()]}, {day:%d/%m}"
+    return f"{weekday_label(day)}, {day:%d/%m}"
 
 
 def _check(done: bool) -> str:
@@ -189,6 +206,12 @@ def _task_lines(items: list[Item], limit: int) -> list[str]:
     return lines
 
 
+def _with_note(lines: list[str], note: str) -> list[str]:
+    """Anexa o comentario pessoal do dia, se houver, longe da lista."""
+    clean = " ".join(str(note or "").split()).strip()
+    return [*lines, "", clean] if clean else lines
+
+
 def _flat_lines(flat: list[tuple[int, Item]], limit: int) -> list[str]:
     lines = [f"{'  ' * depth}{_check(item.done)} {item.text}" for depth, item in flat[:limit]]
     if len(flat) > limit:
@@ -201,12 +224,13 @@ def morning_message(
     day: date,
     tasks: list[Item],
     max_items: int = 15,
+    note: str = "",
 ) -> str:
     greeting = f"Bom dia, {name}!" if name else "Bom dia!"
     lines = [greeting, _date_label(day), "", "Tarefas do dia"]
     task_lines = _task_lines(tasks, max_items)
     lines.extend(task_lines or ["Nenhuma tarefa marcada na Agenda."])
-    return "\n".join(lines)
+    return "\n".join(_with_note(lines, note))
 
 
 def noon_message(
@@ -214,6 +238,7 @@ def noon_message(
     day: date,
     tasks: list[Item],
     max_items: int = 15,
+    note: str = "",
 ) -> str:
     """Resumo do meio-dia: so as tarefas normais, sem rotinas."""
     greeting = f"Meio-dia, {name}." if name else "Meio-dia."
@@ -231,7 +256,7 @@ def noon_message(
     lines.extend(_flat_lines(done, max_items) or ["Nada marcado como feito ainda."])
     lines.extend(["", "Ainda falta"])
     lines.extend(_flat_lines(pending, max_items) or ["Tudo certo por aqui."])
-    return "\n".join(lines)
+    return "\n".join(_with_note(lines, note))
 
 
 def due_slot(

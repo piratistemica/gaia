@@ -80,3 +80,23 @@ def test_aviso_de_agenda_respeita_notify_pending(notify: bool):
     asyncio.run(_check(stub))
     assert stub.enviados == []
     assert stub._agenda_pending_names == ["pilates"]
+
+
+def test_aviso_de_agenda_remove_hashtags_das_tarefas():
+    import asyncio
+
+    stub = _Stub(
+        [
+            _row("a", "comprar pão #casa"),
+            _row("b", "#importante"),
+            _row("c", "pagar boleto #financas"),
+        ]
+    )
+
+    asyncio.run(_check(stub))
+
+    assert len(stub.enviados) == 1
+    assert "#" not in stub.enviados[0]
+    assert "comprar pão" in stub.enviados[0]
+    assert "pagar boleto" in stub.enviados[0]
+    assert stub._agenda_pending_names == ["comprar pão", "pagar boleto"]
