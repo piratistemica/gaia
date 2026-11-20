@@ -51,7 +51,9 @@ class OrchestratorTarget:
             "version": getattr(__import__("zaya"), "__version__", ""),
             "model": cfg.agent.model_slug(),
             "session": getattr(self.orch, "session_id", ""),
-            "mode": getattr(self.orch, "mode_name", lambda: "")(),
+            # `mode_name` é property no Orchestrator (str), não método: chamar
+            # como função levantava TypeError e deixava /health sem resposta.
+            "mode": getattr(self.orch, "mode_name", ""),
             "busy": self.ocupado,
         }
 

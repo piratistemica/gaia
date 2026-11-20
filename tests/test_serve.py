@@ -250,3 +250,17 @@ def test_nao_aceita_conexao_apos_shutdown(servidor):
     srv.shutdown()
     with pytest.raises(OSError):
         socket.create_connection(("127.0.0.1", _porta(url)), timeout=1).close()
+
+
+def test_health_quebrado_devolve_json_e_nao_resposta_vazia(servidor):
+    """Regressão: `mode_name` era chamado como função e /health sumia."""
+    _, alvo, _, url = servidor
+
+    def explodir() -> dict[str, Any]:
+        raise TypeError("'str' object is not callable")
+
+    alvo.health = explodir  # type: ignore[method-assign]
+    status, corpo = _pedido(url, "GET", "/health")
+    assert status == 500
+    assert corpo["error"] == "health_failed"
+    assert "not callable" in corpo["message"]

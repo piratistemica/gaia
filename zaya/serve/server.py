@@ -105,7 +105,18 @@ class _Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         rota = url.path.rstrip("/") or "/"
         if rota == "/health":
-            self._json(HTTPStatus.OK, {"ok": True, **self.app.target.health()})
+            # Uma falha aqui não pode virar "empty reply": o cliente precisa
+            # de JSON para saber que o motor está quebrado (e o comando
+            # `zmin serve status` depende disso).
+            try:
+                saude = self.app.target.health()
+            except Exception as exc:
+                logger.warning("health falhou: %s", exc, exc_info=True)
+                self._erro(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, "health_failed", str(exc)
+                )
+                return
+            self._json(HTTPStatus.OK, {"ok": True, **saude})
             return
         if rota == "/events":
             if not self._autorizado():

@@ -36,6 +36,9 @@ class FakeOrch:
         self.demorar = demorar
         self.textos: list[str] = []
 
+    # Igual ao Orchestrator de verdade: é property, não método. Se virar
+    # método de novo, `/health` quebra e este fake não deve mascarar.
+    @property
     def mode_name(self) -> str:
         return "assistente"
 
