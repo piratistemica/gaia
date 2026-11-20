@@ -385,6 +385,33 @@ class TelegramConfig(BaseModel):
     show_reasoning: bool = False
 
 
+class ServeConfig(BaseModel):
+    """`zaya serve`: uma inteligencia, varias telas (ver docs/plans/2026-11-19).
+
+    O servidor e o dono unico do estado: banco, Second Brain e proatividade. Os
+    clientes (`zaya --remote`, web) so desenham.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    # Loopback por padrao: nada escuta na rede sem pedido explicito.
+    host: str = "127.0.0.1"
+    port: int = 8787
+    # Segredo: apenas via ambiente/.env (ZAYA_SERVE_TOKEN).
+    token: str = ""
+    # Bind fora do loopback (ex.: IP do tailnet) exige token. Ver allow_remote.
+    allow_remote: bool = False
+    # Sobe o poller do Telegram junto do servidor (um processo so).
+    telegram: bool = True
+
+    def remote_bind_without_token(self) -> bool:
+        """True = escutaria na rede sem segredo; o servidor deve recusar."""
+        if self.host in {"", "127.0.0.1", "localhost", "::1"}:
+            return False
+        return not self.allow_remote or not self.token.strip()
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -403,6 +430,7 @@ class Config(BaseModel):
     agenda: AgendaConfig = Field(default_factory=AgendaConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    serve: ServeConfig = Field(default_factory=ServeConfig)
     data_dir: str = ""
 
     # Caminho de onde o config foi carregado (informativo).
@@ -560,6 +588,12 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "ZAYA_UI_SHOW_METAS_ON_START": ("interface", "show_metas_on_start"),
     "ZAYA_UI_SHOW_REASONING": ("interface", "show_reasoning"),
     "ZAYA_TELEGRAM_SHOW_REASONING": ("telegram", "show_reasoning"),
+    "ZAYA_SERVE_ENABLED": ("serve", "enabled"),
+    "ZAYA_SERVE_HOST": ("serve", "host"),
+    "ZAYA_SERVE_PORT": ("serve", "port"),
+    "ZAYA_SERVE_TOKEN": ("serve", "token"),
+    "ZAYA_SERVE_ALLOW_REMOTE": ("serve", "allow_remote"),
+    "ZAYA_SERVE_TELEGRAM": ("serve", "telegram"),
     "ZAYA_UI_SELECTION_MODE": ("interface", "selection_mode"),
     "ZAYA_UI_MARKDOWN": ("interface", "markdown_render"),
     "ZAYA_UI": ("interface", "ui"),
@@ -989,6 +1023,16 @@ daily_max = 4
 quiet_hours = "23:00-08:00"
 check_interval_seconds = 30.0
 reminders = true
+
+[serve]
+# `zaya serve`: o mini processa e guarda tudo; as telas so desenham.
+# Ver docs/plans/2026-11-19-serve-cliente-fino.md.
+enabled = false
+host = "127.0.0.1"    # loopback; para o tailnet use o IP 100.x e allow_remote
+port = 8787
+# Segredo: apenas no .env (ZAYA_SERVE_TOKEN). Sem token nao escuta na rede.
+allow_remote = false
+telegram = true       # sobe o poller do Telegram junto (um processo so)
 """
 
 

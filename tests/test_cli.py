@@ -45,3 +45,31 @@ def test_welcome_art_wordmark_cabe_na_largura():
     assert len(art) <= 8
     largura = max(sum(len(texto) for texto, _ in segments) for segments in art)
     assert largura <= 78
+
+
+def test_parser_serve_defaults():
+    args = build_parser().parse_args(["serve"])
+    assert args.command == "serve"
+    assert args.host is None
+    assert args.port is None
+    assert args.token is None
+    assert args.no_telegram is False
+
+
+def test_parser_serve_flags():
+    args = build_parser().parse_args(
+        ["serve", "--host", "100.66.45.57", "--port", "9000", "--no-telegram"]
+    )
+    assert args.host == "100.66.45.57"
+    assert args.port == 9000
+    assert args.no_telegram is True
+
+
+def test_parser_remote_vale_antes_do_subcomando():
+    args = build_parser().parse_args(["--remote", "http://zaya:8787", "ask", "oi"])
+    assert args.remote == "http://zaya:8787"
+    assert args.command == "ask"
+
+
+def test_parser_remote_ausente_por_padrao():
+    assert build_parser().parse_args([]).remote is None

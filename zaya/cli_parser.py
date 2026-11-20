@@ -36,8 +36,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="reinicia sozinha quando arquivos .py da Zaya mudam",
     )
+    parser.add_argument(
+        "--remote",
+        metavar="URL",
+        help="usa um `zaya serve` remoto em vez do motor local (ex.: http://zaya:8787)",
+    )
     parser.add_argument("--version", action="version", version=f"zaya {__version__}")
     sub = parser.add_subparsers(dest="command")
+
+    serve_parser = sub.add_parser(
+        "serve", help="sobe o motor e o streaming para clientes remotos"
+    )
+    serve_parser.add_argument("--host", help="endereco de escuta (padrao: serve.host)")
+    serve_parser.add_argument("--port", type=int, help="porta (padrao: serve.port)")
+    serve_parser.add_argument(
+        "--token", help="token de acesso (padrao: ZAYA_SERVE_TOKEN)"
+    )
+    serve_parser.add_argument(
+        "--no-telegram", action="store_true", help="nao sobe o poller do Telegram"
+    )
 
     sub.add_parser("doctor", help="diagnostica ambiente, servidor, voz e Second Brain")
 

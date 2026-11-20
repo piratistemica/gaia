@@ -5,7 +5,13 @@ import tomllib
 
 import pytest
 
-from zaya.config import Config, model_env_override, save_agent_model, write_default_config
+from zaya.config import (
+    Config,
+    ServeConfig,
+    model_env_override,
+    save_agent_model,
+    write_default_config,
+)
 
 
 def test_defaults(isolated_env):
@@ -215,3 +221,55 @@ def test_model_env_override_lista_apenas_variaveis_preenchidas():
     assert model_env_override(
         {"ZAYA_AGENT_PROVIDER": "openai", "ZAYA_AGENT_MODEL": "gpt-x"}
     ) == ["ZAYA_AGENT_PROVIDER", "ZAYA_AGENT_MODEL"]
+
+
+def test_serve_defaults_sao_loopback_e_sem_token():
+    cfg = Config()
+    assert cfg.serve.enabled is False
+    assert cfg.serve.host == "127.0.0.1"
+    assert cfg.serve.port == 8787
+    assert cfg.serve.token == ""
+    assert cfg.serve.telegram is True
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1", ""])
+def test_serve_loopback_nunca_exige_token(host):
+    assert ServeConfig(host=host).remote_bind_without_token() is False
+
+
+def test_serve_recusa_escuta_na_rede_sem_token():
+    assert ServeConfig(host="100.66.45.57").remote_bind_without_token() is True
+    assert (
+        ServeConfig(host="100.66.45.57", allow_remote=True).remote_bind_without_token()
+        is True
+    )
+    assert (
+        ServeConfig(
+            host="100.66.45.57", allow_remote=True, token="segredo"
+        ).remote_bind_without_token()
+        is False
+    )
+
+
+def test_serve_vem_do_ambiente():
+    cfg = Config.load(
+        env={
+            "ZAYA_SERVE_HOST": "100.66.45.57",
+            "ZAYA_SERVE_PORT": "9000",
+            "ZAYA_SERVE_TOKEN": "abc",
+            "ZAYA_SERVE_ALLOW_REMOTE": "true",
+        }
+    )
+    assert cfg.serve.host == "100.66.45.57"
+    assert cfg.serve.port == 9000
+    assert cfg.serve.token == "abc"
+    assert cfg.serve.allow_remote is True
+
+
+def test_template_padrao_traz_a_secao_serve(tmp_path):
+    target = tmp_path / "config.toml"
+    write_default_config(target)
+    cfg = Config.load(config_path=target, env={"ZAYA_DATA_DIR": str(tmp_path)})
+    assert cfg.serve.host == "127.0.0.1"
+    assert cfg.serve.port == 8787
+    assert "enabled = false" in target.read_text(encoding="utf-8")
