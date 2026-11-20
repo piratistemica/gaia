@@ -1,5 +1,7 @@
 # Variante para expor no tailnet (SSH + clientes de fora de casa).
-# Copie para zaya-serve.service e ajuste o IP depois de `tailscale ip -4`.
+# Instale com `zmin serve install --tailnet` (ele confere o IP do tailnet e
+# exige ZAYA_SERVE_TOKEN no ~/.config/zaya/.env).
+# Ajustar à mão só se o IP do mini mudar: `tailscale ip -4`.
 [Unit]
 Description=Zaya (motor + API/SSE no tailnet)
 After=network-online.target tailscaled.service

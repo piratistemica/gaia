@@ -8,8 +8,9 @@
 #   zmin test              # smoke test das ferramentas/agenda no mini
 #   zmin agenda [AAAA-MM-DD]# o que a Zaya vê na Agenda
 #   zmin ask "pergunta"    # conversa com a Zaya do mini, sem Telegram
-#   zmin serve install     # instala a unidade zaya-serve (NAO liga)
+#   zmin serve install [--tailnet] # instala a unidade (NAO liga)
 #   zmin serve cutover     # para o Telegram e liga o serve (um processo so)
+#   zmin serve rollback    # volta o dono do Telegram para o zaya-telegram
 #   zmin serve logs [-f]   # journal do zaya-serve
 #   zmin serve status      # estado do zaya-serve e /health
 #   zmin shell             # sessão persistente (screen) no mini
@@ -107,10 +108,23 @@ cmd_serve() {
   need_ssh
   case "$acao" in
     install)
+      local origem="$LOCAL_REPO/deploy/zaya-serve.service"
+      if [ "${2:-}" = "--tailnet" ]; then
+        origem="$LOCAL_REPO/deploy/zaya-serve-tailnet.service.example"
+        # Escutar no tailnet so faz sentido com token: sem ele o serve nega
+        # o bind (e o systemd entraria em loop de reinicio).
+        "${SSH[@]}" "grep -q '^ZAYA_SERVE_TOKEN=.\\+' ~/.config/zaya/.env" \
+          || die "sem ZAYA_SERVE_TOKEN em ~/.config/zaya/.env (a variante tailnet exige token)"
+        local ip_tailnet ip_unidade
+        ip_tailnet=$("${SSH[@]}" 'tailscale ip -4 | head -1')
+        ip_unidade=$(awk -F'--host ' '/^ExecStart=/{print $2; exit}' "$origem")
+        [ "$ip_tailnet" = "$ip_unidade" ] \
+          || die "unidade escuta em '$ip_unidade' mas o tailnet do mini e '$ip_tailnet'"
+      fi
       info "instalando $SERVE_UNIT (sem ligar)"
       "${SSH[@]}" "mkdir -p ~/.config/systemd/user" || die "sem ~/.config/systemd/user"
-      scp -q "$LOCAL_REPO/deploy/zaya-serve.service" \
-        "$HOST:~/.config/systemd/user/$SERVE_UNIT" || die "falha ao copiar a unidade"
+      scp -q "$origem" "$HOST:~/.config/systemd/user/$SERVE_UNIT" \
+        || die "falha ao copiar a unidade"
       "${SSH[@]}" "systemctl --user daemon-reload" || die "daemon-reload falhou"
       printf 'unidade instalada (inativa). Para trocar de dono do Telegram:\n'
       printf '  zmin serve cutover\n'
@@ -123,17 +137,34 @@ cmd_serve() {
       "${SSH[@]}" "systemctl --user is-active $SERVE_UNIT; \
         systemctl --user is-active $UNIT || echo \"$UNIT parado (esperado)\""
       printf 'dono do Telegram agora: %s em %s\n' "$SERVE_UNIT" "$HOST"
+      printf 'conferir: zmin serve logs -f  (409 = dois pollers) e zmin serve status\n'
+      ;;
+    rollback)
+      info "voltando o dono do Telegram para $UNIT"
+      "${SSH[@]}" "systemctl --user disable --now $SERVE_UNIT 2>/dev/null || true; \
+        systemctl --user enable --now $UNIT"
+      sleep 3
+      "${SSH[@]}" "systemctl --user is-active $UNIT; \
+        systemctl --user is-active $SERVE_UNIT || echo \"$SERVE_UNIT parado (esperado)\""
       ;;
     logs)
       shift || true
       "${SSH[@]}" "journalctl --user -u $SERVE_UNIT -n 80 --no-pager $*"
       ;;
     status)
+      # A unidade pode escutar no loopback (teste) ou no IP do tailnet
+      # (clientes de fora). /health e publico: nao pede token.
       "${SSH[@]}" "systemctl --user is-active $SERVE_UNIT; \
         systemctl --user is-enabled $SERVE_UNIT; \
-        curl -sf -m 3 http://127.0.0.1:8787/health || echo 'health: sem resposta (token?)'"
+        H=\$(tailscale ip -4 | head -1); \
+        for U in http://127.0.0.1:8787 \${H:+http://\$H:8787}; do \
+          case \"\$U\" in http://127.0.0.1*) D=loopback ;; *) D=tailnet ;; esac; \
+          printf '%s: ' \"\$D\"; \
+          curl -sf -m 3 \"\$U/health\" && { echo; exit 0; }; \
+          echo 'sem resposta'; \
+        done"
       ;;
-    *) die "use: zmin serve install|cutover|logs|status" ;;
+    *) die "use: zmin serve install [--tailnet]|cutover|rollback|logs|status" ;;
   esac
 }
 
