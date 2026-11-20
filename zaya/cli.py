@@ -21,6 +21,7 @@ from zaya.cli_integrations import (
 from zaya.cli_parser import build_parser
 from zaya.cli_runtime import _ask_command, _run_app, _watch_mode
 from zaya.cli_serve import _serve_command
+from zaya.client.remote_client import RemoteClient, RemoteError
 from zaya.config import Config
 from zaya.interface.terminal import TerminalUI
 
@@ -61,14 +62,24 @@ def main() -> None:
             asyncio.run(_browser_command(cfg, args, ui))
         elif args.command == "career":
             asyncio.run(_career_command(cfg, args, ui))
+        elif args.command == "ask" and args.remote:
+            cliente = RemoteClient(args.remote, cfg.serve.token, ui=ui)
+            resposta = cliente.pedir_um_turno(" ".join(args.message))
+            if not resposta:
+                raise SystemExit(1)
         elif args.command == "serve":
             codigo = asyncio.run(_serve_command(cfg, args))
             if codigo:
                 raise SystemExit(codigo)
+        elif args.remote:
+            RemoteClient(args.remote, cfg.serve.token, ui=ui).run()
         else:
             asyncio.run(_run_app(cfg, args.verbose))
     except KeyboardInterrupt:
         ui.info("até logo.")
+    except RemoteError as exc:
+        ui.error(str(exc))
+        raise SystemExit(1) from None
     except AgentError as exc:
         ui.error(str(exc))
         raise SystemExit(1) from None

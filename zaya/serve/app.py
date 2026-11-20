@@ -72,8 +72,12 @@ class OrchestratorTarget:
         return self._run
 
     def decide(self, request_id: str, decision: str) -> None:
-        if not self.ui.resolve_permission(request_id, decision):
-            logger.debug("permissao %s sem ninguem esperando", request_id)
+        """Gancho do alvo depois que o transporte destravou o `RemoteUI`.
+
+        O transporte é quem destrava (é ele que conhece o `RemoteUI`); aqui só
+        registramos, para o dia em que houver auditoria de aprovação.
+        """
+        logger.debug("permissao %s decidida: %s", request_id, decision)
 
     def abort(self) -> None:
         if self._loop is None:

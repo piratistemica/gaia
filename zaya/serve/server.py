@@ -160,8 +160,12 @@ class _Handler(BaseHTTPRequestHandler):
                     "decision deve ser once, always ou reject",
                 )
                 return
+            # Quem espera é o `RemoteUI` (a thread do turno está bloqueada nele),
+            # então o transporte destrava primeiro e avisa o alvo depois, para
+            # ele registrar/encaminhar se quiser.
+            resolvido = self.app.ui.resolve_permission(request_id, decisao)
             self.app.target.decide(request_id, decisao)
-            self._json(HTTPStatus.OK, {"ok": True})
+            self._json(HTTPStatus.OK, {"ok": True, "resolved": resolvido})
             return
         self._erro(HTTPStatus.NOT_FOUND, "not_found", f"rota desconhecida: {rota}")
 
