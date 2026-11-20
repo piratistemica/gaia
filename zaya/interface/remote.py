@@ -13,12 +13,15 @@ refatorar o cliente.
 from __future__ import annotations
 
 import dataclasses
+from collections import deque
 from datetime import date, datetime
 from pathlib import Path
 from queue import Queue
 from typing import Any
 
 EVENT_VERSION = 1
+# Quantos eventos ficam em memoria para um cliente que reconecta com ?since=.
+HISTORY = 1000
 
 # Todo metodo que o resto do codigo chama em `ui`. A varredura em
 # `tests/test_remote_ui.py` falha se alguem usar `ui.<novo>(` sem entrar aqui —
@@ -61,6 +64,9 @@ RENDER_METHODS = (
     "watchlist",
     "write_diff",
 )
+
+# Metodos que o transporte usa (o servidor assina o stream), nao a UI.
+STREAM_METHODS = ("subscribe", "unsubscribe")
 
 _LEVELS = {
     "hint": "hint",
@@ -121,6 +127,10 @@ class RemoteUI:
     ) -> None:
         self.events: Queue[dict[str, Any]] = events if events is not None else Queue()
         self.run = run
+        # Buffer para reconexao (?since=<seq>) e lista de assinantes: cada um
+        # recebe tudo, para dois clientes nao dividirem o stream.
+        self.history: deque[dict[str, Any]] = deque(maxlen=HISTORY)
+        self._subscribers: list[Queue[dict[str, Any]]] = []
         self.console = _ConsoleShim(self)
         # Compatibilidade com o hook que `TerminalUI` expoe: o caminho remoto
         # nao o usa (o runtime emite `PermissionAsked`), mas existir evita
@@ -143,8 +153,26 @@ class RemoteUI:
             event["run"] = self.run
         for key, value in payload.items():
             event[key] = _plain(value)
+        self.history.append(event)
         self.events.put(event)
+        for subscriber in list(self._subscribers):
+            subscriber.put(event)
         return event
+
+    # --------------------------------------------------------- assinantes/SSE
+    def subscribe(self, since: int | None = None) -> Queue[dict[str, Any]]:
+        """Fila só deste cliente, já semeada com o que ele perdeu."""
+        fila: Queue[dict[str, Any]] = Queue()
+        if since is not None:
+            for event in self.history:
+                if event.get("seq", 0) > since:
+                    fila.put(event)
+        self._subscribers.append(fila)
+        return fila
+
+    def unsubscribe(self, fila: Queue[dict[str, Any]]) -> None:
+        if fila in self._subscribers:
+            self._subscribers.remove(fila)
 
     def _notice(self, level: str, text: str) -> None:
         self.emit("notice", level=level, text=text)

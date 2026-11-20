@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 
-from zaya.interface.remote import RENDER_METHODS, RemoteUI
+from zaya.interface.remote import RENDER_METHODS, STREAM_METHODS, RemoteUI
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -120,7 +120,7 @@ def test_controller_so_usa_metodos_do_contrato():
         if "interface" in arquivo.parts:
             continue
         chamadas.update(padrao.findall(arquivo.read_text(encoding="utf-8")))
-    fora = sorted(chamadas - set(RENDER_METHODS))
+    fora = sorted(chamadas - set(RENDER_METHODS) - set(STREAM_METHODS))
     assert fora == [], f"ui.{fora} usado no codigo sem par no RemoteUI"
 
 
@@ -132,3 +132,39 @@ def test_streaming_de_dois_turnos_nao_vaza_estado():
     ui.finish_stream("b")
     tipos = [e["type"] for e in _eventos(ui)]
     assert tipos == ["stream_begin", "stream_end", "stream_begin", "stream_end"]
+
+
+def test_dois_assinantes_recebem_o_mesmo_evento():
+    ui = RemoteUI()
+    a = ui.subscribe()
+    b = ui.subscribe()
+    ui.info("oi")
+    assert a.get_nowait()["text"] == "oi"
+    assert b.get_nowait()["text"] == "oi"
+
+
+def test_since_entrega_so_o_que_faltou():
+    ui = RemoteUI()
+    ui.info("antigo")
+    ultimo = _eventos(ui)[-1]["seq"]
+    ui.info("novo")
+    fila = ui.subscribe(since=ultimo)
+    assert fila.get_nowait()["text"] == "novo"
+    assert fila.empty()
+
+
+def test_unsubscribe_para_de_receber():
+    ui = RemoteUI()
+    fila = ui.subscribe()
+    ui.unsubscribe(fila)
+    ui.info("depois")
+    assert fila.empty()
+
+
+def test_historico_nao_estoura():
+    from zaya.interface.remote import HISTORY
+
+    ui = RemoteUI()
+    for _ in range(HISTORY + 5):
+        ui.info("x")
+    assert len(ui.history) == HISTORY
