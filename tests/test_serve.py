@@ -27,6 +27,21 @@ class FakeTarget:
     def sessions(self) -> list[dict[str, Any]]:
         return [{"id": 1, "channel": "cli", "mode": "assistente"}]
 
+    def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        self.buscas = getattr(self, "buscas", [])
+        self.buscas.append((query, limit))
+        if query == "nada":
+            return []
+        return [
+            {
+                "title": "Impulsão",
+                "rel_path": "Memoria/impulsao.md",
+                "section": "Impulsão",
+                "snippet": "vontade de mudar",
+                "score": 0.1,
+            }
+        ][:limit]
+
     def turn(self, text: str) -> str:
         if self.busy:
             raise RuntimeError("turno em andamento")
@@ -264,3 +279,80 @@ def test_health_quebrado_devolve_json_e_nao_resposta_vazia(servidor):
     assert status == 500
     assert corpo["error"] == "health_failed"
     assert "not callable" in corpo["message"]
+
+
+def test_get_serve_a_pagina_web_sem_build():
+    """`GET /` deixa de ser 404: entrega a pagina unica do cliente web."""
+    ui = RemoteUI()
+    srv = ServeServer(FakeTarget(), ui, host="127.0.0.1", port=0)
+    url = srv.start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", _porta(url), timeout=5)
+        conn.request("GET", "/")
+        resposta = conn.getresponse()
+        corpo = resposta.read().decode()
+        conn.close()
+        assert resposta.status == 200
+        assert resposta.getheader("Content-Type", "").startswith("text/html")
+        # contrato minimo com o servidor: os quatro caminhos que a tela usa
+        for rota in ("/events", "/turn", "/permission/", "/search"):
+            assert rota in corpo
+        assert "localStorage" in corpo  # token fica no navegador
+    finally:
+        srv.shutdown()
+
+
+def test_pagina_web_e_publica_mas_nao_expoe_token():
+    ui = RemoteUI()
+    srv = ServeServer(FakeTarget(), ui, host="127.0.0.1", port=0, token="segredo")
+    url = srv.start()
+    try:
+        status, corpo = _pedido(url, "GET", "/")
+        assert status == 200
+        assert "segredo" not in str(corpo)
+        assert "segredo" not in srv.address[0]
+    finally:
+        srv.shutdown()
+
+
+def test_search_exige_token_e_consulta_o_indice():
+    ui = RemoteUI()
+    alvo = FakeTarget()
+    srv = ServeServer(alvo, ui, host="127.0.0.1", port=0, token="segredo")
+    url = srv.start()
+    try:
+        assert _pedido(url, "GET", "/search?q=impulsao")[0] == 401
+        status, corpo = _pedido(url, "GET", "/search?q=impulsao", token="segredo")
+        assert status == 200
+        assert corpo["hits"][0]["rel_path"] == "Memoria/impulsao.md"
+        assert alvo.buscas == [("impulsao", 8)]
+    finally:
+        srv.shutdown()
+
+
+def test_search_sem_query_nao_chama_o_indice():
+    ui = RemoteUI()
+    alvo = FakeTarget()
+    srv = ServeServer(alvo, ui, host="127.0.0.1", port=0)
+    url = srv.start()
+    try:
+        status, corpo = _pedido(url, "GET", "/search?q=%20%20")
+        assert status == 200
+        assert corpo["hits"] == []
+        assert not getattr(alvo, "buscas", [])
+    finally:
+        srv.shutdown()
+
+
+def test_search_limita_limit_entre_1_e_50():
+    ui = RemoteUI()
+    alvo = FakeTarget()
+    srv = ServeServer(alvo, ui, host="127.0.0.1", port=0)
+    url = srv.start()
+    try:
+        _pedido(url, "GET", "/search?q=x&limit=999")
+        assert alvo.buscas[-1][1] == 50
+        _pedido(url, "GET", "/search?q=x&limit=0")
+        assert alvo.buscas[-1][1] == 1
+    finally:
+        srv.shutdown()

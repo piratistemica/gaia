@@ -286,3 +286,63 @@ def test_serve_command_recusa_bind_na_rede_sem_token(monkeypatch):
     )()
     assert asyncio.run(_serve_command(cfg, args, asyncio.Event())) == 2
     assert orch.encerrou is True
+
+
+def test_search_traduz_hits_do_indice_para_json():
+    """A busca da web usa o mesmo índice da TUI (dataclass -> dict)."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class Hit:
+        path: str
+        rel_path: str
+        title: str
+        snippet: str
+        tags: list[str]
+        score: float
+        section: str
+
+    class Index:
+        def __init__(self) -> None:
+            self.pedidos: list[tuple[str, int]] = []
+
+        def search(self, query: str, limit: int = 5) -> list[Hit]:
+            self.pedidos.append((query, limit))
+            return [Hit("p.md", "Memoria/p.md", "Impulsão", "vontade", ["x"], 0.2, "Corpo")]
+
+    orch = FakeOrch()
+    orch.index = Index()
+    alvo = OrchestratorTarget(orch, RemoteUI())
+
+    hits = alvo.search("impulsão", 4)
+
+    assert orch.index.pedidos == [("impulsão", 4)]
+    assert hits[0]["rel_path"] == "Memoria/p.md"
+    assert hits[0]["tags"] == ["x"]
+
+
+def test_search_nao_derruba_a_rota_quando_o_indice_falha():
+    class IndexQuebrado:
+        def search(self, query: str, limit: int = 5) -> list[Any]:
+            raise RuntimeError("disco sumiu")
+
+    orch = FakeOrch()
+    orch.index = IndexQuebrado()
+    alvo = OrchestratorTarget(orch, RemoteUI())
+    assert alvo.search("x") == []
+
+
+def test_search_com_query_vazia_nao_toca_o_indice():
+    class Index:
+        def __init__(self) -> None:
+            self.chamado = False
+
+        def search(self, query: str, limit: int = 5) -> list[Any]:
+            self.chamado = True
+            return []
+
+    orch = FakeOrch()
+    orch.index = Index()
+    alvo = OrchestratorTarget(orch, RemoteUI())
+    assert alvo.search("   ") == []
+    assert orch.index.chamado is False

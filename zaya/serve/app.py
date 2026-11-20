@@ -17,7 +17,7 @@ import logging
 import secrets
 from typing import Any
 
-from zaya.interface.remote import RemoteUI
+from zaya.interface.remote import RemoteUI, _plain
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,18 @@ class OrchestratorTarget:
 
     def sessions(self) -> list[dict[str, Any]]:
         return list(self.orch.sessions())
+
+    def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Busca no Second Brain do motor (lexical + semantica, como na TUI)."""
+        index = getattr(self.orch, "index", None)
+        if index is None or not query.strip():
+            return []
+        try:
+            hits = index.search(query, limit)
+        except Exception as exc:  # busca nao pode derrubar a rota
+            logger.warning("busca no Second Brain falhou: %s", exc)
+            return []
+        return [_plain(hit) for hit in hits]
 
     def turn(self, text: str) -> str:
         if self.ocupado:

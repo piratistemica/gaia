@@ -25,6 +25,7 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from zaya.interface.remote import RemoteUI
+from zaya.serve import web
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,9 @@ class Target(Protocol):
     def health(self) -> dict[str, Any]: ...
 
     def sessions(self) -> list[dict[str, Any]]: ...
+
+    def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Busca no Second Brain. Lista vazia = nada encontrado."""
 
     def turn(self, text: str) -> str:
         """Agenda um turno e devolve o id do run (nao espera terminar)."""
@@ -123,6 +127,31 @@ class _Handler(BaseHTTPRequestHandler):
                 self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
                 return
             self._eventos(parse_qs(url.query))
+            return
+        if rota == "/":
+            # Pagina estatica: publica como /health. Sem token ela nao faz nada
+            # (todo o resto exige Authorization) — quem pede o token e a tela.
+            corpo = web.page()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", web.content_type())
+            self.send_header("Content-Length", str(len(corpo)))
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(corpo)
+            return
+        if rota == "/search":
+            if not self._autorizado():
+                self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
+                return
+            query = (parse_qs(url.query).get("q") or [""])[0].strip()
+            try:
+                limite = int((parse_qs(url.query).get("limit") or ["8"])[0])
+            except ValueError:
+                limite = 8
+            limite = max(1, min(limite, 50))
+            hits = self.app.target.search(query, limite) if query else []
+            self._json(HTTPStatus.OK, {"query": query, "hits": hits})
             return
         if rota == "/sessions":
             if not self._autorizado():

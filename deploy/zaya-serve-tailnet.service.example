@@ -4,8 +4,10 @@
 # Ajustar à mão só se o IP do mini mudar: `tailscale ip -4`.
 [Unit]
 Description=Zaya (motor + API/SSE no tailnet)
-After=network-online.target tailscaled.service
-Requires=tailscaled.service
+# Unidade de USUARIO: nao pode Requires=tailscaled.service (unidade de
+# sistema). O host sobe o tailscale no boot; se o IP ainda nao existir no
+# bind, o Restart=always tenta de novo.
+After=network-online.target
 
 [Service]
 Type=simple
