@@ -1,8 +1,10 @@
 # Plano — `zaya serve` + cliente fino (uma inteligência, várias telas)
 
-**Data:** 2026-11-19
-**Status:** fase 1 **implementada e commitada** (tasks 1–5); task 6 preparada, sem
-cutover. Partes 2 e 3 são backlog.
+**Data:** 2026-11-19 (atualizado 2026-11-20: fase 1 **em produção** e fase 2
+entregue)
+**Status:** fase 1 implementada, **cutover feito** no mini (o `zaya-serve` é o
+dono do Telegram desde 20/11 19:13) e **cliente web** (fase 2) em `GET /`.
+Partes 2 e 3 seguem backlog.
 **Decisão da Talita (2026-11-19):** o **mini PC é a fonte da verdade**. Ele
 processa, guarda o banco e o Second Brain, e é o único escritor. Mac, navegador e
 celular são **interface** — tela e entrada, nada de estado.
@@ -179,14 +181,26 @@ aprovação e sessões. Sem web ainda.
   `zmin deploy` passa a reiniciar a unidade **ativa** (serve ou telegram).
 - Roadmap: `launchctl` do Mac continua **disabled** (poller é o mini).
 
-**Cutover (decisão pendente, só depois de testar o serve no mini):**
+**Cutover (feito em 20/11 19:13):**
 1. `zmin deploy` (código novo no mini, sem trocar a unidade);
-2. `zmin serve install`;
-3. testar com a unidade parada: `zmin shell` + `zaya serve --port 8799` e
-   `curl /health`;
+2. `zmin serve install --tailnet`;
+3. testar com a unidade parada: `zmin shell` + `zaya serve --port 8799` com
+   `ZAYA_DATA_DIR=/tmp/...` e `--no-telegram` (nunca no banco vivo);
 4. `zmin serve cutover`;
 5. conferir no Telegram que uma mensagem responde e que o briefing das 12:00
    não sai duas vezes.
+
+**Saída de emergência:** `zmin serve rollback` (volta o dono para
+`zaya-telegram`).
+
+> Notas de execução do cutover (20/11): a unidade tailnet falhou no primeiro
+tentativa porque tinha `Requires=tailscaled.service` — unidade de **sistema**,
+inválida num `systemd --user`. Corrigido para `After=network-online.target`
+(unidade de usuário não pode exigir unidade de sistema).
+> O `zaya serve` fecha em ~13 s no SIGTERM (o worker de memória é esperado com
+`shield` por 15 s); o systemd aguenta, mas cada `zmin deploy` custa isso.
+> Cold start com `sb_index` vazio reindexa **dentro do loop** (embeddings locais
+no Ollama): o HTTP só sobe depois. Com o índice quente (produção) é rápido.
 
 **Critério de aceite da fase 1:** no Mac, `zaya --remote http://zaya:8787`
 responde em streaming, mostra ferramenta rodando e pede aprovação; matar o
@@ -195,6 +209,24 @@ escrito.
 
 **Fora de escopo na fase 1:** web, voz remota, múltiplos usuários, Textual
 remota (primeiro Rich, depois Textual).
+
+### Fase 2 — cliente web (entregue em 20/11)
+
+`GET /` serve `zaya/serve/static/index.html`: uma página, sem build e sem CDN,
+com o mesmo contrato da §4.1.
+
+| Peça | Como |
+|---|---|
+| Transporte | SSE por `fetch` + `ReadableStream` (o `EventSource` não aceita cabeçalho) |
+| Token | `localStorage` → `Authorization: Bearer`; botão "token" para trocar |
+| Reconexão | `?since=<último seq>`; heartbeat de 15 s do servidor |
+| Streaming | `stream_begin/delta/end`; sem deltas, o texto final vem em `run_finished.text` |
+| Permissão | cartão com "uma vez / sempre / recusar" → `POST /permission/{id}` |
+| Second Brain | `GET /search?q=` → mesmo índice da TUI (lexical + semântica) |
+| Turno | `POST /turn`; 409 vira aviso "ainda no turno anterior" |
+
+O eco da mensagem do usuário é local: o servidor não emite `user` no `POST
+/turn` (só `run_started`).
 
 ---
 
