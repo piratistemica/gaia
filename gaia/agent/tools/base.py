@@ -37,6 +37,10 @@ class ToolContext:
     agenda: Any = None
     # Caminho do SecondBrain: habilita a ferramenta de planilhas.
     secondbrain: str = ""
+    # AudiobookConfig: habilita a ferramenta `audiobook` (PDF/texto -> MP3).
+    audiobook: Any = None
+    # Callback(task, job) do canal: entrega o MP3 quando a narracao termina.
+    audiobook_watch: Any = None
 
     def resolve(self, raw: str) -> Path:
         if not (raw or "").strip():

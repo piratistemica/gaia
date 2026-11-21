@@ -6,6 +6,7 @@ from pathlib import Path
 
 from gaia.agenda.client import AgendaClient
 from gaia.agent.tools.agenda import build_agenda_tools
+from gaia.agent.tools.audiobook import build_audiobook_tools
 from gaia.agent.tools.base import Tool, ToolContext, ToolResult, ToolSet
 from gaia.agent.tools.filesystem import (
     EDIT_TOOL,
@@ -37,6 +38,9 @@ def build_tools(ctx: ToolContext) -> ToolSet:
     # Planilhas: so quando existe um SecondBrain (a ferramenta le de la).
     if str(ctx.secondbrain or "").strip() and Path(ctx.secondbrain).expanduser().is_dir():
         tools.add(*build_planilha_tools())
+    # Audiobook: so com a secao configurada e ligada.
+    if ctx.audiobook is not None and getattr(ctx.audiobook, "enabled", False):
+        tools.add(*build_audiobook_tools())
     return tools
 
 

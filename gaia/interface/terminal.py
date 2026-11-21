@@ -617,6 +617,8 @@ class TerminalUI:
             ("/pensando on|off", "mostra (ou esconde) o raciocínio do modelo na tela"),
             ("/tarefas [sync|limpar]", "lista/sincroniza/limpa tarefas concluídas"),
             ("/voz on|off|edge|say|none", "controla a voz"),
+            ("/audiobook <arquivo> [título]", "narra um PDF/TXT em MP3"),
+            ("/audiobooks", "narra todos os PDFs da pasta de audiobooks"),
             ("/preferencia <texto>", "aprende uma preferência (taste)"),
             ("/preferencias", "mostra as preferências aprendidas"),
             ("/consolidar [hoje|ontem|AAAA-MM-DD]", "salva a memória do dia no Second Brain"),

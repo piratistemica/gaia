@@ -143,6 +143,7 @@ class Orchestrator(
         self._agenda_seen: set[str] = set()
         self._agenda_day = None
         self._tts_lock = asyncio.Lock()
+        self._audiobook_lock = asyncio.Lock()
         self._user_name_cache: str | None = None
         self._warmup_task: asyncio.Task | None = None
         self._speech_active = False

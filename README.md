@@ -409,6 +409,35 @@ auto_approve = true
 shell_access = false   # mantenha desligado: shell remoto é o risco maior
 ```
 
+**Audiobooks** (PDF/texto → MP3 narrado com voz neural)
+
+Três caminhos, todos com a mesma voz e a mesma limpeza de texto:
+
+```bash
+# 1) arquivo no chat: manda o PDF/TXT como documento para o bot
+# 2) texto colado: /audiobook <texto> (mín. 200 caracteres)
+# 3) pasta: joga os PDFs em data/audiobooks/inbox e manda /audiobooks
+```
+
+No terminal/app: `/audiobook ~/livro.pdf "Meu Livro"` e `/audiobooks`.
+O MP3 sai em `data/audiobooks/outbox` (com ID3, título, álbum e faixas
+`CHAP` por capítulo) e é enviado pelo Telegram quando termina. A voz padrão é
+`pt-BR-ThalitaNeural`; a limpeza remove Markdown, URLs, números de página e
+cabeçalhos repetidos, junta palavras quebradas e marca capítulos
+(`Capitulo N`, `Parte N`, títulos em CAPS).
+
+```toml
+[audiobook]
+voice = "pt-BR-ThalitaNeural"   # pt-BR-FranciscaNeural, pt-BR-AntonioNeural, ...
+rate = "-4%"                    # um pouco mais lento lê melhor
+inbox = ""                      # vazio => <data_dir>/audiobooks/inbox
+outbox = ""                     # vazio => <data_dir>/audiobooks/outbox
+watch_minutes = 0.0             # >0 = confere a inbox sozinho (ex.: 5)
+```
+
+PDF escaneado (sem camada de texto) não é lido: a Gaia avisa e move o arquivo
+para `inbox/erros`. Passe por um OCR ou envie `.txt`.
+
 **WhatsApp** (Cloud API da Meta)
 
 ```bash
@@ -440,6 +469,7 @@ gaia browser screenshot https://exemplo.com captura.png
 | `/tarefas [sync\|fazer\|concluir\|limpar]` | tarefas de longo prazo |
 | `/lembrar <texto>` · `/lembretes` · `/cancelar <id>` | lembretes |
 | `/voz on\|off\|edge\|say\|none` · `/continuo on\|off` | voz e escuta |
+| `/audiobook <arquivo> [título]` · `/audiobooks` | narra um PDF/TXT em MP3 · narra todos da pasta |
 | `/fala` · `/texto` · `/interromper` | modo de entrada |
 | `/rapido on\|off` · `/proativo on\|off` | modo rápido · proatividade |
 | `/pensando on\|off` | mostra/esconde o raciocínio na tela (o Telegram tem interruptor próprio) |
@@ -453,9 +483,9 @@ gaia browser screenshot https://exemplo.com captura.png
 ## Configuração
 
 Arquivo: `~/.config/gaia/config.toml` (segredos só no `.env`).
-Seções: `agent`, `stt`, `tts`, `audio`, `secondbrain`, `interface`, `memory`,
-`briefing`, `career`, `proactive`, `focus`, `agenda`, `browser`, `telegram`,
-`whatsapp`, `serve`.
+Seções: `agent`, `stt`, `tts`, `audiobook`, `audio`, `secondbrain`, `interface`,
+`memory`, `briefing`, `career`, `proactive`, `focus`, `agenda`, `browser`,
+`telegram`, `whatsapp`, `serve`.
 
 ```bash
 gaia config          # mostra a configuração (segredos redigidos)
@@ -476,6 +506,7 @@ gaia/
   audio/          # microfone, VAD, pré-roll
   stt/            # faster-whisper
   tts/            # edge-tts, say, limpeza de Markdown
+  audiobook/      # PDF/texto -> MP3: extracao, limpeza, capitulos, ID3
   secondbrain/    # índice FTS5, frontmatter, notas, embeddings opcionais
   memory/         # conversas e turnos (SQLite), consolidação e sonho
   briefing/       # composição dos textos de manhã, meio-dia e noite

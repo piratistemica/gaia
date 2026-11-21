@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from gaia.audiobook.jobs import AudiobookError, AudiobookJob, build_audiobook
+from gaia.audiobook.service import SUPPORTED, process_inbox, text_job
 from gaia.config import Config, TelegramConfig
 from gaia.controller.orchestrator import Orchestrator
 from gaia.stt.faster_whisper import STTError, WhisperTranscriber
@@ -48,6 +52,8 @@ _COMMANDS_MENU = [
     ("metas", "painel de foco e metas"),
     ("sonhar", "gera o sonho do dia"),
     ("lembrar", "cria um lembrete"),
+    ("audiobook", "narra um PDF/TXT ou texto colado"),
+    ("audiobooks", "gera os audiobooks da pasta"),
     ("proativo", "liga/desliga a iniciativa"),
     ("pensando", "mostra/oculta o raciocínio"),
     ("sair", "encerra"),
@@ -80,6 +86,13 @@ def telegram_permission(cfg: TelegramConfig) -> Callable[[str, list[str]], str]:
     return decide
 
 
+def _safe_name(name: str) -> str:
+    """Nome de arquivo vindo do Telegram: sem caminho e sem caractere perigoso."""
+    clean = Path(name).name
+    clean = re.sub(r"[^\w.\- ]+", "_", clean, flags=re.UNICODE).strip(" .")
+    return clean or "livro.pdf"
+
+
 class TelegramService:
     def __init__(
         self,
@@ -97,6 +110,10 @@ class TelegramService:
         self.ui = ui
         self.logger = logger
         self._chat_id: str | None = None
+        self._background: set[asyncio.Task] = set()
+        setter = getattr(getattr(orchestrator, "client", None), "set_audiobook_watch", None)
+        if callable(setter):
+            setter(self._watch_audiobook)
 
     async def run(self) -> None:
         username = "?"
@@ -127,6 +144,10 @@ class TelegramService:
         # Consolidacao das 23:00 e sonho das 02:00 tambem precisam subir sem
         # mensagem: headless, ninguem fala com ela de madrugada.
         self.orchestrator.start_memory()
+        if self.cfg.audiobook.enabled and self.cfg.audiobook.watch_minutes > 0:
+            watcher = asyncio.create_task(self._audiobook_watcher())
+            self._background.add(watcher)
+            watcher.add_done_callback(self._background.discard)
         offset: int | None = self._load_offset()
         backoff = 2.0
         conflict_warned = False
@@ -207,7 +228,18 @@ class TelegramService:
         # Espelhar o canal: entrou audio, sai audio. `voice_replies` continua
         # servindo para responder em voz tambem quando a entrada e texto.
         was_voice = bool(message.get("voice") or message.get("audio"))
+        document = message.get("document") or {}
+        if document.get("file_id"):
+            await self._handle_document(document, str(message.get("caption") or ""), chat_id)
+            return
         text = (message.get("text") or "").strip()
+        if text.partition(" ")[0].lower() in {"/audiobook", "/audiolivro"}:
+            if text.partition(" ")[2].strip():
+                await self._handle_audiobook_text(text.partition(" ")[2].strip(), chat_id)
+                return
+        if text.lower() in {"/audiobooks", "/audiobooks gerar", "/audiolivros"}:
+            await self._generate_inbox(chat_id)
+            return
         if text in {"/start", "/iniciar"}:
             await self.client.send_message(
                 "Oi! Sou a Gaia. Manda texto ou áudio que eu executo e te aviso "
@@ -348,6 +380,192 @@ class TelegramService:
             return ""
         finally:
             tmp.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------ audiobooks
+    async def _audiobook_watcher(self) -> None:
+        """audiobook.watch_minutes > 0: confere a pasta sozinho de tempos em tempos."""
+        from gaia.audiobook.service import process_inbox
+
+        cfg = self.cfg.audiobook
+        interval = max(1.0, cfg.watch_minutes) * 60
+        inbox = self.cfg.audiobook_inbox()
+        outbox = self.cfg.audiobook_outbox()
+        tmp_dir = cfg.tmp_path(self.cfg.resolved_data_dir())
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                result = await process_inbox(cfg, inbox, outbox, tmp_dir, self.logger)
+            except Exception:
+                self.logger.exception("varredura de audiobooks falhou")
+                continue
+            chat_id = self.cfg.telegram.allowed_chat_id or self._chat_id
+            if result.empty or not cfg.notify or not chat_id:
+                continue
+            try:
+                await self.client.send_message(
+                    "📚 audiobooks prontos em " + str(outbox) + "\n" + result.summary(),
+                    chat_id=chat_id,
+                )
+            except TelegramError as exc:
+                self.logger.debug("aviso de audiobook falhou: %s", exc)
+
+    async def _handle_document(self, document: dict[str, Any], caption: str, chat_id: Any) -> None:
+        """PDF/TXT enviado no chat: salva na pasta de entrada e narra."""
+        name = str(document.get("file_name") or "livro")
+        suffix = Path(name).suffix.lower()
+        if suffix not in SUPPORTED:
+            await self.client.send_message(
+                "Só narro PDF ou texto (.txt/.md). Esse arquivo não abre.",
+                chat_id=chat_id,
+            )
+            return
+        cfg = self.cfg.audiobook
+        inbox = self.cfg.audiobook_inbox()
+        inbox.mkdir(parents=True, exist_ok=True)
+        await self.client.send_chat_action(chat_id, "upload_document")
+        data = await self.client.download_file(await self.client.get_file(str(document["file_id"])))
+        target = inbox / _safe_name(name)
+        target.write_bytes(data)
+        title = caption.strip() or target.stem
+        await self.client.send_message(
+            f"📖 recebi {target.name} ({len(data) // 1024} KB). Gerando o audiobook "
+            f"“{title}” — te aviso quando terminar.",
+            chat_id=chat_id,
+        )
+        job = AudiobookJob(
+            source=target,
+            outbox=self.cfg.audiobook_outbox(),
+            cfg=cfg,
+            tmp_dir=cfg.tmp_path(self.cfg.resolved_data_dir()),
+            title=title,
+        )
+        await self._run_audiobook(job, chat_id, archive_to=inbox / "processados")
+
+    async def _handle_audiobook_text(self, text: str, chat_id: Any) -> None:
+        if len(text) < 200:
+            await self.client.send_message(
+                "Texto curto demais para um audiobook. Mande um PDF ou um texto "
+                "maior: /audiobook <texto>",
+                chat_id=chat_id,
+            )
+            return
+        cfg = self.cfg.audiobook
+        job = text_job(
+            cfg,
+            self.cfg.audiobook_outbox(),
+            cfg.tmp_path(self.cfg.resolved_data_dir()),
+            text,
+        )
+        await self.client.send_message(
+            f"📖 narrando o texto colado ({len(text)} caracteres)…", chat_id=chat_id
+        )
+        await self._run_audiobook(job, chat_id)
+
+    async def _generate_inbox(self, chat_id: Any) -> None:
+        inbox = self.cfg.audiobook_inbox()
+        outbox = self.cfg.audiobook_outbox()
+        cfg = self.cfg.audiobook
+        if not cfg.enabled:
+            await self.client.send_message("Audiobook desligado.", chat_id=chat_id)
+            return
+        await self.client.send_message(f"🔎 conferindo {inbox}…", chat_id=chat_id)
+        result = await process_inbox(
+            cfg,
+            inbox,
+            outbox,
+            cfg.tmp_path(self.cfg.resolved_data_dir()),
+            self.logger,
+            progress=None,
+        )
+        if result.empty:
+            await self.client.send_message(
+                f"Nenhum arquivo novo em {inbox}. Coloque PDFs/TXT nessa pasta e "
+                "mande /audiobooks de novo.",
+                chat_id=chat_id,
+            )
+            return
+        await self.client.send_message(
+            "Audiobooks prontos em " + str(outbox) + "\n" + result.summary(),
+            chat_id=chat_id,
+        )
+
+    async def _run_audiobook(self, job: AudiobookJob, chat_id: Any, archive_to: Path | None = None) -> None:
+        """Narra em segundo plano com progresso editando uma mensagem."""
+        message = await self.client.send_message(
+            f"🎙️ {job.title}: preparando…", chat_id=chat_id
+        )
+        message_id = message.get("message_id") if isinstance(message, dict) else None
+        last = {"at": 0.0}
+
+        async def edit(text: str) -> None:
+            if message_id is None:
+                return
+            try:
+                await self.client.edit_message_text(message_id, text, chat_id=chat_id)
+            except TelegramError as exc:
+                self.logger.debug("progresso do audiobook falhou: %s", exc)
+
+        def progress(done: int, total: int) -> None:
+            # Edit a cada 3s: o Telegram limita edicoes de uma mesma mensagem e o
+            # progresso por trecho e rapido demais para caber no limite.
+            now = time.monotonic()
+            if done < total and now - last["at"] < 3.0:
+                return
+            last["at"] = now
+            percent = int(done * 100 / total) if total else 0
+            edit_task = asyncio.create_task(
+                edit(f"🎙️ {job.title}: {percent}% ({done}/{total} trechos)")
+            )
+            edit_task.add_done_callback(lambda t: t.exception())
+
+        await self.client.send_chat_action(chat_id, "record_voice")
+        try:
+            output = await build_audiobook(job, progress=progress)
+        except AudiobookError as exc:
+            await edit(f"❌ {job.title}: {exc}")
+            if archive_to is not None and job.source.exists():
+                archive_to.mkdir(parents=True, exist_ok=True)
+                job.source.replace(archive_to / job.source.name)
+            return
+        except Exception as exc:
+            self.logger.exception("audiobook falhou")
+            await edit(f"❌ {job.title}: erro inesperado ({exc})")
+            return
+        size_mb = max(1, output.stat().st_size // (1024 * 1024))
+        await edit(f"✅ {job.title} pronto ({size_mb} MB). Enviando…")
+        await self._deliver_audiobook(output, job, chat_id)
+
+    async def _deliver_audiobook(self, output: Path, job: AudiobookJob, chat_id: Any) -> None:
+        caption = f"📖 {job.title} · narrado por Gaia · {len(job.chapters)} faixa(s)"
+        if output.stat().st_size > 49 * 1024 * 1024:
+            caption += "\n(ultrapassa o limite do Telegram; arquivo salvo na pasta de saída)"
+            await self.client.send_message(caption, chat_id=chat_id)
+            return
+        try:
+            await self.client.send_audio(output, chat_id=chat_id, caption=caption)
+        except TelegramError as exc:
+            self.logger.warning("envio do audiobook falhou: %s", exc)
+            await self.client.send_message(
+                f"Não consegui enviar o MP3 ({exc}). Ele está em {output}", chat_id=chat_id
+            )
+
+    def _watch_audiobook(self, task: asyncio.Task, job: AudiobookJob) -> None:
+        """Ferramenta `audiobook` iniciou a narracao: entrega o MP3 ao terminar."""
+
+        async def deliver() -> None:
+            chat_id = self.cfg.telegram.allowed_chat_id or self._chat_id
+            try:
+                output = await task
+            except Exception as exc:
+                if chat_id:
+                    await self.client.send_message(f"❌ {job.title}: {exc}", chat_id=chat_id)
+                return
+            if chat_id:
+                await self._deliver_audiobook(output, job, chat_id)
+
+        task = asyncio.create_task(deliver())
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
 
     async def _send_voice(self, text: str, chat_id: Any) -> None:
         prepared = await self.orchestrator.tts.prepare(text)

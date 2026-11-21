@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -88,6 +89,10 @@ class CommandsMixin(OrchestratorContract):
             await self._handle_tasks(argument)
         elif command == "/voz":
             self._switch_voice(argument)
+        elif command in {"/audiobook", "/audiolivro"}:
+            await self._handle_audiobook(argument)
+        elif command in {"/audiobooks", "/audiolivros"}:
+            await self._handle_audiobooks_inbox()
         elif command == "/interromper":
             await self.client.abort(self.session_id)
             self.tts.stop()
@@ -588,6 +593,65 @@ class CommandsMixin(OrchestratorContract):
             return
         await self.select_mode(persona.key)
         self.ui.success(f"modo ativo: {persona.name} — {persona.summary}")
+
+    async def _handle_audiobook(self, argument: str) -> None:
+        """`/audiobook <arquivo> [titulo]`: narra um PDF/TXT da pasta de entrada."""
+        cfg = self.cfg.audiobook
+        if not cfg.enabled:
+            self.ui.warning("audiobook desligado (audiobook.enabled=false)")
+            return
+        if not argument:
+            self.ui.info(
+                f"pasta de entrada: {self.cfg.audiobook_inbox()}\n"
+                f"saída: {self.cfg.audiobook_outbox()}\n"
+                "uso: /audiobook <arquivo.pdf> [título] · /audiobooks gera a pasta inteira"
+            )
+            return
+        name, _, title = argument.partition(" ")
+        inbox = self.cfg.audiobook_inbox()
+        source = Path(name).expanduser()
+        if not source.is_file():
+            source = inbox / name
+        if not source.is_file():
+            self.ui.warning(f"não achei {name} (procurei também em {inbox})")
+            return
+        from gaia.audiobook.jobs import AudiobookError, AudiobookJob, build_audiobook
+
+        job = AudiobookJob(
+            source=source,
+            outbox=self.cfg.audiobook_outbox(),
+            cfg=cfg,
+            tmp_dir=cfg.tmp_path(self.cfg.resolved_data_dir()),
+            title=title.strip(),
+        )
+        self.ui.info(f"narrando {source.name} ({job.title})…")
+        try:
+            output = await build_audiobook(job)
+        except AudiobookError as exc:
+            self.ui.error(f"audiobook falhou: {exc}")
+            return
+        self.ui.success(f"audiobook pronto: {output}")
+
+    async def _handle_audiobooks_inbox(self) -> None:
+        from gaia.audiobook.service import process_inbox
+
+        cfg = self.cfg.audiobook
+        inbox = self.cfg.audiobook_inbox()
+        self.ui.info(f"conferindo {inbox}…")
+        result = await process_inbox(
+            cfg,
+            inbox,
+            self.cfg.audiobook_outbox(),
+            cfg.tmp_path(self.cfg.resolved_data_dir()),
+            logging.getLogger("gaia.audiobook"),
+        )
+        if result.empty:
+            self.ui.info("nada novo na pasta de entrada.")
+            return
+        for path in result.done:
+            self.ui.success(str(path))
+        for source, error in result.failed:
+            self.ui.error(f"{source.name}: {error}")
 
     def _switch_voice(self, argument: str) -> None:
         arg = argument.lower().strip()

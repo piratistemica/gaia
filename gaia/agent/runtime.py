@@ -74,12 +74,17 @@ class AgentClient:
             cfg.agent.allow_outside_project,
             cfg.agenda,
             cfg.secondbrain.path,
+            audiobook=cfg.audiobook,
         )
         self.tools: ToolSet = (
             build_tools(self._tool_context) if cfg.agent.tools else ToolSet()
         )
         self._always_approved: set[str] = set()
         self._logger = logging.getLogger("gaia.agent")
+
+    def set_audiobook_watch(self, callback: Any) -> None:
+        """Canal entrega o MP3: callback(task, job) quando a narracao termina."""
+        self._tool_context.audiobook_watch = callback
 
     # ------------------------------------------------------------------ config
     @property

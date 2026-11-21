@@ -20,6 +20,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from gaia.audiobook.config import AudiobookConfig
+
 APP_NAME = "gaia"
 _LEGACY_PREFIX = "ZAYA_"
 _ENV_PREFIX = f"{APP_NAME.upper()}_"
@@ -434,6 +436,7 @@ class Config(BaseModel):
     focus: FocusConfig = Field(default_factory=FocusConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     serve: ServeConfig = Field(default_factory=ServeConfig)
+    audiobook: AudiobookConfig = Field(default_factory=AudiobookConfig)
     data_dir: str = ""
 
     # Caminho de onde o config foi carregado (informativo).
@@ -509,9 +512,20 @@ class Config(BaseModel):
             return Path(self.agent.directory).expanduser().resolve()
         return Path.cwd().resolve()
 
+    def audiobook_inbox(self) -> Path:
+        return self.audiobook.inbox_path(self.resolved_data_dir())
+
+    def audiobook_outbox(self) -> Path:
+        return self.audiobook.outbox_path(self.resolved_data_dir())
+
     def ensure_dirs(self) -> None:
-        for p in (self.resolved_data_dir(), self.log_dir()):
-            p.mkdir(parents=True, exist_ok=True)
+        dirs = [self.resolved_data_dir(), self.log_dir()]
+        if self.audiobook.enabled:
+            # A pasta de entrada precisa existir para a pessoa simplesmente
+            # arrastar PDFs para ela.
+            dirs += [self.audiobook_inbox(), self.audiobook_outbox()]
+        for path in dirs:
+            path.mkdir(parents=True, exist_ok=True)
 
     def public_dict(self) -> dict[str, Any]:
         data = self.model_dump()
@@ -746,6 +760,10 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "GAIA_TELEGRAM_POLL_TIMEOUT": ("telegram", "poll_timeout"),
     "GAIA_TELEGRAM_SHELL_ACCESS": ("telegram", "shell_access"),
     "GAIA_TELEGRAM_VOICE_REPLIES": ("telegram", "voice_replies"),
+    "GAIA_AUDIOBOOK_ENABLED": ("audiobook", "enabled"),
+    "GAIA_AUDIOBOOK_INBOX": ("audiobook", "inbox"),
+    "GAIA_AUDIOBOOK_VOICE": ("audiobook", "voice"),
+    "GAIA_AUDIOBOOK_WATCH_MINUTES": ("audiobook", "watch_minutes"),
     "GAIA_TTS_VOICE": ("tts", "edge_voice"),
     "GAIA_TTS_ENABLED": ("tts", "enabled"),
     "GAIA_TTS_PROVIDER": ("tts", "provider"),
@@ -951,6 +969,20 @@ say_voice = "Luciana"
 rate = "+0%"
 max_chars = 1200
 sentence_pause_ms = 120      # pausa extra entre frases (0 = nenhuma)
+
+[audiobook]
+enabled = true
+inbox = ""                 # vazio => <data_dir>/audiobooks/inbox (coloque PDFs aqui)
+outbox = ""                # vazio => <data_dir>/audiobooks/outbox (MP3 pronto)
+tmp = ""                   # vazio => <data_dir>/audiobooks/tmp
+voice = "pt-BR-ThalitaNeural"
+rate = "-4%"
+pitch = "+0Hz"
+sentence_pause_ms = 220
+chunk_chars = 3500
+watch_minutes = 0.0        # >0 = checa a pasta de entrada sozinho (ex.: 5)
+notify = true              # avisa no Telegram quando fica pronto
+resume = true
 
 [audio]
 sample_rate = 16000

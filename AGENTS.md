@@ -48,7 +48,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/agent/runtime.py` | loop do agente: provedor, streaming, ferramentas, permissões |
 | `gaia/agent/session.py` | `AgentSession` e `SessionStore` (JSON em `sessions/`) |
 | `gaia/agent/providers/` | `factory.py` (presets), `openai_compat.py`, `anthropic.py` |
-| `gaia/agent/tools/` | `build_tools()` registra `read/list/glob/grep/write/edit/bash` + agenda/planilha |
+| `gaia/agent/tools/` | `build_tools()` registra `read/list/glob/grep/write/edit/bash` + agenda/planilha/audiobook |
 | `gaia/controller/orchestrator.py` | cola entre UI e agente; conversa, sessão, workers |
 | `gaia/controller/turns.py` | execução de um turno, eventos, permissão |
 | `gaia/controller/commands.py` | comandos de barra (`/status`, `/modelo`, `/sonhar`…) |
@@ -65,6 +65,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/serve/server.py` | HTTP + SSE; `app.py` | ponte `OrchestratorTarget`; `web.py`/`static/` | web |
 | `gaia/client/remote_client.py` | cliente `gaia --remote` |
 | `gaia/telegram/`, `whatsapp/`, `browser/` | canais e integrações |
+| `gaia/audiobook/` | PDF/texto → MP3: `extract.py` (PDF sem dependência), `normalize.py` (limpeza + capítulos), `jobs.py` (narração, ID3/CHAP), `service.py` (lote inbox→outbox) |
 | `gaia/agenda/` | cliente da Agenda (Supabase), usado por ferramentas `agenda_*` |
 | `gaia/career/`, `finance/`, `tasks/`, `focus.py` | rotinas de vagas, bolsa, tarefas, foco |
 
@@ -107,6 +108,11 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   bloco dinâmico (data/hora/modo). Respeite isso ao adicionar contexto.
 - **Estilo do repo:** UI, mensagens e testes em português; comentários em ASCII
   sem acento ("sessao", "execucao"). Evite dependência nova.
+- **Audiobook é estado em disco, não em banco.** `inbox` = pendente;
+  `processados`/`erros` = terminado (nunca reprocessa). Trechos já narrados ficam
+  em `tmp/<hash>/NNNN.mp3` para retomar após queda; só são apagados no sucesso.
+  A ferramenta `audiobook` roda em `asyncio.create_task` e devolve na hora — quem
+  entrega o MP3 é o canal (`AgentClient.set_audiobook_watch`), não a ferramenta.
 
 ## Receitas
 
@@ -117,6 +123,10 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   `controller/commands.py:_handle_command`, atualize `TerminalUI.help()`
   (`interface/terminal.py`) e teste em `tests/test_cli.py`/`test_orchestrator.py`.
   Se o Telegram precisar do comando, veja `gaia/telegram/service.py`.
+- **Audiobook:** lógica em `gaia/audiobook/` (testes em `tests/test_audiobook.py`,
+  com o sintetizador stubado — nada de rede). Entrada nova (outro formato) é em
+  `extract.py`; regra de limpeza, em `normalize.py`; o cmd `/audiobook` está em
+  `controller/commands.py` e no `telegram/service.py` (documento, texto e pasta).
 - **Novo provedor:** edite `gaia/agent/providers/factory.py` (`PRESETS`,
   `PUBLIC_PROVIDERS`, `preset_api_key`) e documente em `.env.example` e README.
 - **Novo campo de config:** adicione no modelo pydantic, em `_ENV_MAP`, no
