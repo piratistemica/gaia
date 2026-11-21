@@ -1,11 +1,14 @@
-# Design — Zaya no mini PC Ubuntu, controlada do Mac via Telegram
+# Design — Gaia no mini PC Ubuntu, controlada do Mac via Telegram
+
+> **Status: implementado.** O desenho evoluiu: em produção o dono do Telegram é
+> o `gaia serve` (não o `gaia telegram serve`). Ver `2026-11-20-handoff.md`.
 
 **Data:** 2026-11-16
 **Status:** aprovado
 
 ## Contexto
 
-A Zaya foi escrita para morar num Mac com microfone e alto-falante. A usuária comprou
+A Gaia foi escrita para morar num Mac com microfone e alto-falante. A usuária comprou
 um mini PC com Ubuntu que ficará guardado (sem tela, teclado ou microfone úteis) e quer
 controlá-lo do MacBook. Isso muda duas premissas do produto:
 
@@ -24,15 +27,15 @@ controlá-lo do MacBook. Isso muda duas premissas do produto:
 
 ```
 MacBook / celular  ⇄  Bot do Telegram (API)  ⇄  mini PC Ubuntu (headless)
-                                                └─ systemd: zaya telegram serve
+                                                └─ systemd: gaia telegram serve
                                                      ├─ STT local (faster-whisper, CPU/int8)
                                                      ├─ TTS edge (nuvem) para resposta em voz
                                                      ├─ Navegador headless (Playwright,
-                                                     │  perfil persistente em ~/.local/share/zaya/browser)
+                                                     │  perfil persistente em ~/.local/share/gaia/browser)
                                                      └─ memória (SQLite + Markdown)
 ```
 
-O processo é único e de longa duração (`zaya telegram serve`), supervisionado pelo
+O processo é único e de longa duração (`gaia telegram serve`), supervisionado pelo
 systemd. A TUI continua existindo, mas só é usada em manutenção via SSH.
 
 ## Decisões
@@ -51,26 +54,26 @@ Isso evita mexer em fluxo de áudio/recorder e mantém o código existente intac
 ### 2. Remoção do Spotify
 
 O módulo é 100% dependente de AppleScript (`osascript`), inútil no Linux. Removemos:
-pacote `zaya/spotify/`, `tests/test_spotify.py`, subparser `zaya spotify`, handler em
+pacote `gaia/spotify/`, `tests/test_spotify.py`, subparser `gaia spotify`, handler em
 `turns.py` (`_handle_spotify`, intent parsing em `_dispatch`/`_dispatch_silent`), função
 `_spotify_command` em `cli_integrations.py` e as menções no README. Não há config nem
 env var de Spotify — confirmado por grep.
 
 ### 3. Serviço systemd em vez de launchd
 
-O comentário em `zaya/telegram/service.py` menciona launchd; no Linux o equivalente é uma
+O comentário em `gaia/telegram/service.py` menciona launchd; no Linux o equivalente é uma
 unit de usuário. `Restart=on-failure` + `RestartSec=10`. `systemctl --user enable --now`
 sobe no login. O backoff já existente no long polling (até 30s) cobre indisponibilidade
 da API do Telegram.
 
 ### 4. Login do navegador em um único passo, headless-friendly
 
-A `BrowserSession` já suporta perfil persistente e o comando `zaya browser login <url>`
+A `BrowserSession` já suporta perfil persistente e o comando `gaia browser login <url>`
 já abre o navegador headed e espera Enter para salvar. Num mini headless, damos uma tela
 virtual só durante o login:
 
 - `scripts/browser-login.sh <url>` → sobe `Xvfb :99` + `x11vnc` → roda
-  `DISPLAY=:99 zaya browser login <url>` → ao sair, derruba os dois processos.
+  `DISPLAY=:99 gaia browser login <url>` → ao sair, derruba os dois processos.
 - A usuária conecta pelo Finder do Mac (`vnc://<ip-do-mini>:5900`), loga, volta ao SSH e
   pressiona Enter. O perfil é salvo e o serviço passa a rodar headless com esses logins.
 - Dependências: `xvfb` e `x11vnc` (apt), instaladas à parte, não no `install-linux.sh`
@@ -78,8 +81,8 @@ virtual só durante o login:
 
 ### 5. Permissões do bot
 
-`zaya telegram serve` roda com `TerminalUI(quiet=True)`, então `write`/`edit`/`bash` só
-funcionam com `ZAYA_TELEGRAM_AUTO_APPROVE=true` **e** `ZAYA_TELEGRAM_ALLOWED_CHAT_ID`
+`gaia telegram serve` roda com `TerminalUI(quiet=True)`, então `write`/`edit`/`bash` só
+funcionam com `GAIA_TELEGRAM_AUTO_APPROVE=true` **e** `GAIA_TELEGRAM_ALLOWED_CHAT_ID`
 fixado (a política já existe em `telegram_permission`). O chat_id fixo impede que o bot
 adote o primeiro desconhecido que falar com ele.
 
@@ -109,6 +112,6 @@ _proactive_loop / _fire_due_reminders / _check_focus / _check_agenda
 
 - Testes unitários novos: entrega proativa no Telegram, remoção do Spotify (imports
   ausentes), ausência de TTS no canal Telegram.
-- No mini: `zaya doctor`, mensagem de texto e áudio no Telegram, lembrete disparado
-  chegando no Telegram, `browser-login.sh` uma vez e depois `zaya browser text` headless.
-- Reinício da máquina: `systemctl --user status zaya-telegram` deve voltar sozinho.
+- No mini: `gaia doctor`, mensagem de texto e áudio no Telegram, lembrete disparado
+  chegando no Telegram, `browser-login.sh` uma vez e depois `gaia browser text` headless.
+- Reinício da máquina: `systemctl --user status gaia-telegram` deve voltar sozinho.

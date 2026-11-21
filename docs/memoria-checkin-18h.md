@@ -1,10 +1,13 @@
-# Check-in de memória das 18h: a Zaya pergunta o que guardar
+# Check-in de memória das 18h: a Gaia pergunta o que guardar
+
+> **Proposta não implementada.** Não existe revisão de memória às 18h no código
+> atual. Depende do schema v6 descrito em `memoria-plano.md`.
 
 Este documento desenha a **etapa 5** do plano de memória de longo prazo. As etapas
 0 a 4 (schema, `fatos.md`, recall por FTS5, ferramentas de memória, bloco no turno)
 vêm antes; sem elas o check-in não tem onde gravar nem o que propor.
 
-A ideia é curta: uma vez por dia, no fim da tarde, a Zaya mostra uma lista curta de
+A ideia é curta: uma vez por dia, no fim da tarde, a Gaia mostra uma lista curta de
 coisas que aprendeu sobre a Talita e pergunta o que deve virar memória durável e o
 que deve ser esquecido. Ela responde com uma frase de dez caracteres. Nada de
 formulário, nada de tela nova.
@@ -19,7 +22,7 @@ o registro, mas não a **curadoria**:
 - um fato errado extraído pelo modelo fica valendo para sempre;
 - um fato sensível ("ansiedade antes de apresentação") entra na memória sem
   ninguém ter escolhido guardá-lo;
-- a pessoa nunca vê o que a Zaya acha que sabe sobre ela, então não corrige.
+- a pessoa nunca vê o que a Gaia acha que sabe sobre ela, então não corrige.
 
 O check-in das 18h existe para dar **uma tela de revisão por dia, sem tela**. É o
 único ponto do sistema em que a memória durável é confirmada por quem é o sujeito
@@ -31,28 +34,28 @@ dela.
 
 | Fato | Onde |
 | --- | --- |
-| Interface padrão é a TUI | `InterfaceConfig.ui = "textual"` (`zaya/config.py:165`) |
-| Caminho Textual chama `prepare()`, **não** `start()` | `zaya/cli_runtime.py:73-77` |
-| `prepare()` só liga os workers de fundo | `zaya/controller/orchestrator.py:328` |
-| `_proactive_loop` **não** nasce na TUI: só em `start()` e em `/proativo` | `zaya/controller/orchestrator.py:382`, `zaya/controller/initiative.py:86` (loop) e `:73` (`/proativo`) |
-| Workers de fundo (memória, briefing, vagas) | `zaya/controller/orchestrator.py:207` |
-| Envio proativo central | `zaya/controller/initiative.py:242` (`_say_proactive`) |
-| Loop de memória: 60s, checa `_busy`, roda em todo mundo | `zaya/controller/memory.py:66` |
-| Briefing **não** serve: sai cedo sem Telegram | `zaya/controller/briefing.py:24` |
-| Rotina de vagas também exige Telegram | `zaya/controller/career.py:37` |
-| Despacho de texto | `zaya/controller/turns.py:91` (`_dispatch`), `:66` (`_dispatch_silent`) |
-| `parse_register` engole respostas curtas | `zaya/controller/intents.py:91` |
-| Reserva atômica de "já enviei hoje" | `zaya/memory/store.py:510` (`claim_meta`) |
-| Consolidação diária | `zaya/memory/consolidation.py:205` (`consolidate`) |
+| Interface padrão é a TUI | `InterfaceConfig.ui = "textual"` (`gaia/config.py:165`) |
+| Caminho Textual chama `prepare()`, **não** `start()` | `gaia/cli_runtime.py:73-77` |
+| `prepare()` só liga os workers de fundo | `gaia/controller/orchestrator.py:328` |
+| `_proactive_loop` **não** nasce na TUI: só em `start()` e em `/proativo` | `gaia/controller/orchestrator.py:382`, `gaia/controller/initiative.py:86` (loop) e `:73` (`/proativo`) |
+| Workers de fundo (memória, briefing, vagas) | `gaia/controller/orchestrator.py:207` |
+| Envio proativo central | `gaia/controller/initiative.py:242` (`_say_proactive`) |
+| Loop de memória: 60s, checa `_busy`, roda em todo mundo | `gaia/controller/memory.py:66` |
+| Briefing **não** serve: sai cedo sem Telegram | `gaia/controller/briefing.py:24` |
+| Rotina de vagas também exige Telegram | `gaia/controller/career.py:37` |
+| Despacho de texto | `gaia/controller/turns.py:91` (`_dispatch`), `:66` (`_dispatch_silent`) |
+| `parse_register` engole respostas curtas | `gaia/controller/intents.py:91` |
+| Reserva atômica de "já enviei hoje" | `gaia/memory/store.py:510` (`claim_meta`) |
+| Consolidação diária | `gaia/memory/consolidation.py:205` (`consolidate`) |
 
 Três conclusões que mudam o desenho.
 
 **O check-in não pode morar no `_proactive_loop`.** A premissa registrada antes
 ("o loop proativo roda na TUI e no Telegram") está errada. `_proactive_loop` só é
 criado em dois lugares: `Orchestrator.start()`
-(`zaya/controller/orchestrator.py:382`) e `_toggle_proactive`
-(`zaya/controller/initiative.py:73`, usado por `/proativo`). E `start()` é chamado
-**só** pelo caminho de terminal (`zaya/cli_runtime.py:58`). O caminho Textual — o
+(`gaia/controller/orchestrator.py:382`) e `_toggle_proactive`
+(`gaia/controller/initiative.py:73`, usado por `/proativo`). E `start()` é chamado
+**só** pelo caminho de terminal (`gaia/cli_runtime.py:58`). O caminho Textual — o
 padrão (`ui = "textual"`) — chama `prepare()` (`cli_runtime.py:77`), que apenas roda
 `_start_background_workers()` (`orchestrator.py:332`, chamado por `prepare()` em `:328`). Na TUI, portanto, o loop
 proativo não começa sozinho: só se alguém digitar `/proativo` duas vezes (a primeira
@@ -61,7 +64,7 @@ desligados ali.
 
 Isso não é um detalhe: pendurar o check-in no `_proactive_loop` significaria
 pendurar no único lugar que não roda na interface padrão. O análogo correto é o
-**worker de memória** (`zaya/controller/memory.py:55-82`), que nasce em
+**worker de memória** (`gaia/controller/memory.py:55-82`), que nasce em
 `_start_background_workers()` e por isso existe em todo mundo — TUI, terminal e
 Telegram.
 
@@ -73,10 +76,10 @@ também o idle check-in de 45 minutos e muda o comportamento de quem já usa a T
 Fica **fora de escopo** (seção 14); o check-in não depende disso porque mora no
 worker de memória.
 
-**Mensagem proativa hoje é invisível nas duas pontas.** `zaya/cli_runtime.py:76` sobe
-a TUI com `TerminalUI(quiet=True)` e `zaya/cli_integrations.py:117` sobe o serviço do
+**Mensagem proativa hoje é invisível nas duas pontas.** `gaia/cli_runtime.py:76` sobe
+a TUI com `TerminalUI(quiet=True)` e `gaia/cli_integrations.py:117` sobe o serviço do
 Telegram com o mesmo `quiet=True`; `TerminalUI._print`
-(`zaya/interface/terminal.py:136`) retorna cedo quando `quiet`, e `_say_proactive`
+(`gaia/interface/terminal.py:136`) retorna cedo quando `quiet`, e `_say_proactive`
 chama `self.ui.proactive(text)`, que passa por `_print`. Na TUI hoje isso não aparece
 como sintoma porque o loop proativo também não roda ali; no Telegram porque o serviço
 também não liga o loop. Mas o check-in sobe por um worker que existe nas duas
@@ -100,7 +103,7 @@ A varredura e a chamada de LLM são separadas de propósito: a varredura é loca
 barata, então pode rodar a cada minuto; a chamada de LLM é caro, então roda uma vez
 por dia, e só se houver dica nova. Dia sem conversa = dia sem chamada.
 
-As duas coisas acontecem dentro de `_memory_loop` (`zaya/controller/memory.py:66`),
+As duas coisas acontecem dentro de `_memory_loop` (`gaia/controller/memory.py:66`),
 que já acorda a cada 60s, já respeita `_busy` / `_recording` / `_listening` e já
 existe na TUI, no terminal e no Telegram. Nenhum worker novo, nenhum laço novo.
 
@@ -114,11 +117,11 @@ e um "guardar isso?" às 22h50 vira ruído com a nota do dia saindo.
 
 Já explicado na seção 2, mas vale repetir porque é o erro mais fácil de cometer:
 `_proactive_loop` nasce em `Orchestrator.start()`
-(`zaya/controller/orchestrator.py:382`), e o caminho Textual — a interface padrão —
-nunca chama `start()`, só `prepare()` (`zaya/cli_runtime.py:77`). O que existe na
+(`gaia/controller/orchestrator.py:382`), e o caminho Textual — a interface padrão —
+nunca chama `start()`, só `prepare()` (`gaia/cli_runtime.py:77`). O que existe na
 TUI são os workers de `_start_background_workers()`: memória, briefing e vagas.
-Briefing e vagas saem cedo sem Telegram (`zaya/controller/briefing.py:24`,
-`zaya/controller/career.py:37`). Sobra a memória.
+Briefing e vagas saem cedo sem Telegram (`gaia/controller/briefing.py:24`,
+`gaia/controller/career.py:37`). Sobra a memória.
 
 ---
 
@@ -127,7 +130,7 @@ Briefing e vagas saem cedo sem Telegram (`zaya/controller/briefing.py:24`,
 ### 4.1 Visibilidade proativa (TUI e Telegram)
 
 `TerminalUI` ganha um callback opcional, no mesmo padrão de `permission_callback`
-(`zaya/interface/terminal.py:65`):
+(`gaia/interface/terminal.py:65`):
 
 ```python
 # TUI/Telegram instalam aqui o destino das mensagens proativas. Sem isso,
@@ -136,7 +139,7 @@ self.proactive_callback: Callable[[str], None] | None = None
 ```
 
 E `proactive()` passa a chamar o callback quando existir, antes de qualquer
-checagem de `quiet`. `ZayaTextualApp.on_mount` (`zaya/interface/textual_app.py:232`)
+checagem de `quiet`. `GaiaTextualApp.on_mount` (`gaia/interface/textual_app.py:232`)
 instala:
 
 ```python
@@ -144,8 +147,8 @@ if ui is not None and hasattr(ui, "proactive_callback"):
     ui.proactive_callback = self._write_proactive
 ```
 
-com `_write_proactive` montando um card igual ao `_write_zaya`
-(`textual_app.py:1058`), com rótulo próprio (`✦ Zaya · iniciativa`).
+com `_write_proactive` montando um card igual ao `_write_gaia`
+(`textual_app.py:1058`), com rótulo próprio (`✦ Gaia · iniciativa`).
 
 Sem `call_from_thread`: quem chama `ui.proactive` é o `_memory_loop`, um task
 `asyncio` no **mesmo** event loop da TUI — diferente de `permission_callback`, que é
@@ -159,11 +162,11 @@ Telegram.
 
 ### 4.1.1 O mesmo problema no Telegram
 
-No serviço do Telegram (`zaya/cli_integrations.py:117`) a UI também é
+No serviço do Telegram (`gaia/cli_integrations.py:117`) a UI também é
 `TerminalUI(quiet=True)`, então `ui.proactive(...)` é descartado do mesmo jeito. Hoje
 isso não dói porque `_proactive_loop` **também** não sobe ali — o serviço chama só
 `start_briefing()` e `start_career()`, e o briefing envia por
-`self.telegram.send_message` direto (`zaya/controller/briefing.py:87`, `:126`).
+`self.telegram.send_message` direto (`gaia/controller/briefing.py:87`, `:126`).
 
 O check-in muda isso: ele sobe no `_memory_loop`, que **existe** no Telegram. Sem um
 destino, a pergunta das 18h seria silenciosamente engolida justamente no canal em que
@@ -172,7 +175,7 @@ ela é mais útil (a pessoa lê no celular).
 A solução é a mesma, um callback a mais no serviço:
 
 ```python
-# zaya/telegram/service.py, em run(), antes do loop de updates
+# gaia/telegram/service.py, em run(), antes do loop de updates
 async def _send_proactive(text: str) -> None:
     await self.client.send_message(text)
 
@@ -182,7 +185,7 @@ self.ui.proactive_callback = lambda text: asyncio.create_task(_send_proactive(te
 `proactive()` é síncrono e `send_message` é assíncrono, daí o `create_task`. O
 callback roda no mesmo loop do serviço — nada de thread. E como é uma task solta, o
 helper precisa do `try/except` + `logger.warning` interno, senão uma falha de rede
-vira exceção perdida (`zaya/controller/briefing.py:86-91` é o padrão do repo).
+vira exceção perdida (`gaia/controller/briefing.py:86-91` é o padrão do repo).
 
 Com isso, o check-in sai no canal certo uma vez só: a chave `claim_meta` é a mesma
 para TUI e Telegram, então quem chegar primeiro manda. Se a pessoa estiver com os
@@ -246,16 +249,16 @@ existe), e quem permite responder na manhã seguinte é o mesmo mapa continuar l
 
 ## 5. Configuração
 
-Campos **planos** dentro de `MemoryConfig` (`zaya/config.py:180`), seguindo o
+Campos **planos** dentro de `MemoryConfig` (`gaia/config.py:180`), seguindo o
 precedente de `market_enabled` / `market_at` / `market_days` em `BriefingConfig`.
-Nada de `[memory.review]` aninhado: `_apply_env` (`zaya/config.py:654`) só sabe
+Nada de `[memory.review]` aninhado: `_apply_env` (`gaia/config.py:654`) só sabe
 escrever um nível (`raw.setdefault(section, {})[field]`), e um submodelo exigiria
 tratar caminho com ponto só para ganhar organização visual.
 
 ```python
 class MemoryConfig(BaseModel):
     ...
-    # Check-in das 18h: mostra o que a Zaya aprendeu e pergunta o que guardar.
+    # Check-in das 18h: mostra o que a Gaia aprendeu e pergunta o que guardar.
     review_enabled: bool = True
     review_at: str = "18:00"
     # Depois disso nao pergunta mais; o que ficou pendente espera o dia seguinte.
@@ -267,7 +270,7 @@ class MemoryConfig(BaseModel):
     review_timeout_seconds: float = 30.0
 ```
 
-No TOML padrão (`_DEFAULT_CONFIG_TEMPLATE`, `zaya/config.py:841`):
+No TOML padrão (`_DEFAULT_CONFIG_TEMPLATE`, `gaia/config.py:841`):
 
 ```toml
 [memory]
@@ -290,11 +293,11 @@ mudam a rotina e por isso aparecem também como env.
 E em `_ENV_MAP`:
 
 ```
-ZAYA_MEMORY_REVIEW_ENABLED     -> ("memory", "review_enabled")
-ZAYA_MEMORY_REVIEW_AT          -> ("memory", "review_at")
-ZAYA_MEMORY_REVIEW_UNTIL       -> ("memory", "review_until")
-ZAYA_MEMORY_REVIEW_MAX_ITEMS   -> ("memory", "review_max_items")
-ZAYA_MEMORY_REVIEW_USE_LLM     -> ("memory", "review_use_llm")
+GAIA_MEMORY_REVIEW_ENABLED     -> ("memory", "review_enabled")
+GAIA_MEMORY_REVIEW_AT          -> ("memory", "review_at")
+GAIA_MEMORY_REVIEW_UNTIL       -> ("memory", "review_until")
+GAIA_MEMORY_REVIEW_MAX_ITEMS   -> ("memory", "review_max_items")
+GAIA_MEMORY_REVIEW_USE_LLM     -> ("memory", "review_use_llm")
 ```
 
 `review_enabled=false` desliga só o check-in; a extração da consolidação continua.
@@ -462,7 +465,7 @@ parse_register("descarta 2")   -> None
    testadas (`sim`, `não`, `1 e 3`, `salva`, `ok`, `pode`, `depois`, `descarta` →
    `None`). Ou seja, a interceptação pode ficar antes deles sem quebrar small talk.
 
-Ordem final em `_dispatch` (`zaya/controller/turns.py:91`):
+Ordem final em `_dispatch` (`gaia/controller/turns.py:91`):
 
 ```python
 async def _dispatch(self, text: str) -> str:
@@ -473,9 +476,9 @@ async def _dispatch(self, text: str) -> str:
     ...
 ```
 
-E o mesmo em `_dispatch_silent` (`zaya/controller/turns.py:66`), que é o caminho do
+E o mesmo em `_dispatch_silent` (`gaia/controller/turns.py:66`), que é o caminho do
 Telegram (`answer_once(..., speak=False)` → `_dispatch_silent`) e da voz
-(`zaya/controller/voice.py:118`).
+(`gaia/controller/voice.py:118`).
 
 ---
 
@@ -513,15 +516,15 @@ if not self.store.claim_meta(key, "sending"):
 ```
 
 `quiet_hours` entra porque o `_proactive_loop` já respeita
-(`zaya/controller/initiative.py:100`) e o check-in não pode ser a única rotina a falar
+(`gaia/controller/initiative.py:100`) e o check-in não pode ser a única rotina a falar
 às 23h se alguém mover `review_at`. Com o padrão (`18:00`–`21:00` contra
 `23:00`–`08:00`) a checagem nunca dispara; ela existe para o caso de configuração.
-A função é a mesma (`zaya/controller/proactive.py:218`).
+A função é a mesma (`gaia/controller/proactive.py:218`).
 
-`claim_meta` (`zaya/memory/store.py:510`) é o mesmo padrão do briefing: reserva
+`claim_meta` (`gaia/memory/store.py:510`) é o mesmo padrão do briefing: reserva
 atômica, então TUI e serviço do Telegram abertos ao mesmo tempo não mandam duas
 mensagens. Falha ao compor → `delete_meta(key)` e nova tentativa no próximo ciclo
-de 60s, exatamente como em `zaya/controller/briefing.py:63-91`.
+de 60s, exatamente como em `gaia/controller/briefing.py:63-91`.
 
 A passada de LLM **não** pode rodar a cada tentativa: um erro de envio às 18h viraria
 dezenas de chamadas até as 21h. Por isso o resultado da limpeza é gravado em
@@ -608,13 +611,13 @@ adequado — diferente da lista numerada.
 `_collect_fact_candidates()` roda a cada volta do `_memory_loop`, mas
 com guarda de custo: só processa turnos com `id > self._review_scanned_turn`, então
 cada turno é olhado **uma vez**. Fonte dos turnos: `store.turns_between(início do dia,
-agora)` (`zaya/memory/store.py:359`), a mesma consulta da consolidação. O filtro por
+agora)` (`gaia/memory/store.py:359`), a mesma consulta da consolidação. O filtro por
 `id` é feito em Python sobre o resultado — não precisa de método novo no store, e a
 janela do dia já limita o volume.
 
 Por que a janela é o dia e não o banco inteiro: o banco real tem 745 turnos, quase
 todos irrelevantes. Turno de ontem não vira sugestão de hoje; a fila de pendentes já
-carrega o que ficou de dias anteriores. Reabrir a Zaya revarre o dia corrente, e aí o
+carrega o que ficou de dias anteriores. Reabrir a Gaia revarre o dia corrente, e aí o
 dedupe por `(slot, key)` (abaixo) é o que impede candidato repetido.
 
 Custo por volta: uma consulta indexada sobre os turnos do dia (dezenas, não centenas)
@@ -657,7 +660,7 @@ Lista vazia é resultado legítimo ("nada aqui vale guardar") e a noite termina 
 mensagem — diferente de falha, que ainda tem a heurística para mostrar.
 
 Sessão dedicada `_review_session_id`, criada como `_initiative_session_id`
-(`zaya/controller/initiative.py:304`), para não poluir a conversa principal nem o
+(`gaia/controller/initiative.py:304`), para não poluir a conversa principal nem o
 cache de prompt.
 
 **O que acontece com o que a LLM cortou.** Ela filtra justamente os falsos positivos
@@ -678,23 +681,23 @@ seguinte reaproveita só os `pending`, com `shown_at` marcando quem já apareceu
 
 | Arquivo | Mudança |
 | --- | --- |
-| `zaya/memory/store.py` | `SCHEMA_VERSION = 6`; `fact_candidates` na migração v6; `queue_candidates`, `pending_candidates`, `mark_candidates_shown`, `set_candidate_state` |
-| `zaya/memory/facts.py` | (etapa 0) `FactBook`; aqui `upsert(...)` já aceita `source`/`confidence` |
-| `zaya/controller/review.py` | **novo**: `ReviewMixin` com `_check_memory_review`, `_collect_fact_candidates`, `_handle_memory_review_reply`, `_apply_memory_review`, `_compose_review_message` |
-| `zaya/controller/orchestrator.py` | herdar `ReviewMixin`; inicializar `_review_scanned_turn = 0`, `_review_session_id = None` |
-| `zaya/controller/contract.py` | campos novos no contrato abstrato, junto de `_memory_task` |
-| `zaya/controller/memory.py` | `_memory_loop` chama `_collect_fact_candidates()` a cada volta e `_check_memory_review(now)` **antes** de `_maybe_consolidate` |
-| `zaya/controller/initiative.py` | `_say_proactive(text, count=True, speak=True)` |
-| `zaya/controller/turns.py` | interceptação no topo de `_dispatch` e `_dispatch_silent` |
-| `zaya/interface/terminal.py` | `proactive_callback` + chamada em `proactive()` |
-| `zaya/interface/textual_app.py` | instala `proactive_callback`; `_write_proactive` |
-| `zaya/telegram/service.py` | instala `proactive_callback` que envia por `send_message` |
-| `zaya/config.py` | campos planos em `MemoryConfig`, `_ENV_MAP`, TOML padrão |
-| `.env.example` | as cinco variáveis `ZAYA_MEMORY_REVIEW_*` comentadas, junto do bloco `ZAYA_MEMORY_*` |
+| `gaia/memory/store.py` | `SCHEMA_VERSION = 6`; `fact_candidates` na migração v6; `queue_candidates`, `pending_candidates`, `mark_candidates_shown`, `set_candidate_state` |
+| `gaia/memory/facts.py` | (etapa 0) `FactBook`; aqui `upsert(...)` já aceita `source`/`confidence` |
+| `gaia/controller/review.py` | **novo**: `ReviewMixin` com `_check_memory_review`, `_collect_fact_candidates`, `_handle_memory_review_reply`, `_apply_memory_review`, `_compose_review_message` |
+| `gaia/controller/orchestrator.py` | herdar `ReviewMixin`; inicializar `_review_scanned_turn = 0`, `_review_session_id = None` |
+| `gaia/controller/contract.py` | campos novos no contrato abstrato, junto de `_memory_task` |
+| `gaia/controller/memory.py` | `_memory_loop` chama `_collect_fact_candidates()` a cada volta e `_check_memory_review(now)` **antes** de `_maybe_consolidate` |
+| `gaia/controller/initiative.py` | `_say_proactive(text, count=True, speak=True)` |
+| `gaia/controller/turns.py` | interceptação no topo de `_dispatch` e `_dispatch_silent` |
+| `gaia/interface/terminal.py` | `proactive_callback` + chamada em `proactive()` |
+| `gaia/interface/textual_app.py` | instala `proactive_callback`; `_write_proactive` |
+| `gaia/telegram/service.py` | instala `proactive_callback` que envia por `send_message` |
+| `gaia/config.py` | campos planos em `MemoryConfig`, `_ENV_MAP`, TOML padrão |
+| `.env.example` | as cinco variáveis `GAIA_MEMORY_REVIEW_*` comentadas, junto do bloco `GAIA_MEMORY_*` |
 | `README.md` | 4 linhas em "Ajustando o ritmo dela" |
 
 O ponto de entrada no `_memory_loop` fica assim (o `try` já existe em
-`zaya/controller/memory.py:77`):
+`gaia/controller/memory.py:77`):
 
 ```python
 while True:
@@ -739,7 +742,7 @@ iniciativa espontânea; é rotina de manutenção com horário próprio.
    como turno `assistant`.
 6. **`guarda a 1`**: idem, com artigo.
 7. **`descarta 2`**: `fact_candidates` daquele item fica `discarded`; nenhum fato
-   criado; reabrir a Zaya no mesmo dia (a varredura roda de novo sobre o mesmo turno)
+   criado; reabrir a Gaia no mesmo dia (a varredura roda de novo sobre o mesmo turno)
    não cria candidato novo para a mesma dica — é o teste que prova que o dedupe da
    seção 10, e não o índice parcial, segura a repetição.
 8. **`1 e 3` nu, no dia do envio**: salva (assimetria documentada); na manhã
@@ -770,7 +773,7 @@ iniciativa espontânea; é rotina de manutenção com horário próprio.
     envia e não queima a chave do dia.
 
 `tests/test_config.py`: defaults `review_enabled is True`, `review_at == "18:00"`,
-`review_max_items == 5`, e env `ZAYA_MEMORY_REVIEW_ENABLED=false` desliga.
+`review_max_items == 5`, e env `GAIA_MEMORY_REVIEW_ENABLED=false` desliga.
 
 ---
 
@@ -788,7 +791,7 @@ iniciativa espontânea; é rotina de manutenção com horário próprio.
       e `salva 1 e 3` volta a cair em `parse_register`.
 - [ ] `pytest` verde, incluindo `test_memory`, `test_memory_consolidation`,
       `test_proactive`, `test_orchestrator`, `test_turns_events`.
-- [ ] `ruff check zaya tests` sem avisos novos.
+- [ ] `ruff check gaia tests` sem avisos novos.
 - [ ] `git diff --stat` sem arquivos fora dos listados na seção 11.
 
 ---
@@ -840,7 +843,7 @@ o sistema exatamente ao estado da etapa 4.
 
 **Por que `count=False` e não uma fila separada.** A cota de 4 existe para limitar
 interrupção espontânea. O check-in é solicitado pela própria pessoa toda noite, no
-mesmo horário — não é interrupção, é rotina. Consumir cota faria a Zaya ficar quieta
+mesmo horário — não é interrupção, é rotina. Consumir cota faria a Gaia ficar quieta
 à tarde justamente porque perguntou o que devia guardar. `count=False` é a distinção
 certa e já existe no código (`_fire_due_reminders`, `_say_proactive(..., count=False)`).
 
@@ -861,14 +864,14 @@ cinco itens com números, isso é hostil. A alternativa seria uma mensagem sem l
 ("aprendi três coisas hoje, quer revisar?") seguida de outra mensagem — dois turnos
 proativos para a mesma pergunta. Desligar a fala nessa mensagem é o menor diff.
 
-**A mensagem pode não sair.** Se a pessoa abrir a Zaya às 21h05, o check-in do dia
+**A mensagem pode não sair.** Se a pessoa abrir a Gaia às 21h05, o check-in do dia
 não acontece e os pendentes esperam. Isso é intencional: chegar às 21h05 com "o que
 eu guardo de hoje?" compete com a consolidação das 23h e com o fim do dia. A janela
 é o contrato.
 
 ## Sonho noturno — o que muda aqui
 
-O sonho (`zaya/memory/dream.py`, ver `docs/memoria-plano.md`, seção 16) não
+O sonho (`gaia/memory/dream.py`, ver `docs/memoria-plano.md`, seção 16) não
 disputa a noite da revisão das 18h. A ordem das rotinas noturnas passa a ser:
 
 | Hora | Rotina | Onde |
@@ -884,7 +887,7 @@ Consequências para o desenho deste documento:
   desliga o sonho; `dream_enabled=false` não desliga a revisão.
 - **O sonho depende da consolidação, não da revisão.** `_maybe_dream` chama
   `consolidate_day` antes de sonhar. Se a consolidação já rodou, é um no-op; se
-  a Zaya estava fechada às 23:00, o sonho das 02:00 consolida e sonha na mesma
+  a Gaia estava fechada às 23:00, o sonho das 02:00 consolida e sonha na mesma
   volta. É o catch-up que faltava para quem usa a máquina à noite.
 - **Sonho não fala.** `_maybe_dream` vive no `_memory_loop`, que só checa
   `_busy`/`_recording`/`_listening`. Não há mensagem, não há disputa por
@@ -896,7 +899,7 @@ Consequências para o desenho deste documento:
 ### Aviso do sonho (08:00)
 
 O sonho em si continua mudo, mas no dia seguinte ele aparece. Às 08:00 (config
-`memory.dream_notify_at`) a Zaya manda uma linha com o que sonhou e a pergunta
+`memory.dream_notify_at`) a Gaia manda uma linha com o que sonhou e a pergunta
 que ficou, pelo canal em uso.
 
 Para este documento, o que importa:

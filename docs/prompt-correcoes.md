@@ -1,6 +1,11 @@
 # Tarefa: corrigir lembretes atrasados, escopo do "sempre permitir" e truncamento de saída do bash
 
-Você vai implementar três correções pontuais no projeto Zaya (Python 3.12, Textual TUI,
+> **Backlog ativo — nada disto foi aplicado.** Verificado no código:
+> `_always_approved` continua global (`agent/runtime.py`), o bash ainda trunca o
+> começo (`agent/tools/shell.py`) e não existe `reminder_grace_hours`. Trate os
+> números de linha como aproximados.
+
+Você vai implementar três correções pontuais no projeto Gaia (Python 3.12, Textual TUI,
 assistente pessoal local). São independentes entre si, mas devem ser entregues juntas.
 
 ## Contexto obrigatório
@@ -8,13 +13,13 @@ assistente pessoal local). São independentes entre si, mas devem ser entregues 
 Leia antes de editar:
 
 - `README.md` — comportamento esperado do agente e economia de token.
-- `zaya/agent/runtime.py` — loop do agente, permissões, execução de ferramentas.
-- `zaya/agent/session.py` — `AgentSession` e `SessionStore`.
-- `zaya/agent/tools/shell.py` — ferramenta bash.
-- `zaya/controller/initiative.py` — loop proativo e lembretes.
-- `zaya/controller/voice.py` — loop contínuo de voz (também dispara lembretes).
-- `zaya/memory/store.py` — SQLite (schema v4), tabela `reminders`.
-- `zaya/config.py` — `ProactiveConfig` e `AgentConfig`.
+- `gaia/agent/runtime.py` — loop do agente, permissões, execução de ferramentas.
+- `gaia/agent/session.py` — `AgentSession` e `SessionStore`.
+- `gaia/agent/tools/shell.py` — ferramenta bash.
+- `gaia/controller/initiative.py` — loop proativo e lembretes.
+- `gaia/controller/voice.py` — loop contínuo de voz (também dispara lembretes).
+- `gaia/memory/store.py` — SQLite (schema v4), tabela `reminders`.
+- `gaia/config.py` — `ProactiveConfig` e `AgentConfig`.
 - `tests/test_memory.py`, `tests/test_proactive.py`, `tests/test_turns_events.py` — padrão de teste.
 
 ## Regras de escopo (importantes)
@@ -35,10 +40,10 @@ Leia antes de editar:
 
 ### Problema
 
-`zaya/controller/initiative.py:222` (`_fire_due_reminders`) chama
+`gaia/controller/initiative.py:222` (`_fire_due_reminders`) chama
 `self.store.due_reminders(now.isoformat())`, que retorna **tudo** que venceu
-(`zaya/memory/store.py:426`), e dispara cada item individualmente com
-`_say_proactive`. Se a Zaya fica fechada das 8h às 23h, o lembrete das 8h toca
+(`gaia/memory/store.py:426`), e dispara cada item individualmente com
+`_say_proactive`. Se a Gaia fica fechada das 8h às 23h, o lembrete das 8h toca
 às 23h com a mesma urgência de um lembrete de agora — e se houver cinco
 vencidos, são cinco falas seguidas.
 
@@ -63,14 +68,14 @@ idêntico: `_proactive_loop` (`initiative.py:104`) e o loop de voz
 
 ### Onde mexer
 
-- `zaya/config.py`, em `ProactiveConfig` (linha ~222): adicionar
+- `gaia/config.py`, em `ProactiveConfig` (linha ~222): adicionar
   `reminder_grace_hours: float = 3.0` com comentário explicando que é o limite
   entre "atrasado" e "perdido".
-- `zaya/memory/store.py`: adicionar método `due_reminders_split(now_iso, cutoff_iso)`
+- `gaia/memory/store.py`: adicionar método `due_reminders_split(now_iso, cutoff_iso)`
   que devolve `(recentes, perdidos)` em uma única query, mantendo `due_reminders`
   intacto (é usado em `voice.py:58` como sinal de "tem algo devido").
   Respeite o padrão de lock: `with self._lock:`.
-- `zaya/controller/initiative.py`: reescrever o corpo de `_fire_due_reminders`
+- `gaia/controller/initiative.py`: reescrever o corpo de `_fire_due_reminders`
   usando o novo método. Não duplique a lógica em `voice.py` — ele já delega.
 
 ### Testes
@@ -97,7 +102,7 @@ e **uma** fala agregada, nessa ordem, e os dois ficam `spoken = 1`.
 
 ### Problema
 
-`zaya/agent/runtime.py:77` declara `self._always_approved: set[str] = set()`,
+`gaia/agent/runtime.py:77` declara `self._always_approved: set[str] = set()`,
 global e em memória. Em `runtime.py:707-713`, responder `always` a um
 `PermissionAsked` adiciona o nome da ferramenta a esse set **para sempre**
 (na prática, até o processo reiniciar) e **para todos os projetos**.
@@ -112,15 +117,15 @@ nesta tarefa", não "confio em shell para sempre".
 2. Trocar de conversa/modo (`_switch_conversation` em `controller/orchestrator.py`,
    que já chama `_clear_stale_session`) faz o escopo voltar a zero.
 3. `auto_approve = true` continua funcionando como hoje, sem passar por esse set.
-4. Nada disso é persistido em disco: reiniciar a Zaya limpa as aprovações.
+4. Nada disso é persistido em disco: reiniciar a Gaia limpa as aprovações.
    (É intencional — não adicione campo em `to_dict`/`from_dict`.)
 
 ### Onde mexer
 
-- `zaya/agent/session.py`: em `AgentSession`, adicionar
+- `gaia/agent/session.py`: em `AgentSession`, adicionar
   `always_approved: set[str] = field(default_factory=set, compare=False, repr=False)`.
   Manter fora de `to_dict()`/`from_dict()`.
-- `zaya/agent/runtime.py`: remover `self._always_approved` (linha 77) e trocar o
+- `gaia/agent/runtime.py`: remover `self._always_approved` (linha 77) e trocar o
   uso em `runtime.py:707-713` por `session.always_approved`. O `_session()` já
   devolve a `AgentSession` no escopo correto.
 - Confira que `reply_permission` (`runtime.py:~770`) e o callback do Telegram
@@ -148,7 +153,7 @@ a B precisa pedir confirmação.
 
 ### Problema
 
-`zaya/agent/tools/shell.py:39-40`:
+`gaia/agent/tools/shell.py:39-40`:
 
 ```python
 if len(output) > OUTPUT_LIMIT:
@@ -157,7 +162,7 @@ if len(output) > OUTPUT_LIMIT:
 
 Mantém os **primeiros** 20.000 caracteres. Para saída de comando, o que importa
 está no fim: o erro do pytest, o final do traceback, o resumo do build, o
-`FAILED`/`ERROR`. Hoje a Zaya recebe o cabeçalho e perde a conclusão.
+`FAILED`/`ERROR`. Hoje a Gaia recebe o cabeçalho e perde a conclusão.
 
 ### Comportamento esperado
 
@@ -183,10 +188,10 @@ verifique antes em `tests/test_agent.py`):
 
 1. `uv run pytest` — tudo verde, incluindo os testes antigos de
    `test_reminders`, `test_permissions`, `test_turns_events` e `test_telegram`.
-2. `uv run ruff check zaya tests` — sem novos avisos.
+2. `uv run ruff check gaia tests` — sem novos avisos.
 3. Revisar o diff: `git diff --stat` não pode listar arquivos fora de
-   `zaya/agent/`, `zaya/controller/initiative.py`, `zaya/config.py`,
-   `zaya/memory/store.py` e `tests/`.
+   `gaia/agent/`, `gaia/controller/initiative.py`, `gaia/config.py`,
+   `gaia/memory/store.py` e `tests/`.
 4. Entregar um resumo curto: o que mudou, os testes novos, e **o que ficou de
    fora** e por quê.
 
@@ -202,7 +207,7 @@ verifique antes em `tests/test_agent.py`):
 - Reconciliação de turno interrompido em `SessionStore.load`.
 - Ferramentas `task`/`todowrite`/`webfetch` citadas em `TOOL_LABELS`
   (`controller/turns.py:62-63`) mas inexistentes em `build_tools`.
-- Qualquer coisa em `zaya/browser/`, `zaya/telegram/` fora do citado na Tarefa 2.
+- Qualquer coisa em `gaia/browser/`, `gaia/telegram/` fora do citado na Tarefa 2.
 
 ---
 
@@ -212,7 +217,7 @@ Duas observações sobre escolhas feitas neste prompt.
 
 **Tirei a coluna `missed_policy` do banco.** No relatório anterior eu sugeri coluna
 por lembrete, copiando o `missedPolicy` do `nightly-labs/openbot`. Pensando no caso
-real da Zaya, uma coluna sem interface para escolher não serve para nada — ninguém
+real da Gaia, uma coluna sem interface para escolher não serve para nada — ninguém
 vai editar SQLite à mão. Uma política global em `ProactiveConfig` resolve o problema
 com diff bem menor e zero risco de migração. Deixei registrado no "fora de escopo"
 para não parecer esquecimento.

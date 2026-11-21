@@ -1,20 +1,23 @@
-# Design — Sonho noturno da Zaya
+# Design — Sonho noturno da Gaia
+
+> **Status: implementado** em `gaia/memory/dream.py` e
+> `gaia/controller/memory.py`. Comportamento atual pode ter detalhes a mais.
 
 **Data:** 2026-11-16
-**Status:** implementado (`zaya/memory/dream.py`)
+**Status:** implementado (`gaia/memory/dream.py`)
 
 ## Problema
 
 A consolidação diária responde "o que aconteceu hoje". O que falta é a passagem
-seguinte: o dia consolidado voltar a encontrar o que a Zaya já viveu, e disso
+seguinte: o dia consolidado voltar a encontrar o que a Gaia já viveu, e disso
 sair algo novo. Sem isso, o Second Brain cresce como arquivo — acumula notas que
 só reaparecem quando a busca acha uma palavra-chave exata.
 
 ## Ideia
 
-Quando estiver ociosa de madrugada, a Zaya **sonha**: lê a memória do dia,
+Quando estiver ociosa de madrugada, a Gaia **sonha**: lê a memória do dia,
 procura no índice as memórias antigas que ressoam e escreve uma nota de sonho no
-Second Brain. O sonho é o único lugar do sistema onde a Zaya produz
+Second Brain. O sonho é o único lugar do sistema onde a Gaia produz
 interpretação em cima da própria memória, e não registro.
 
 ## Decisões
@@ -84,9 +87,9 @@ dream_notify = true
 dream_notify_at = "08:00"
 ```
 
-Variáveis: `ZAYA_MEMORY_DREAM_ENABLED`, `ZAYA_MEMORY_DREAM_AT`,
-`ZAYA_MEMORY_DREAM_UNTIL`, `ZAYA_MEMORY_DREAM_FOLDER`,
-`ZAYA_MEMORY_DREAM_NOTIFY`, `ZAYA_MEMORY_DREAM_NOTIFY_AT`.
+Variáveis: `GAIA_MEMORY_DREAM_ENABLED`, `GAIA_MEMORY_DREAM_AT`,
+`GAIA_MEMORY_DREAM_UNTIL`, `GAIA_MEMORY_DREAM_FOLDER`,
+`GAIA_MEMORY_DREAM_NOTIFY`, `GAIA_MEMORY_DREAM_NOTIFY_AT`.
 
 ### Janela e dia sonhado
 

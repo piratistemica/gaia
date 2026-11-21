@@ -1,4 +1,9 @@
-# Plano de memória de longo prazo da Zaya
+# Plano de memória de longo prazo da Gaia
+
+> **Design com implementação parcial.** Consolidação diária e sonho estão no
+> código; o schema v6 (`facts`, `fact_candidates`, `recall`, check-in) **não**.
+> O schema atual é v5 (`gaia/memory/store.py`). Linhas citadas podem estar
+> defasadas.
 
 Este documento substitui o prompt `~/SecondBrain/Inbox/prompt-memoria-letta-like.md`
 (130 linhas, Partes 1–3). Ele mantém as três partes e todas as restrições, corrige
@@ -16,9 +21,9 @@ Nada aqui foi implementado ainda. O objetivo é que a implementação comece pel
 
 ## 1. Diagnóstico que motivou a reescrita
 
-Tudo abaixo foi medido no banco real (`data/zaya.db`, 759 turnos, 369 turnos `user`,
-17 conversas, `schema_version = 4`; `~/.local/share/zaya/zaya.db`, 658 turnos,
-também v4) e no índice real (`~/.local/share/zaya/sb_index.db`, 13 notas). Como o
+Tudo abaixo foi medido no banco real (`data/gaia.db`, 759 turnos, 369 turnos `user`,
+17 conversas, `schema_version = 4`; `~/.local/share/gaia/gaia.db`, 658 turnos,
+também v4) e no índice real (`~/.local/share/gaia/sb_index.db`, 13 notas). Como o
 banco cresce a cada conversa, as contagens são de uma cópia tirada em 2026-11-11 —
 o que importa são as **taxas**, não os números absolutos.
 
@@ -42,7 +47,7 @@ Exemplos que o gate atual rejeita, com o índice encontrando a resposta:
 | `quais minhas metas?` | `False` | `memoria talita.md` |
 
 O prompt original diz "injete antes do bloco do Second Brain" e não toca em
-`needs_second_brain_context()` (`zaya/controller/intents.py:147`). Resultado: busca
+`needs_second_brain_context()` (`gaia/controller/intents.py:147`). Resultado: busca
 melhor atrás do mesmo portão estreito. **A troca do gate é parte da Parte 2.**
 
 Custo de rodar a busca em todos os turnos, para calibrar: ~0,4–0,6 ms/turno (~150–200
@@ -121,7 +126,7 @@ código**: só está indexado.
 
 | # | Prompt original | Este plano | Por quê |
 | --- | --- | --- | --- |
-| 1 | `fatos.md` "gerado pelo `MemoryStore` (write-through)" | `FactBook(store, brain, cfg)` em `zaya/memory/facts.py` | `MemoryStore` só fala SQLite; escrita de arquivo (atômica + backup) é do `SecondBrain` (`notes.py:143`) |
+| 1 | `fatos.md` "gerado pelo `MemoryStore` (write-through)" | `FactBook(store, brain, cfg)` em `gaia/memory/facts.py` | `MemoryStore` só fala SQLite; escrita de arquivo (atômica + backup) é do `SecondBrain` (`notes.py:143`) |
 | 2 | "se ela editar à mão, o arquivo ganha" **e** "não apaga o que não existe no arquivo" | regra única: **sync só adiciona e atualiza** | as duas regras são opostas: um sync que aceita deleção é o que apaga |
 | 3 | `porter unicode61` | `unicode61 remove_diacritics 2` + prefixo, com expectativa calibrada | medido na seção 1.2: `porter` não faz nada em português e prefixo não é stemming |
 | 4 | Python 3.14 / fallback `LIKE` como caminho | 3.12.13, FTS5 garantido; `LIKE` só como guarda | medido na seção 1.3 |
@@ -254,7 +259,7 @@ o método devolve `False` — restaurar por cima do novo seria perder o valor at
 
 ### 4.4 `FactBook`
 
-`zaya/memory/facts.py`, novo. Não herda de `MemoryStore` e não é importado por ele.
+`gaia/memory/facts.py`, novo. Não herda de `MemoryStore` e não é importado por ele.
 Recebe o que precisa:
 
 ```python
@@ -306,16 +311,16 @@ toca:
 ---
 title: Memória durável
 updated: '2026-11-11T18:04:22-03:00'
-source: zaya
+source: gaia
 ---
 
 # Memória durável
 
-> Escrito pela Zaya. As seções abaixo são geradas; o que você escrever fora dos
+> Escrito pela Gaia. As seções abaixo são geradas; o que você escrever fora dos
 > marcadores é preservado. Para esquecer um fato, use `/memoria esquecer <chave>`
 > — apagar a linha aqui não apaga no banco.
 
-<!-- zaya:facts:begin -->
+<!-- gaia:facts:begin -->
 ## Preferências
 
 - `tom_de_voz`: prefere respostas curtas pela manhã
@@ -336,11 +341,11 @@ source: zaya
 ## Decisões
 
 - `cafe`: cortar depois das 15h
-<!-- zaya:facts:end -->
+<!-- gaia:facts:end -->
 
 ## Notas minhas
 
-(espaço livre — a Zaya não escreve aqui)
+(espaço livre — a Gaia não escreve aqui)
 ```
 
 Regras de formato, todas testáveis:
@@ -373,7 +378,7 @@ num vault sincronizado para perder um fato sem revisão nenhuma.
 
 **Quando o sync roda:** no boot (`_start_background_workers`) e, a cada volta do
 `_memory_loop`, se o `mtime` do arquivo mudou — o mesmo padrão de cache que
-`_preferences_block` usa (`zaya/controller/registration.py:13-22`). `render_markdown`
+`_preferences_block` usa (`gaia/controller/registration.py:13-22`). `render_markdown`
 é chamado sempre antes, então o hash nunca é comparado com conteúdo velho.
 
 ### 4.7 Semente do que já existe
@@ -406,7 +411,7 @@ de `fatos.md` calculado uma vez no boot (o mesmo que o `FactBook` usa para escre
 
 ## 5. Etapa 1 — `MemoryStore` e migração v5→v6
 
-`SCHEMA_VERSION = 6` (`zaya/memory/store.py:19`) e um `if version < 6:` em `_migrate`
+`SCHEMA_VERSION = 6` (`gaia/memory/store.py:19`) e um `if version < 6:` em `_migrate`
 (`:104`), no mesmo formato de `_rename_modes_v3` e `_rename_session_column_v4`.
 
 Métodos novos, todos em `MemoryStore` (SQLite puro, sem arquivo):
@@ -527,7 +532,7 @@ Três filtros que o prompt original não tinha, e sem eles o recall vira ruído:
 1. **`project_path`** — `turns` pende de `conversations`, e `turns_between` já filtra
    por diretório (`store.py:394`). Sem isso, memória de outro projeto vaza.
 2. **`role IN ('user','assistant')`** — os turnos `context` ("Notas usadas: …",
-   "Metas relacionadas: …") são metadados da própria Zaya. Indexá-los e devolvê-los
+   "Metas relacionadas: …") são metadados da própria Gaia. Indexá-los e devolvê-los
    no recall é o modelo citando a si mesmo.
 3. **Exclusão da conversa atual recente** — o que está no histórico do turno não
    precisa voltar pelo recall; é o mesmo texto duas vezes no prompt.
@@ -649,13 +654,13 @@ class MemoryConfig(BaseModel):
 - dentro do `recall`, dedupe por `id` de turno (o `JOIN` pode repetir por causa do
   snippet).
 
-Implementado em `zaya/controller/recall.py` (novo, ~80 linhas) como função pura
+Implementado em `gaia/controller/recall.py` (novo, ~80 linhas) como função pura
 `compose_memory_block(facts, recall_hits, sb_hits, cfg) -> str` — pura para ser
 testável sem banco.
 
 ### 6.5 O gate novo
 
-`needs_second_brain_context()` (`zaya/controller/intents.py:147`) é substituído por
+`needs_second_brain_context()` (`gaia/controller/intents.py:147`) é substituído por
 `wants_memory(text)`:
 
 ```python
@@ -780,7 +785,7 @@ _CUES = (
 Fonte dos turnos: `store.turns_between(início do dia, agora, project_path)`
 (`store.py:394`), com filtro `id > self._review_scanned_turn` em Python. A janela é o
 dia, não o banco inteiro: turno de ontem não vira sugestão de hoje, e a fila de
-pendentes já carrega o atrasado. Reabrir a Zaya revarre o dia e o dedupe segura a
+pendentes já carrega o atrasado. Reabrir a Gaia revarre o dia e o dedupe segura a
 repetição.
 
 ### 7.4 O que a consolidação NÃO faz
@@ -815,7 +820,7 @@ candidatos — a revisão de amanhã ainda precisa deles.
 
 ## 8. Etapa 4 — ferramentas de memória
 
-Três tools novas, registradas em `build_tools` (`zaya/agent/tools/__init__.py:17`):
+Três tools novas, registradas em `build_tools` (`gaia/agent/tools/__init__.py:17`):
 
 | Tool | Confirma? | Efeito |
 | --- | --- | --- |
@@ -841,9 +846,9 @@ class ToolContext:
 ```
 
 E `AgentClient.attach_memory(store)` chamado em `_build_app`
-(`zaya/cli_runtime.py:35`), onde `store` e `client` já existem. As tools
+(`gaia/cli_runtime.py:35`), onde `store` e `client` já existem. As tools
 **verificam** `ctx.memory is None` e devolvem `ToolResult.failure("memória
-indisponível")` — nada de `assert`. Isso importa porque `zaya doctor`
+indisponível")` — nada de `assert`. Isso importa porque `gaia doctor`
 (`cli_commands.py:90`) cria um `AgentClient` sem store e não pode quebrar.
 
 A confirmação de `memory_forget` **não** usa `ui.confirm` de dentro da tool: a tool
@@ -853,7 +858,7 @@ caminho — o mesmo de `edit` e `write`. Só que hoje ele não dispara (ver abai
 
 **Mas `requires_approval` sozinho não confirma.** A guarda é
 `if tool.requires_approval and not self.cfg.agent.auto_approve`
-(`zaya/agent/runtime.py:712`), e o `~/.config/zaya/config.toml` real tem
+(`gaia/agent/runtime.py:712`), e o `~/.config/gaia/config.toml` real tem
 `auto_approve = true` (linha 27). Com isso, `memory_forget` esqueceria sem perguntar
 nada — e o mesmo vale para `edit`, `write` e `bash`, que é uma decisão já tomada no
 repo, não algo que este plano deva mudar.
@@ -898,22 +903,22 @@ duas linhas para o mesmo fato.
 
 | Arquivo | Mudança |
 | --- | --- |
-| `zaya/memory/store.py` | `SCHEMA_VERSION = 6`; `_migrate_v6`; `facts`, `fact_candidates`, `turns_fts` + triggers; `upsert_fact`, `forget_fact`, `restore_fact`, `live_facts`, `fact_by_key`, `queue_candidates`, `pending_candidates`, `mark_candidates_shown`, `set_candidate_state`, `recall_turns`, `rebuild_turns_fts` |
-| `zaya/memory/facts.py` | **novo**: `FactBook` (4.4) |
-| `zaya/controller/recall.py` | **novo**: `compose_memory_block` (6.4) |
-| `zaya/controller/intents.py` | `wants_memory()`; `needs_second_brain_context()` vira alias até a etapa 4 | 
-| `zaya/controller/prompt.py` | `compose_system(..., facts="")`; `FACTS_HEADER`; corte por `facts_max_chars` |
-| `zaya/controller/turns.py` | gate novo; recall do turno; dedupe; filtro do `fatos.md`; `attach` |
-| `zaya/controller/memory.py` | `_memory_loop`: `sync`/`flush` do `FactBook` a cada volta; extração fallback em `_maybe_consolidate` |
-| `zaya/memory/consolidation.py` | após `records_between`, filtrar `kind='memory'` de outro dia (7.4) |
-| `zaya/agent/tools/base.py` | `ToolContext.memory: MemoryStore | None` |
-| `zaya/agent/tools/memory.py` | **novo**: as três tools |
-| `zaya/agent/tools/__init__.py` | registrar quando `ctx.memory` existir |
-| `zaya/agent/runtime.py` | `attach_memory(store)` |
-| `zaya/cli_runtime.py` | `client.attach_memory(store)` em `_build_app` |
-| `zaya/controller/commands.py` | `/memoria` (lista), `/memoria esquecer <chave>`, `/memoria lembrar <chave>`, `/memoria semear`, `/memoria reindexar` |
-| `zaya/config.py` | campos de 6.4 em `MemoryConfig`, `_ENV_MAP`, TOML padrão |
-| `.env.example` | `ZAYA_MEMORY_FACTS_ENABLED`, `ZAYA_MEMORY_RECALL_ENABLED`, `ZAYA_MEMORY_RECALL_RESULTS`, `ZAYA_MEMORY_RECALL_MAX_CHARS` |
+| `gaia/memory/store.py` | `SCHEMA_VERSION = 6`; `_migrate_v6`; `facts`, `fact_candidates`, `turns_fts` + triggers; `upsert_fact`, `forget_fact`, `restore_fact`, `live_facts`, `fact_by_key`, `queue_candidates`, `pending_candidates`, `mark_candidates_shown`, `set_candidate_state`, `recall_turns`, `rebuild_turns_fts` |
+| `gaia/memory/facts.py` | **novo**: `FactBook` (4.4) |
+| `gaia/controller/recall.py` | **novo**: `compose_memory_block` (6.4) |
+| `gaia/controller/intents.py` | `wants_memory()`; `needs_second_brain_context()` vira alias até a etapa 4 |
+| `gaia/controller/prompt.py` | `compose_system(..., facts="")`; `FACTS_HEADER`; corte por `facts_max_chars` |
+| `gaia/controller/turns.py` | gate novo; recall do turno; dedupe; filtro do `fatos.md`; `attach` |
+| `gaia/controller/memory.py` | `_memory_loop`: `sync`/`flush` do `FactBook` a cada volta; extração fallback em `_maybe_consolidate` |
+| `gaia/memory/consolidation.py` | após `records_between`, filtrar `kind='memory'` de outro dia (7.4) |
+| `gaia/agent/tools/base.py` | `ToolContext.memory: MemoryStore | None` |
+| `gaia/agent/tools/memory.py` | **novo**: as três tools |
+| `gaia/agent/tools/__init__.py` | registrar quando `ctx.memory` existir |
+| `gaia/agent/runtime.py` | `attach_memory(store)` |
+| `gaia/cli_runtime.py` | `client.attach_memory(store)` em `_build_app` |
+| `gaia/controller/commands.py` | `/memoria` (lista), `/memoria esquecer <chave>`, `/memoria lembrar <chave>`, `/memoria semear`, `/memoria reindexar` |
+| `gaia/config.py` | campos de 6.4 em `MemoryConfig`, `_ENV_MAP`, TOML padrão |
+| `.env.example` | `GAIA_MEMORY_FACTS_ENABLED`, `GAIA_MEMORY_RECALL_ENABLED`, `GAIA_MEMORY_RECALL_RESULTS`, `GAIA_MEMORY_RECALL_MAX_CHARS` |
 | `README.md` | 4 linhas em "Ajustando o ritmo dela" + 1 linha sobre `Memoria/fatos.md` |
 
 `/memoria` já existe hoje (`commands.py:128`) e só consolida. Passa a ter
@@ -1077,8 +1082,8 @@ com um ponteiro inventado falseia o histórico que a coluna existe para preserva
 **Por que o `fatos.md` usa marcadores.** A alternativa é reescrever o arquivo
 inteiro a cada `flush()`, e aí qualquer anotação da Talita no mesmo arquivo some. Com
 marcadores, o custo é um `re.search` e a recompensa é que o arquivo pode ser lido e
-comentado no Obsidian sem que a Zaya apague nada. É o mesmo espírito de
-`_preferences_block`: o arquivo é dela, a Zaya só mantém uma região.
+comentado no Obsidian sem que a Gaia apague nada. É o mesmo espírito de
+`_preferences_block`: o arquivo é dela, a Gaia só mantém uma região.
 
 **Por que `flush()` por hash e não por flag em memória.** Flag em memória não
 sobrevive a reinício, e a primeira volta depois de reiniciar escreveria de novo sem
@@ -1105,7 +1110,7 @@ numa etapa só faria um erro de FTS parecer um erro de sync.
 
 ## 16. Sonho noturno — implementado
 
-`zaya/memory/dream.py` (`Dreamer`) é o primeiro pedaço desta etapa que saiu do
+`gaia/memory/dream.py` (`Dreamer`) é o primeiro pedaço desta etapa que saiu do
 papel. Ele fica **fora** do `FactBook` e do `fact_candidates`: o sonho não extrai
 fato, não pede confirmação e não entra no `fatos.md`. Ele lê o que a memória já
 consolidou e escreve uma nota nova.
@@ -1158,7 +1163,7 @@ antigas quando o dia não foi consolidado; não sonha sem nada; não sonha com
 ### 16.6 Janela noturna e dia sonhado (correção)
 
 A primeira versão comparava `now.strftime("%H:%M") < dream_at`. Com
-`dream_at = "02:00"`, às 9h da manhã `"09:00" < "02:00"` é falso e a Zaya
+`dream_at = "02:00"`, às 9h da manhã `"09:00" < "02:00"` é falso e a Gaia
 sonhava no meio da manhã, sobre um dia que mal começou. Duas correções:
 
 - **Janela explícita** `[dream_at, dream_until)` (`02:00`–`08:00`), com virada de
@@ -1218,7 +1223,7 @@ Corrigido depois de ver o aviso não sair no mini: o serviço do Telegram sobe
 `briefing`, `career` e `proactive` no boot, mas o worker de memória só nascia no
 primeiro `answer_once` (com `close=False`). Num mini reiniciado à noite e sem
 mensagem, isso significa **nenhuma consolidação às 23:00 e nenhum sonho às
-02:00** até alguém falar com a Zaya.
+02:00** até alguém falar com a Gaia.
 
 `Orchestrator.start_memory()` faz pelo worker de memória o mesmo que
 `start_briefing`/`start_proactive` já faziam, e `TelegramService.run()` chama no
@@ -1265,12 +1270,12 @@ embedding resolve isso e é a única mudança que ainda muda a qualidade do sonh
 
 | Peça | Onde | Estado |
 |---|---|---|
-| `Embedder` (protocolo), `NullEmbedder`, `OpenAIEmbedder` | `zaya/secondbrain/embeddings.py` | pronto |
+| `Embedder` (protocolo), `NullEmbedder`, `OpenAIEmbedder` | `gaia/secondbrain/embeddings.py` | pronto |
 | `chunk_vectors(chunk_id, model, vector, updated_at)` | `SecondBrainIndex._init_schema` | criada sempre, vazia sem embedder |
 | `semantic_search`, `embed_missing`, `vectors_pending` | `SecondBrainIndex` | pronto |
 | backfill no `reindex()` (`embedded` no retorno) | `SecondBrainIndex.reindex` | pronto |
 | sonho preferindo semântico com fallback lexical | `Dreamer._old_memories` | pronto |
-| `open_index()` (índice já com o embedder da config) | `zaya/secondbrain/index.py` | pronto |
+| `open_index()` (índice já com o embedder da config) | `gaia/secondbrain/index.py` | pronto |
 
 `cosine` é Python puro (sem numpy) e os vetores são float32 em BLOB: com
 algumas centenas de chunks, isso custa milissegundos. Se o acervo passar de
@@ -1292,13 +1297,13 @@ embed_base_url = "https://api.openai.com/v1"
 
 ```bash
 # no .env (nunca no TOML)
-ZAYA_SB_EMBED_API_KEY=...
+GAIA_SB_EMBED_API_KEY=...
 ```
 
 Depois, uma passada de backfill:
 
 ```bash
-zaya index --force    # o retorno traz "embedded": N
+gaia index --force    # o retorno traz "embedded": N
 ```
 
 O mesmo dialeto serve para Ollama (`embed_base_url = "http://localhost:11434/v1"`

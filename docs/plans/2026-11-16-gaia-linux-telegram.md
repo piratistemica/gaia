@@ -1,21 +1,24 @@
-# Zaya no Ubuntu (headless) + Telegram Implementation Plan
+# Gaia no Ubuntu (headless) + Telegram Implementation Plan
+
+> **Status: implementado.** Plano datado; comandos e arquivos podem ter mudado.
+> Fonte de verdade: `../../AGENTS.md` e o código.
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Rodar a Zaya num mini PC Ubuntu sem tela, controlada do MacBook pelo Telegram, com navegador com logins salvos e proatividade entregue no chat.
+**Goal:** Rodar a Gaia num mini PC Ubuntu sem tela, controlada do MacBook pelo Telegram, com navegador com logins salvos e proatividade entregue no chat.
 
 **Architecture:** O `Orchestrator` já carrega `channel` (`cli` | `telegram`). Usamos esse sinal para decidir a entrega da fala: no canal `telegram` as mensagens proativas vão por `TelegramClient.send_message` e o TTS local é desligado; no canal `cli` nada muda. O processo roda como unit systemd de usuário. Spotify (AppleScript-only) é removido por inteiro.
 
 **Tech Stack:** Python 3.12, pytest, httpx, Playwright (Chromium), Xvfb/x11vnc (login único), systemd, uv.
 
-**Design de referência:** `docs/plans/2026-11-16-zaya-linux-telegram-design.md`
+**Design de referência:** `docs/plans/2026-11-16-gaia-linux-telegram-design.md`
 
 ---
 
 ## Antes de começar
 
 ```bash
-cd /Users/talita/zaya
+cd /Users/talita/gaia
 git status --short          # há mudanças não commitadas de outro trabalho
 git checkout -b feat/linux-headless-telegram
 pytest -q                   # linha de base deve passar
@@ -28,27 +31,27 @@ Regra: **um commit por tarefa**, só com os arquivos daquela tarefa.
 ### Task 1: Remover o Spotify do orquestrador e do CLI
 
 **Files:**
-- Delete: `zaya/spotify/__init__.py`, `zaya/spotify/controller.py`, `zaya/spotify/intents.py`
+- Delete: `gaia/spotify/__init__.py`, `gaia/spotify/controller.py`, `gaia/spotify/intents.py`
 - Delete: `tests/test_spotify.py`
-- Modify: `zaya/controller/turns.py:42-44`, `turns.py:74-76`, `turns.py:95-97`, `turns.py:131-139`
-- Modify: `zaya/cli_parser.py:90-96`
-- Modify: `zaya/cli.py:16-22`, `cli.py:60-61`
-- Modify: `zaya/cli_integrations.py:1`, `cli_integrations.py:12-13`, `cli_integrations.py:137-157`
+- Modify: `gaia/controller/turns.py:42-44`, `turns.py:74-76`, `turns.py:95-97`, `turns.py:131-139`
+- Modify: `gaia/cli_parser.py:90-96`
+- Modify: `gaia/cli.py:16-22`, `cli.py:60-61`
+- Modify: `gaia/cli_integrations.py:1`, `cli_integrations.py:12-13`, `cli_integrations.py:137-157`
 
 **Step 1: Apagar o pacote e o teste**
 
 ```bash
-rm -rf zaya/spotify tests/test_spotify.py
+rm -rf gaia/spotify tests/test_spotify.py
 ```
 
 **Step 2: Remover os imports e os handlers do orquestrador**
 
-Em `zaya/controller/turns.py`, apagar:
+Em `gaia/controller/turns.py`, apagar:
 
 ```python
-from zaya.spotify.controller import SpotifyCommand, SpotifyError
-from zaya.spotify.controller import execute as execute_spotify
-from zaya.spotify.intents import parse_spotify_command
+from gaia.spotify.controller import SpotifyCommand, SpotifyError
+from gaia.spotify.controller import execute as execute_spotify
+from gaia.spotify.intents import parse_spotify_command
 ```
 
 Em `_dispatch_silent`, apagar:
@@ -83,7 +86,7 @@ E apagar o método inteiro:
 
 **Step 3: Remover o subparser**
 
-Em `zaya/cli_parser.py`, apagar o bloco:
+Em `gaia/cli_parser.py`, apagar o bloco:
 
 ```python
     spotify_parser = sub.add_parser("spotify", help="controla o Spotify no macOS")
@@ -96,7 +99,7 @@ Em `zaya/cli_parser.py`, apagar o bloco:
 
 **Step 4: Remover do CLI**
 
-Em `zaya/cli.py`, remover `_spotify_command,` do import de `zaya.cli_integrations` e o branch:
+Em `gaia/cli.py`, remover `_spotify_command,` do import de `gaia.cli_integrations` e o branch:
 
 ```python
         elif args.command == "spotify":
@@ -106,12 +109,12 @@ Em `zaya/cli.py`, remover `_spotify_command,` do import de `zaya.cli_integration
 **Step 5: Remover de `cli_integrations.py`**
 
 - Docstring linha 1 vira: `"""Comandos de integração: WhatsApp, Telegram e navegador."""`
-- Apagar os dois imports de `zaya.spotify...`
+- Apagar os dois imports de `gaia.spotify...`
 - Apagar `def _spotify_command(args, ui: TerminalUI) -> None:` e todo o corpo.
 
 **Step 6: Garantir que não sobrou referência**
 
-Run: `grep -rn "spotify\|Spotify" zaya tests --include="*.py"`
+Run: `grep -rn "spotify\|Spotify" gaia tests --include="*.py"`
 Expected: nenhuma saída.
 
 **Step 7: Rodar a suíte**
@@ -121,13 +124,13 @@ Expected: PASS (sem `test_spotify.py`, nada mais quebrado).
 
 **Step 8: Conferir o help do CLI**
 
-Run: `.venv/bin/python -m zaya --help`
+Run: `.venv/bin/python -m gaia --help`
 Expected: não aparece mais `spotify`; seguem `telegram`, `browser`, `career`, `whatsapp`.
 
 **Step 9: Commit**
 
 ```bash
-git add -A zaya/spotify tests/test_spotify.py zaya/controller/turns.py zaya/cli_parser.py zaya/cli.py zaya/cli_integrations.py
+git add -A gaia/spotify tests/test_spotify.py gaia/controller/turns.py gaia/cli_parser.py gaia/cli.py gaia/cli_integrations.py
 git commit -m "refactor: remove o controle de Spotify (AppleScript, só macOS)"
 ```
 
@@ -136,7 +139,7 @@ git commit -m "refactor: remove o controle de Spotify (AppleScript, só macOS)"
 ### Task 2: Entregar mensagens proativas pelo Telegram
 
 **Files:**
-- Modify: `zaya/controller/initiative.py:246-251`
+- Modify: `gaia/controller/initiative.py:246-251`
 - Test: `tests/test_orchestrator.py` (adicionar ao final)
 
 **Step 1: Escrever os testes que falham**
@@ -199,7 +202,7 @@ Expected: FAIL — as mensagens não chegam em `telegram.sent` (o `_say_proactiv
 
 **Step 3: Implementar**
 
-Em `zaya/controller/initiative.py`, substituir `_say_proactive` por:
+Em `gaia/controller/initiative.py`, substituir `_say_proactive` por:
 
 ```python
     async def _say_proactive(self, text: str, count: bool = True) -> None:
@@ -235,7 +238,7 @@ Expected: PASS.
 **Step 6: Commit**
 
 ```bash
-git add zaya/controller/initiative.py tests/test_orchestrator.py
+git add gaia/controller/initiative.py tests/test_orchestrator.py
 git commit -m "feat(proativo): entrega lembretes e avisos pelo Telegram quando o canal é telegram"
 ```
 
@@ -247,7 +250,7 @@ Sem isso, num mini sem placa de som, `_speak` chamaria `ffplay` e falharia (ou t
 a cada lembrete confirmado.
 
 **Files:**
-- Modify: `zaya/controller/speech.py:199-201`
+- Modify: `gaia/controller/speech.py:199-201`
 - Test: `tests/test_orchestrator.py` (adicionar ao final)
 
 **Step 1: Escrever o teste que falha**
@@ -269,7 +272,7 @@ Expected: FAIL — `orch.tts.spoken == ["Combinado. Vou te lembrar."]`.
 
 **Step 3: Implementar o guard**
 
-Em `zaya/controller/speech.py`, no começo de `_speak`:
+Em `gaia/controller/speech.py`, no começo de `_speak`:
 
 ```python
     async def _speak(self, text: str) -> None:
@@ -295,7 +298,7 @@ Expected: PASS. Se algum teste antigo assumia fala no canal telegram, ajustar o 
 **Step 6: Commit**
 
 ```bash
-git add zaya/controller/speech.py tests/test_orchestrator.py
+git add gaia/controller/speech.py tests/test_orchestrator.py
 git commit -m "fix(telegram): não tenta tocar TTS local no canal do bot"
 ```
 
@@ -379,27 +382,27 @@ git commit -m "feat(linux): instalador com Playwright, Chromium, Xvfb e x11vnc o
 
 ```bash
 #!/usr/bin/env bash
-# Login persistente no navegador da Zaya dentro de um mini PC headless.
+# Login persistente no navegador da Gaia dentro de um mini PC headless.
 #
 #   ./scripts/browser-login.sh https://exemplo.com
 #
 # Sobe um display virtual (Xvfb) e um servidor VNC (x11vnc) apontando para ele,
-# roda `zaya browser login <url>` nesse display e, ao sair, derruba tudo.
+# roda `gaia browser login <url>` nesse display e, ao sair, derruba tudo.
 # Conecte do Mac com: Finder > Ir > Conectar ao Servidor > vnc://IP-DO-MINI:5900
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ZAYA_BIN="$REPO_DIR/.venv/bin/zaya"
+GAIA_BIN="$REPO_DIR/.venv/bin/gaia"
 URL="${1:-}"
-DISPLAY_NUM="${ZAYA_VNC_DISPLAY:-:99}"
-VNC_PORT="${ZAYA_VNC_PORT:-5900}"
+DISPLAY_NUM="${GAIA_VNC_DISPLAY:-:99}"
+VNC_PORT="${GAIA_VNC_PORT:-5900}"
 
 if [ -z "$URL" ]; then
   echo "uso: $0 <url>" >&2
   exit 2
 fi
-[ -x "$ZAYA_BIN" ] || { echo "rode scripts/install-linux.sh --with-browser antes" >&2; exit 1; }
+[ -x "$GAIA_BIN" ] || { echo "rode scripts/install-linux.sh --with-browser antes" >&2; exit 1; }
 command -v Xvfb >/dev/null || { echo "falta Xvfb (sudo apt install xvfb)" >&2; exit 1; }
 command -v x11vnc >/dev/null || { echo "falta x11vnc (sudo apt install x11vnc)" >&2; exit 1; }
 
@@ -426,7 +429,7 @@ Conecte do Mac em: vnc://$(hostname -I | awk '{print $1}'):$VNC_PORT
 (se o mini estiver fora da sua rede, use o IP do Tailscale)
 EOF
 
-DISPLAY="$DISPLAY_NUM" "$ZAYA_BIN" browser login "$URL" || true
+DISPLAY="$DISPLAY_NUM" "$GAIA_BIN" browser login "$URL" || true
 echo "sessão salva no perfil persistente do navegador."
 ```
 
@@ -455,27 +458,27 @@ git commit -m "feat(linux): login do navegador via Xvfb + x11vnc para mini PC he
 
 **Files:**
 - Create: `scripts/install-systemd.sh`
-- Create: `systemd/zaya-telegram.service.in`
+- Create: `systemd/gaia-telegram.service.in`
 
 **Step 1: Criar o template da unit**
 
-`systemd/zaya-telegram.service.in`:
+`systemd/gaia-telegram.service.in`:
 
 ```ini
 [Unit]
-Description=Zaya (serviço do Telegram)
+Description=Gaia (serviço do Telegram)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=__REPO_DIR__
-ExecStart=__REPO_DIR__/.venv/bin/zaya telegram serve
+ExecStart=__REPO_DIR__/.venv/bin/gaia telegram serve
 Restart=on-failure
 RestartSec=10
 # Nao deixar o servico morrer por falta de audio/video.
 Environment=PYTHONUNBUFFERED=1
-# Logs vao para o journal: journalctl --user -u zaya-telegram -f
+# Logs vao para o journal: journalctl --user -u gaia-telegram -f
 
 [Install]
 WantedBy=default.target
@@ -487,7 +490,7 @@ WantedBy=default.target
 
 ```bash
 #!/usr/bin/env bash
-# Instala o servico de usuario que mantem `zaya telegram serve` vivo no boot.
+# Instala o servico de usuario que mantem `gaia telegram serve` vivo no boot.
 #
 #   ./scripts/install-systemd.sh            # instala e sobe
 #   ./scripts/install-systemd.sh --remove   # desinstala
@@ -496,25 +499,25 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
-UNIT="$UNIT_DIR/zaya-telegram.service"
+UNIT="$UNIT_DIR/gaia-telegram.service"
 
 if [ "${1:-}" = "--remove" ]; then
-  systemctl --user disable --now zaya-telegram.service 2>/dev/null || true
+  systemctl --user disable --now gaia-telegram.service 2>/dev/null || true
   rm -f "$UNIT"
   systemctl --user daemon-reload
   echo "serviço removido."
   exit 0
 fi
 
-[ -x "$REPO_DIR/.venv/bin/zaya" ] || { echo "instale a Zaya antes (scripts/install-linux.sh)" >&2; exit 1; }
+[ -x "$REPO_DIR/.venv/bin/gaia" ] || { echo "instale a Gaia antes (scripts/install-linux.sh)" >&2; exit 1; }
 
 mkdir -p "$UNIT_DIR"
-sed "s|__REPO_DIR__|$REPO_DIR|g" "$REPO_DIR/systemd/zaya-telegram.service.in" > "$UNIT"
+sed "s|__REPO_DIR__|$REPO_DIR|g" "$REPO_DIR/systemd/gaia-telegram.service.in" > "$UNIT"
 
 systemctl --user daemon-reload
-systemctl --user enable --now zaya-telegram.service
+systemctl --user enable --now gaia-telegram.service
 
-echo "serviço ativo. acompanhe com: journalctl --user -u zaya-telegram -f"
+echo "serviço ativo. acompanhe com: journalctl --user -u gaia-telegram -f"
 echo "para sobreviver sem sessão aberta: sudo loginctl enable-linger $USER"
 ```
 
@@ -526,13 +529,13 @@ chmod +x scripts/install-systemd.sh
 
 **Step 4: Validar sem instalar de verdade**
 
-Run: `bash -n scripts/install-systemd.sh && sed "s|__REPO_DIR__|/tmp/x|g" systemd/zaya-telegram.service.in | grep -c "/tmp/x"`
+Run: `bash -n scripts/install-systemd.sh && sed "s|__REPO_DIR__|/tmp/x|g" systemd/gaia-telegram.service.in | grep -c "/tmp/x"`
 Expected: `bash -n` sem saída; o grep conta `2` (WorkingDirectory e ExecStart).
 
 **Step 5: Commit**
 
 ```bash
-git add systemd/zaya-telegram.service.in scripts/install-systemd.sh
+git add systemd/gaia-telegram.service.in scripts/install-systemd.sh
 git commit -m "feat(linux): unit systemd de usuário para manter o Telegram rodando"
 ```
 
@@ -550,13 +553,13 @@ Na seção do Telegram, explicitar o par obrigatório para editar arquivos pelo 
 
 ```bash
 # Aprovar write/edit/bash automaticamente (o Telegram não tem terminal para
-# pedir permissão; exige ZAYA_TELEGRAM_ALLOWED_CHAT_ID fixado):
-# ZAYA_TELEGRAM_AUTO_APPROVE=false
+# pedir permissão; exige GAIA_TELEGRAM_ALLOWED_CHAT_ID fixado):
+# GAIA_TELEGRAM_AUTO_APPROVE=false
 # Em mini PC headless recomenda-se:
-#   ZAYA_TELEGRAM_ENABLED=true
-#   ZAYA_TELEGRAM_ALLOWED_CHAT_ID=<seu chat_id>   # fixo, nunca vazio
-#   ZAYA_TELEGRAM_AUTO_APPROVE=true
-#   ZAYA_TELEGRAM_VOICE_REPLIES=true              # resposta também em áudio
+#   GAIA_TELEGRAM_ENABLED=true
+#   GAIA_TELEGRAM_ALLOWED_CHAT_ID=<seu chat_id>   # fixo, nunca vazio
+#   GAIA_TELEGRAM_AUTO_APPROVE=true
+#   GAIA_TELEGRAM_VOICE_REPLIES=true              # resposta também em áudio
 ```
 
 **Step 2: Remover a menção ao Spotify do README**
@@ -576,20 +579,20 @@ Depois da seção "Onde ela aparece", inserir:
 O caminho recomendado para uma máquina sem tela é o Telegram como canal principal.
 
 ```bash
-git clone <repo> ~/zaya && cd ~/zaya
+git clone <repo> ~/gaia && cd ~/gaia
 ./scripts/install-linux.sh --with-browser
-./scripts/install-systemd.sh          # mantém `zaya telegram serve` vivo no boot
+./scripts/install-systemd.sh          # mantém `gaia telegram serve` vivo no boot
 
 # login único nos sites, numa tela virtual acessível por VNC:
 ./scripts/browser-login.sh https://exemplo.com
 ```
 
 Conecte do Mac pelo Finder (`vnc://IP-DO-MINI:5900`), faça login e volte ao SSH para
-pressionar Enter. O perfil fica salvo e a Zaya passa a usar o navegador headless com esses
+pressionar Enter. O perfil fica salvo e a Gaia passa a usar o navegador headless com esses
 logins.
 
 **Avisos proativos** (bom dia, lembretes, agenda) são entregues no chat do Telegram
-quando ela roda como serviço. Manutenção: `ssh`/VNC; logs: `journalctl --user -u zaya-telegram -f`.
+quando ela roda como serviço. Manutenção: `ssh`/VNC; logs: `journalctl --user -u gaia-telegram -f`.
 ```
 
 **Step 4: Conferir o README**
@@ -612,7 +615,7 @@ git commit -m "docs: operação no Ubuntu headless com Telegram, navegador e sys
 
 ```bash
 pytest -q
-.venv/bin/ruff check zaya tests
+.venv/bin/ruff check gaia tests
 .venv/bin/mypy
 ```
 Expected: tudo passa (ou apenas avisos já existentes antes da mudança).
@@ -620,15 +623,15 @@ Expected: tudo passa (ou apenas avisos já existentes antes da mudança).
 **Step 2: Nenhum resíduo de Spotify**
 
 ```bash
-grep -rn -i "spotify" zaya tests README.md .env.example scripts systemd || echo "limpo"
+grep -rn -i "spotify" gaia tests README.md .env.example scripts systemd || echo "limpo"
 ```
 Expected: `limpo`.
 
 **Step 3: Smoke test do CLI**
 
 ```bash
-.venv/bin/python -m zaya --help
-.venv/bin/zaya doctor
+.venv/bin/python -m gaia --help
+.venv/bin/gaia doctor
 ```
 Expected: `--help` sem `spotify`, com `telegram`/`browser`; `doctor` mostra o provedor de
 TTS como `edge`.
@@ -636,13 +639,13 @@ TTS como `edge`.
 **Step 4: Teste real no mini PC (manual, na máquina)**
 
 1. `./scripts/install-linux.sh --with-browser`
-2. Configurar `~/.config/zaya/.env` com token, `ALLOWED_CHAT_ID`, `AUTO_APPROVE=true`.
-3. `zaya telegram me` → confirma o bot.
-4. `./scripts/install-systemd.sh` → `systemctl --user status zaya-telegram`.
+2. Configurar `~/.config/gaia/.env` com token, `ALLOWED_CHAT_ID`, `AUTO_APPROVE=true`.
+3. `gaia telegram me` → confirma o bot.
+4. `./scripts/install-systemd.sh` → `systemctl --user status gaia-telegram`.
 5. Do Mac: mandar texto, mandar áudio, pedir "me lembra de X em 2 minutos".
    - Deve responder no chat; o lembrete deve **chegar no chat**.
 6. `./scripts/browser-login.sh https://github.com` pelo VNC, logar, Enter.
-7. `zaya browser text https://github.com` → deve trazer a página já autenticada.
+7. `gaia browser text https://github.com` → deve trazer a página já autenticada.
 8. `sudo reboot` → após o boot, mandar mensagem no Telegram sem tocar no mini.
 
 **Step 5: Commit final (se houver ajustes)**

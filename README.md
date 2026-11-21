@@ -1,4 +1,4 @@
-# Zaya
+# Gaia
 
 Assistente pessoal de voz, local, com agente próprio e Second Brain em Markdown.
 Roda no macOS e no Linux (inclusive num mini PC headless, comandado pelo
@@ -9,6 +9,10 @@ memória entre sessões.
 - **Agente próprio** — loop de ferramentas, sessões, permissões e streaming.
 - **Second Brain** — notas Markdown indexadas com SQLite FTS5.
 - **Proatividade** — briefing diário, lembretes, rotina de vagas.
+
+Para trabalhar no código, veja [`AGENTS.md`](AGENTS.md): comandos, mapa dos
+módulos, invariantes e armadilhas. O índice da documentação está em
+[`docs/README.md`](docs/README.md).
 
 ---
 
@@ -34,18 +38,18 @@ A reprodução de áudio escolhe sozinha o player disponível: `afplay` no macOS
 ## Instalação
 
 ```bash
-git clone https://github.com/talitadeoa/zaya.git
-cd zaya
+git clone https://github.com/talitadeoa/gaia.git
+cd gaia
 
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e ".[dev]"
 
-# opcional: comando `zaya` no PATH
+# opcional: comando `gaia` no PATH
 uv tool install --python 3.12 --editable .
 ```
 
 No Ubuntu/Debian tem um script que faz tudo: dependências de sistema, `uv`,
-Python 3.12, venv, o comando `zaya` em `~/.local/bin` e um atalho de tela cheia
+Python 3.12, venv, o comando `gaia` em `~/.local/bin` e um atalho de tela cheia
 para tablet.
 
 ```bash
@@ -65,47 +69,83 @@ uv pip install --python .venv/bin/python -e ".[browser]"
 ## Primeiro uso
 
 ```bash
-zaya config --init   # cria ~/.config/zaya/config.toml
-zaya doctor          # confere ambiente, provedor, voz e Second Brain
-zaya                 # abre a interface
+gaia config --init   # cria ~/.config/gaia/config.toml
+gaia doctor          # confere ambiente, provedor, voz e Second Brain
+gaia                 # abre a interface
 ```
 
-Chaves de API vão em `~/.config/zaya/.env` (ou no ambiente), nunca no TOML:
+Chaves de API vão em `~/.config/gaia/.env` (ou no ambiente), nunca no TOML:
 
 ```bash
-ZAYA_AGENT_API_KEY=...          # vale para qualquer provedor
+GAIA_AGENT_API_KEY=...          # vale para qualquer provedor
 # ou as nativas: DEEPSEEK_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY
 ```
 
-Todas as variáveis estão em `.env.example`, comentadas uma a uma.
+As variáveis conhecidas estão em `.env.example`, comentadas uma a uma.
 
 ## Modelo
 
 ```toml
 [agent]
-provider = "deepseek"     # deepseek | openai | openrouter | ollama | anthropic | custom
+# Presets: deepseek | openai | openrouter | ollama | anthropic |
+# commandcode | commandcode-anthropic | opencode | groq | mistral | xai | custom
+provider = "deepseek"
 model = "deepseek-flash"
 base_url = ""             # obrigatório apenas em "custom"
 ```
 
+A Command Code funciona como um provedor a mais: `provider = "commandcode"`
+usa a Provider API dela (modelos DeepSeek/GPT/GLM…) e reaproveita a chave do
+`cmd` CLI em `~/.commandcode/auth.json` — normalmente nem precisa colar chave.
+Para os modelos Claude dela, use `provider = "commandcode-anthropic"` (mesma
+chave, wire Anthropic). Requer plano com acesso à Provider API.
+
 Para trocar sem editar nada: `/modelo` lista os modelos dos provedores que têm
 chave, `/modelo 3` ou `/modelo openai/gpt-4o` troca na hora, `F6` abre o
 seletor. A escolha é salva no `config.toml` (com `.bak`) e vale no turno
-seguinte. `ZAYA_AGENT_PROVIDER` e `ZAYA_AGENT_MODEL` no ambiente têm prioridade.
+seguinte. `GAIA_AGENT_PROVIDER` e `GAIA_AGENT_MODEL` no ambiente têm prioridade.
 
 ## Interface
 
 ```bash
-zaya                 # TUI (padrão)
-zaya -old            # terminal clássico
-zaya --ui textual    # força a TUI
-zaya --watch         # reinicia quando os .py mudam
+gaia                 # TUI (padrão; config interface.ui)
+gaia -old            # terminal clássico (Rich)
+gaia --ui terminal   # força o terminal
+gaia --watch         # reinicia quando os .py mudam
 ```
 
 Numa máquina headless (mini PC, servidor) a TUI só serve para manutenção por
-SSH. Nesse caso o canal de uso é o Telegram: `zaya telegram serve` responde
-texto e áudio e entrega a iniciativa proativa no chat, sem depender de tela nem
-de alto-falante local.
+SSH. Há dois canais possíveis, e **só um processo pode ser dono do banco e do
+Telegram**:
+
+- `gaia telegram serve` — o Telegram responde texto e áudio e entrega a
+  iniciativa proativa no chat, sem depender de tela.
+- `gaia serve` — o motor num processo e as telas em outros (ver abaixo).
+
+## Servidor e cliente remoto
+
+`gaia serve` é a arquitetura de referência em produção: **um** processo é dono
+do `gaia.db`, do Second Brain, dos workers proativos e do poller do Telegram, e
+publica HTTP+SSE para clientes finos.
+
+```bash
+gaia serve                     # escuta no host/porta de [serve]
+gaia serve --host 127.0.0.1 --port 8787
+gaia serve --no-telegram       # não sobe o poller junto
+gaia --remote http://gaia:8787 # cliente interativo (TUI remota)
+gaia --remote http://gaia:8787 ask "resuma o dia"
+```
+
+- Rotas: `GET /`, `/health`, `/sessions`, `/events` (SSE), `/search`; `POST
+  /turn`, `/permission/{id}`, `/abort`.
+- Escutar fora do loopback **exige** `GAIA_SERVE_TOKEN`; a guarda recusa subir
+  caso contrário.
+- A página web em `GET /` já é um cliente completo (streaming, ferramentas,
+  aprovação por botão, busca).
+- O token vai no `.env`/ambiente, nunca no TOML.
+- Unidades systemd prontas em `deploy/gaia-serve.service` e
+  `deploy/gaia-serve-tailnet.service.example`; no mini, `gmin serve
+  install|cutover|rollback|status|logs`.
 
 **Voz:** `F` fala uma vez, `V` alterna a voz, `C` liga a escuta contínua
 (microfone aberto: fala → executa → responde → volta a ouvir), `M` silencia.
@@ -129,8 +169,8 @@ entendeu vai direto para o agente.
 Execução única, sem interface:
 
 ```bash
-zaya ask "resuma o que eu anotei hoje"
-zaya ask --no-voice "responda apenas: ok"
+gaia ask "resuma o que eu anotei hoje"
+gaia ask --no-voice "responda apenas: ok"
 ```
 
 ## Modos
@@ -149,7 +189,7 @@ O padrão se configura em `[interface] default_mode`.
 
 ## Agente e ferramentas
 
-O motor fica em `zaya/agent/` e fala direto com a API do provedor — sem
+O motor fica em `gaia/agent/` e fala direto com a API do provedor — sem
 servidor intermediário, sem harness externo.
 
 Sete ferramentas de base: `read`, `list`, `glob`, `grep`, `write`, `edit`,
@@ -208,10 +248,11 @@ Discussão sobre parentesco com [[Nota sobre Lévi-Strauss]].
 #antropologia
 ```
 
-- Índice FTS5 incremental, offline (`data/sb_index.db`).
+- Índice FTS5 incremental, offline, em `sb_index.db` dentro do diretório de
+  dados (`~/.local/share/gaia` por padrão; `GAIA_DATA_DIR` muda).
 - Links `[[Título]]`, tags no frontmatter e `#tag` no corpo.
 - Criar nota é aditivo; editar e excluir pedem confirmação, geram backup em
-  `.zaya/backups` e movem para `.zaya/trash`.
+  `.gaia/backups` e movem para `.gaia/trash`.
 - Nunca escreve fora da raiz configurada.
 - A busca só entra no turno quando a mensagem tem pista de retomada ("lembra",
   "aquele projeto"), com poucos trechos e teto de caracteres.
@@ -223,9 +264,9 @@ context_results = 2
 ```
 
 ```bash
-zaya index --force
-zaya search parentesco
-zaya note "Diário de campo"
+gaia index --force
+gaia search parentesco
+gaia note "Diário de campo"
 ```
 
 **Consolidação diária:** às `memory.at` (23:00), os turnos do dia viram
@@ -234,7 +275,7 @@ Consolida o pendente ao sair e recupera o dia anterior se você abrir sem ter
 fechado. Se o modelo falhar, cai num resumo local determinístico.
 
 **Sonho:** na janela `memory.dream_at`–`memory.dream_until` (02:00–08:00), se
-a Zaya estiver ociosa, ela sonha. O sonho lê a memória do dia, procura no
+a Gaia estiver ociosa, ela sonha. O sonho lê a memória do dia, procura no
 índice as memórias antigas que ressoam com ele e escreve
 `Sonhos/Sonho AAAA-MM-DD.md` — parágrafo onírico, **Ecos do dia**,
 **Ressonâncias**, **Pergunta para amanhã** e a lista de memórias revisitadas
@@ -247,7 +288,7 @@ que acabou; à noite (se a janela começar antes da meia-noite) é sobre o dia e
 curso. Se o modelo falhar, a nota sai de qualquer forma com a costura
 determinística do dia com as notas antigas.
 
-**No dia seguinte** a Zaya avisa, em uma linha, com o que sonhou e a pergunta
+**No dia seguinte** a Gaia avisa, em uma linha, com o que sonhou e a pergunta
 que ficou — sem segunda chamada ao modelo, fora das quiet hours, uma vez por
 dia. O aviso sai pelo canal em uso (TUI ou Telegram) e não conta como
 iniciativa proativa.
@@ -279,24 +320,41 @@ reconstruída — o aviso nunca fica sem conteúdo sem avisar no log.
 
 ## Automações
 
-Determinísticas, sem custo de token:
+Horário e determinísticas na maior parte — sem custo de token, **exceto** o
+insight do fecho da noite (`briefing.evening_insight`) e o comentário opcional
+do briefing (`briefing.personalize`), que chamam o modelo.
 
 | Rotina | Quando | O que faz |
 |---|---|---|
-| Briefing da manhã | 08:00 | tarefas do dia, sem as rotinas |
-| Aviso do sonho | 08:00 (até o meio-dia) | o sonho da noite, em uma linha |
-| Resumo do meio-dia | 12:00 (até 18:00) | feito, pendente, rotina matinal |
+| Briefing da manhã | 08:00 | tarefas do dia, sem rotinas |
+| Aviso do sonho | 08:00 (quando as quiet hours acabam) | o sonho da noite, em uma linha |
+| Resumo do meio-dia | 12:00 (até 18:00) | feito e pendente, sem rotinas |
+| Fecho da noite | 18:00 (até 23:00) | feito, não feito, rotina matinal e insight do modelo |
 | Carteira | seg/qua/sex | cotações do que está na carteira |
-| Vagas | segunda 09:00 | busca, filtra, deduplica, pontua e envia |
+| Vagas | segunda 09:00 (até 18:00) | busca, filtra, deduplica, pontua e envia |
 
 ```toml
 [briefing]
+enabled = true
 morning_at = "08:00"
 noon_at = "12:00"
+noon_until = "18:00"
+morning_routine = "matinal"   # usada no fecho da noite
+max_tasks = 15
+evening_enabled = true
+evening_at = "18:00"
+evening_until = "23:00"
+evening_insight = true        # chama o modelo
+market_enabled = true
+market_days = [0, 2, 4]       # seg/qua/sex
+market_at = "12:00"
 
 [career]
+enabled = true
 days = [0]      # 0 = segunda
 at = "09:00"
+until = "18:00"
+max_items = 8
 
 [proactive]
 idle_minutes = 45
@@ -314,12 +372,13 @@ dream_notify_at = "08:00"
 ```
 
 O método da rotina de vagas (fontes, filtros, rubrica de score) vive em
-`~/SecondBrain/cv/playbook-vagas.md`; o estado, em `data/career/state.json`.
+`~/SecondBrain/cv/playbook-vagas.md`; o estado, em `career/state.json` dentro do
+diretório de dados (`~/.local/share/gaia` por padrão).
 
 ```bash
-zaya career status
-zaya career buscar       # busca sem enviar
-zaya career enviar       # busca e manda no Telegram
+gaia career status
+gaia career buscar [--json]   # busca sem enviar
+gaia career enviar            # busca e manda no Telegram
 ```
 
 ## Integrações
@@ -327,13 +386,16 @@ zaya career enviar       # busca e manda no Telegram
 **Telegram**
 
 ```bash
-zaya telegram updates    # descobre o chat_id
-zaya telegram me
-zaya telegram serve      # escuta texto e áudio e responde
+gaia telegram updates    # descobre o chat_id
+gaia telegram me
+gaia telegram send "bom dia" [--chat ID]
+gaia telegram audio voz.mp3 [--voice] [--chat ID]
+gaia telegram poll [--echo]   # long polling, sem o agente
+gaia telegram serve      # escuta texto e áudio e responde
 ```
 
 `auto_approve = true` (com `allowed_chat_id` fixado) aprova no chat as
-ferramentas que pedem confirmação — inclusive as `agenda_*`, que é como a Zaya
+ferramentas que pedem confirmação — inclusive as `agenda_*`, que é como a Gaia
 consulta e altera a Agenda pelo Telegram.
 
 `bash`, `write` e `edit` ficam **negados por padrão mesmo com `auto_approve`**:
@@ -350,17 +412,19 @@ shell_access = false   # mantenha desligado: shell remoto é o risco maior
 **WhatsApp** (Cloud API da Meta)
 
 ```bash
-zaya whatsapp send "bom dia"
-zaya whatsapp audio voz.mp3
-zaya whatsapp serve
+gaia whatsapp send "bom dia"
+gaia whatsapp audio voz.mp3
+gaia whatsapp serve
 ```
 
 **Navegador** (Playwright, perfil persistente com seus logins)
 
 ```bash
-zaya browser login https://exemplo.com
-zaya browser text https://exemplo.com
-zaya browser screenshot https://exemplo.com captura.png
+gaia browser login https://exemplo.com
+gaia browser open https://exemplo.com
+gaia browser text https://exemplo.com
+gaia browser html https://exemplo.com
+gaia browser screenshot https://exemplo.com captura.png
 ```
 
 ## Comandos dentro do app
@@ -371,13 +435,14 @@ zaya browser screenshot https://exemplo.com captura.png
 | `/buscar <termo>` · `/nota <título>` | Second Brain |
 | `/indexar` · `/novo` · `/consolidar [dia]` · `/sonhar [dia]` | reindexa · nova conversa · memória do dia · sonho noturno |
 | `/modelo [nº\|slug]` · `/modo [nome]` | lista/troca modelo · troca persona |
-| `/bolsa <ticker>` · `/carteira` | cotação · carteira |
-| `/metas` · `/painel` · `/foco` | metas do ciclo · painel · foco |
+| `/bolsa <ticker>` · `/carteira [add\|remover <ticker>]` | cotação · carteira |
+| `/metas` · `/painel` · `/foco [definir\|limpar]` | metas do ciclo · painel (`/painel` é alias de `/metas`) · foco |
 | `/tarefas [sync\|fazer\|concluir\|limpar]` | tarefas de longo prazo |
 | `/lembrar <texto>` · `/lembretes` · `/cancelar <id>` | lembretes |
 | `/voz on\|off\|edge\|say\|none` · `/continuo on\|off` | voz e escuta |
 | `/fala` · `/texto` · `/interromper` | modo de entrada |
 | `/rapido on\|off` · `/proativo on\|off` | modo rápido · proatividade |
+| `/pensando on\|off` | mostra/esconde o raciocínio na tela (o Telegram tem interruptor próprio) |
 | `/contexto` · `/historico` · `/sessao` | contexto, histórico, sessão |
 | `/preferencia <texto>` · `/preferencias` | ensina · mostra preferências |
 | `/confirmar` · `/autoaprovar` | confirmação de notas · ferramentas |
@@ -387,36 +452,51 @@ zaya browser screenshot https://exemplo.com captura.png
 
 ## Configuração
 
-Arquivo: `~/.config/zaya/config.toml` (segredos só no `.env`).
+Arquivo: `~/.config/gaia/config.toml` (segredos só no `.env`).
 Seções: `agent`, `stt`, `tts`, `audio`, `secondbrain`, `interface`, `memory`,
 `briefing`, `career`, `proactive`, `focus`, `agenda`, `browser`, `telegram`,
-`whatsapp`.
+`whatsapp`, `serve`.
 
 ```bash
-zaya config          # mostra a configuração (segredos redigidos)
-zaya config --init   # cria o padrão
-zaya config --force  # sobrescreve
+gaia config          # mostra a configuração (segredos redigidos)
+gaia config --init   # cria o padrão
+gaia config --force  # sobrescreve
 ```
 
-Cada campo tem uma variável `ZAYA_*` correspondente (veja `.env.example`).
-Configurações no formato antigo (`[opencode]`, `ZAYA_OPENCODE_*`) ainda são
+A maioria dos campos tem uma variável `GAIA_*` correspondente (veja
+`.env.example` e `_ENV_MAP` em `gaia/config.py`).
+Configurações no formato antigo (`[opencode]`, `GAIA_OPENCODE_*`) ainda são
 aceitas e migradas na leitura.
 
 ## Estrutura
 
 ```text
-zaya/
+gaia/
   agent/          # loop do agente, providers, ferramentas, sessões
   audio/          # microfone, VAD, pré-roll
   stt/            # faster-whisper
   tts/            # edge-tts, say, limpeza de Markdown
-  secondbrain/    # índice FTS5, frontmatter, notas
+  secondbrain/    # índice FTS5, frontmatter, notas, embeddings opcionais
   memory/         # conversas e turnos (SQLite), consolidação e sonho
-  controller/     # intenções, personas, iniciativa, prompt
-  interface/      # TUI Textual e terminal Rich
-  cli*.py         # parser, comandos, runtime
-data/             # zaya.db, sb_index.db, sessions/, career/, logs/
+  briefing/       # composição dos textos de manhã, meio-dia e noite
+  controller/     # orquestrador, turnos, comandos, personas, iniciativa
+  interface/      # TUI Textual, terminal Rich e RemoteUI
+  serve/          # HTTP+SSE do `gaia serve` e página web
+  client/         # cliente `gaia --remote`
+  agenda/         # cliente da Agenda (Supabase)
+  career/         # rotina de vagas
+  finance/        # cotações e carteira
+  tasks/          # tarefas de longo prazo
+  telegram/       # bot e serviço do Telegram
+  whatsapp/       # Cloud API da Meta
+  browser/        # Playwright
+  cli*.py         # parser, comandos, runtime, integrations, serve
+  focus.py        # foco e lua
 ```
+
+Dados (`gaia.db`, `sb_index.db`, `sessions/`, `career/`, `logs/`) ficam em
+`~/.local/share/gaia` por padrão, fora do repo. O launcher `Abrir Gaia.command`
+define `GAIA_DATA_DIR="$REPO/data"` para usar `./data`.
 
 ## Privacidade
 
@@ -432,9 +512,11 @@ data/             # zaya.db, sb_index.db, sessions/, career/, logs/
 
 ```bash
 .venv/bin/python -m pytest        # sem microfone, download ou rede
-.venv/bin/ruff check .
+.venv/bin/ruff check gaia tests
 .venv/bin/mypy
 ```
 
-Planos e notas de design ficam em `docs/`, incluindo a proposta de execução
-headless no Linux via Telegram em `docs/plans/`.
+Os três comandos são exatamente o que o CI roda. Para trabalhar no código, leia
+`AGENTS.md` (mapa, invariantes e armadilhas). Planos e notas de sessão ficam em
+`docs/`; `docs/README.md` classifica o que é referência viva, plano ou
+histórico.

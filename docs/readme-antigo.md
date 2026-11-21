@@ -1,4 +1,8 @@
-# Zaya
+# Gaia
+
+> **Histórico.** README de uma versão anterior, mantido só como registro. Não
+> use como referência: o manual atual é [`../README.md`](../README.md) e o do
+> agente é [`../AGENTS.md`](../AGENTS.md).
 
 **Uma agente que mora no seu Mac e presta atenção.**
 
@@ -8,12 +12,12 @@ iniciativa, que roda inteira na sua máquina e vai acumulando contexto sobre a
 sua vida — os projetos, a pesquisa, a agenda, as ideias soltas.
 
 ```text
-Você   zaya, o que eu tenho hoje?
-Zaya   abre a Agenda, cruza com o que você anotou ontem
+Você   gaia, o que eu tenho hoje?
+Gaia   abre a Agenda, cruza com o que você anotou ontem
        e responde falando, sem te fazer repetir nada.
 
 Você   revisa a arquitetura daquele projeto de automação?
-Zaya   encontra o repositório, lê os arquivos, propõe a mudança,
+Gaia   encontra o repositório, lê os arquivos, propõe a mudança,
        mostra o diff e explica o que fez.
 ```
 
@@ -32,7 +36,7 @@ Uma agente **ouve** o que você disse, **entende** o que precisa ser feito,
 **escolhe** as ferramentas certas, **executa**, **confere** o resultado e só
 então **fala**. Tudo isso em loop, sozinha, com você no comando.
 
-A Zaya faz exatamente esse caminho:
+A Gaia faz exatamente esse caminho:
 
 - **Ouve localmente.** O áudio nunca sai da máquina. O `faster-whisper`
   transcreve em pt-BR, em CPU, com VAD para não cortar sua fala no meio.
@@ -53,12 +57,12 @@ personalidade suficiente para não soar como um formulário.
 
 ---
 
-## Um dia com a Zaya
+## Um dia com a Gaia
 
 Nada disso é roteiro de demonstração. É o uso normal.
 
 ```text
-08:00   bom dia, Zaya
+08:00   bom dia, Gaia
         → ela responde na hora, sem gastar token, e já sabe que horas são
 
 08:02   me lembra de beber água em 30 minutos
@@ -94,23 +98,23 @@ porque o `faster-whisper` ainda não tem wheels para versões mais novas.
 ```bash
 brew install ffmpeg portaudio
 
-git clone https://github.com/talitadeoa/zaya.git && cd zaya
+git clone https://github.com/talitadeoa/gaia.git && cd gaia
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e ".[dev]"
 
-# opcional: deixar o comando `zaya` disponível no PATH
+# opcional: deixar o comando `gaia` disponível no PATH
 uv tool install --python 3.12 --editable .
 ```
 
 Primeiro contato:
 
 ```bash
-zaya config --init   # cria ~/.config/zaya/config.toml
-zaya doctor          # confere ambiente, provedor, voz e Second Brain
-zaya                 # abre a interface
+gaia config --init   # cria ~/.config/gaia/config.toml
+gaia doctor          # confere ambiente, provedor, voz e Second Brain
+gaia                 # abre a interface
 ```
 
-Segredos vão em `~/.config/zaya/.env` ou no ambiente — nunca no TOML. O arquivo
+Segredos vão em `~/.config/gaia/.env` ou no ambiente — nunca no TOML. O arquivo
 `.env.example` tem todas as variáveis, comentadas uma a uma.
 
 O cérebro dela é escolhido no `config.toml`:
@@ -124,7 +128,7 @@ model = "deepseek-chat"
 E a chave, no `.env`:
 
 ```bash
-ZAYA_AGENT_API_KEY=...       # vale para qualquer provedor
+GAIA_AGENT_API_KEY=...       # vale para qualquer provedor
 # ou as chaves nativas: DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY
 ```
 
@@ -133,11 +137,11 @@ Se um provedor não estiver nos presets, use `provider = "custom"` e informe o
 modelos de todos os provedores que têm chave; com o número (`/modelo 3`) ou o
 slug (`/modelo openai/gpt-4o`) troca na hora. No app, `F6` abre o mesmo seletor.
 A escolha fica salva em `config.toml` (com uma cópia `.bak`) e vale no próximo
-turno e na próxima abertura — a não ser que `ZAYA_AGENT_PROVIDER` ou
-`ZAYA_AGENT_MODEL` estejam definidos no `.env`, que têm prioridade.
+turno e na próxima abertura — a não ser que `GAIA_AGENT_PROVIDER` ou
+`GAIA_AGENT_MODEL` estejam definidos no `.env`, que têm prioridade.
 
-Se preferir abrir com um duplo clique, o `Abrir Zaya.command` já aponta para a
-configuração local em `~/zaya`.
+Se preferir abrir com um duplo clique, o `Abrir Gaia.command` já aponta para a
+configuração local em `~/gaia`.
 
 ---
 
@@ -147,9 +151,9 @@ A interface padrão é uma TUI feita em Textual: bonita, rápida, com painéis,
 histórico, markdown renderizado e seleção de texto.
 
 ```bash
-zaya            # TUI (padrão)
-zaya -old       # terminal clássico, para quem gosta
-zaya --watch    # reinicia sozinha quando o código muda
+gaia            # TUI (padrão)
+gaia -old       # terminal clássico, para quem gosta
+gaia --watch    # reinicia sozinha quando o código muda
 ```
 
 **Modo voz**: tecle `F` (ou `V`/`C`). Ela abre o microfone, continua ouvindo
@@ -178,15 +182,15 @@ Para scripts ou testes rápidos existe a execução única, que reaproveita a
 conversa do projeto:
 
 ```bash
-zaya ask "revise o README e sugira melhorias"
-zaya ask --no-voice "responda apenas: ok"
+gaia ask "revise o README e sugira melhorias"
+gaia ask --no-voice "responda apenas: ok"
 ```
 
 ---
 
 ## Quem ela é quando muda de modo
 
-A Zaya não tem uma personalidade só — tem quatro, e você troca na hora com
+A Gaia não tem uma personalidade só — tem quatro, e você troca na hora com
 `/modo <nome>` ou `Tab`.
 
 - **pesquisadora** — mestrado, leitura, fichamento, escrita, metodologia.
@@ -211,7 +215,7 @@ vez, reaproveitado pelo cache.
 
 ## A memória que te poupa de repetir tudo
 
-O coração da Zaya é o **Second Brain**: uma pasta de Markdown que é sua, no
+O coração da Gaia é o **Second Brain**: uma pasta de Markdown que é sua, no
 formato que você quiser, indexada localmente com SQLite FTS5.
 
 ```markdown
@@ -228,8 +232,8 @@ Discussão sobre parentesco com [[Nota sobre Lévi-Strauss]].
 - Busca **offline e incremental** — nada de mandar suas notas para a nuvem.
 - Links `[[Nome da Nota]]`, tags no frontmatter e `#tag` no corpo.
 - Criar nota é **aditivo** e não pede confirmação.
-- Editar ou excluir **pede confirmação**, gera backup em `.zaya/backups` e move
-  para `.zaya/trash` — nunca para o lixo do sistema.
+- Editar ou excluir **pede confirmação**, gera backup em `.gaia/backups` e move
+  para `.gaia/trash` — nunca para o lixo do sistema.
 - Ela **nunca escreve fora da raiz** configurada.
 
 E o contexto não entra em todo turno, o que seria caro e barulhento. A busca só
@@ -247,7 +251,7 @@ local determinístico: o dia nunca se perde.
 
 ## O que ela faz sozinha
 
-Enquanto está aberta, a Zaya não fica só esperando. Ela:
+Enquanto está aberta, a Gaia não fica só esperando. Ela:
 
 - **dá bom dia** ao iniciar, respeitando horário de silêncio;
 - **avisa lembretes** que você pediu, no horário certo;
@@ -269,13 +273,13 @@ Telegram. Vaga sem link não entra. Semana sem vaga nova também gera mensagem,
 porque silêncio também é informação.
 
 ```bash
-zaya career status     # o que já está registrado
-zaya career buscar     # busca agora, sem enviar
-zaya career enviar     # busca e manda no Telegram
+gaia career status     # o que já está registrado
+gaia career buscar     # busca agora, sem enviar
+gaia career enviar     # busca e manda no Telegram
 ```
 
 O método inteiro — fontes, filtros, rubrica de score, pipeline do CV — vive em
-`~/SecondBrain/cv/playbook-vagas.md`. A Zaya lê esse arquivo antes de opinar.
+`~/SecondBrain/cv/playbook-vagas.md`. A Gaia lê esse arquivo antes de opinar.
 
 ### Ajustando o ritmo dela
 
@@ -305,7 +309,7 @@ model = "base"           # "small" é mais preciso, mas lento em CPU
 ```
 
 Cada variável de ambiente correspondente está em `.env.example`, com o mesmo
-nome em `ZAYA_*`.
+nome em `GAIA_*`.
 
 ---
 
@@ -316,9 +320,9 @@ nome em `ZAYA_*`.
 **No Telegram**, sem precisar de número dedicado:
 
 ```bash
-zaya telegram updates   # descobre o chat_id
-zaya telegram me
-zaya telegram serve     # escuta texto e áudio, responde no chat
+gaia telegram updates   # descobre o chat_id
+gaia telegram me
+gaia telegram serve     # escuta texto e áudio, responde no chat
 ```
 
 Por padrão, pelo Telegram ela só lê arquivos: como o serviço roda sem terminal
@@ -329,12 +333,12 @@ acesso ao primeiro que falar com ele.
 **No WhatsApp**, via Cloud API da Meta:
 
 ```bash
-zaya whatsapp send "bom dia"
-zaya whatsapp audio voz.mp3
-zaya whatsapp serve
+gaia whatsapp send "bom dia"
+gaia whatsapp audio voz.mp3
+gaia whatsapp serve
 ```
 
-**No Spotify** — `zaya spotify status|toggle|next|volume 40`, ou por voz.
+**No Spotify** — `gaia spotify status|toggle|next|volume 40`, ou por voz.
 
 **No navegador**, com Playwright e perfil persistente (seus logins ficam
 salvos e reutilizáveis):
@@ -342,16 +346,16 @@ salvos e reutilizáveis):
 ```bash
 uv pip install --python .venv/bin/python -e ".[browser]"
 .venv/bin/playwright install chromium
-zaya browser login https://exemplo.com
-zaya browser text https://exemplo.com
-zaya browser screenshot https://exemplo.com captura.png
+gaia browser login https://exemplo.com
+gaia browser text https://exemplo.com
+gaia browser screenshot https://exemplo.com captura.png
 ```
 
 ---
 
 ## Confiança, não fé
 
-Uma agente que mexe no seu computador precisa de limites explícitos. Os da Zaya
+Uma agente que mexe no seu computador precisa de limites explícitos. Os da Gaia
 são estes:
 
 - **Áudio nunca sai da máquina.** O STT é local. Só o texto da resposta vai para
@@ -373,7 +377,7 @@ Sem servidor intermediário: o agente fala direto com a API do modelo e executa
 as ferramentas localmente.
 
 ```text
-zaya/
+gaia/
   audio/recorder.py      # microfone + VAD
   stt/faster_whisper.py  # transcrição local
   tts/                   # edge-tts + say, limpeza de Markdown
@@ -382,7 +386,7 @@ zaya/
   memory/store.py        # conversas e turnos (SQLite)
   controller/            # intenções, personas, iniciativa
   interface/             # TUI Textual e terminal Rich
-  cli.py                 # zaya, doctor, config, index, search, note
+  cli.py                 # gaia, doctor, config, index, search, note
 ```
 
 As ferramentas do agente são sete: leitura (`read`, `list`, `glob`, `grep`),
@@ -434,9 +438,9 @@ A lista completa aparece com `/ajuda` dentro do app.
 
 ## Se algo não funcionar
 
-- `zaya doctor` mostra o que falta. `--verbose` lista os modelos do provedor.
-- **"chave de API ausente"** → defina `ZAYA_AGENT_API_KEY` (ou a chave nativa do
-  provedor) em `~/.config/zaya/.env`.
+- `gaia doctor` mostra o que falta. `--verbose` lista os modelos do provedor.
+- **"chave de API ausente"** → defina `GAIA_AGENT_API_KEY` (ou a chave nativa do
+  provedor) em `~/.config/gaia/.env`.
 - **"modelo não listado"** → confira `agent.model` contra o `doctor --verbose` e
   reinicie com `/reiniciar`.
 - **Microfone mudo** → dê permissão de Microfone ao Terminal em Ajustes do
@@ -461,6 +465,6 @@ no meio de um turno) e busca semântica local com embeddings.
 
 ---
 
-*O comando continua se chamando `zaya` — pacote, pastas e variáveis `ZAYA_*`. O
-nome dela é Zaya. A diferença entre os dois é a mesma entre uma pasta e alguém
+*O comando continua se chamando `gaia` — pacote, pastas e variáveis `GAIA_*`. O
+nome dela é Gaia. A diferença entre os dois é a mesma entre uma pasta e alguém
 que mora nela.*
