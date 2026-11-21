@@ -21,12 +21,12 @@ dist/
 *.key
 
 # Dados locais e pessoais (nunca versionar)
-.zaya/
+.gaia/
 data/
 config/
 config.toml.bak-*
-zaya.db
-zaya.db-*
+gaia.db
+gaia.db-*
 sb_index.db
 logs/
 models/
@@ -34,14 +34,14 @@ tmp/
 *.personal.md
 memoria*.md
 # Ancorado na raiz e so no topo: sem a barra inicial, o macOS
-# (case-insensitive) ignorava o pacote zaya/secondbrain/ inteiro.
+# (case-insensitive) ignorava o pacote gaia/secondbrain/ inteiro.
 /SecondBrain/
 cv/
 curriculo*.md
 *.pdf
 *.docx
 # Planilhas e afins: dado pessoal, nunca versionar (o repo e publico).
-# A planilha vive em ~/SecondBrain/planilhas/ e entra pelo backup do zmin.
+# A planilha vive em ~/SecondBrain/planilhas/ e entra pelo backup do gmin.
 *.xlsx
 *.xls
 *.ods

@@ -6,10 +6,10 @@ import json
 import httpx
 import pytest
 
-from zaya.config import Config, TelegramConfig
-from zaya.interface.terminal import TerminalUI
-from zaya.telegram.client import TelegramClient, TelegramError, _split_text
-from zaya.telegram.service import TelegramService, telegram_permission
+from gaia.config import Config, TelegramConfig
+from gaia.interface.terminal import TerminalUI
+from gaia.telegram.client import TelegramClient, TelegramError, _split_text
+from gaia.telegram.service import _COMMANDS_MENU, TelegramService, telegram_permission
 
 
 def _cfg(**overrides) -> TelegramConfig:
@@ -45,7 +45,7 @@ async def test_send_message_endpoint_e_payload():
 
 @pytest.mark.asyncio
 async def test_send_voice_usa_sendvoice(tmp_path, monkeypatch):
-    import zaya.telegram.client as mod
+    import gaia.telegram.client as mod
 
     source = tmp_path / "a.mp3"
     source.write_bytes(b"fake")
@@ -66,6 +66,27 @@ async def test_send_voice_usa_sendvoice(tmp_path, monkeypatch):
 
     assert result["message_id"] == 5
     assert calls[0].endswith("/sendVoice")
+
+
+@pytest.mark.asyncio
+async def test_set_my_commands_envia_payload():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = TelegramClient(_cfg(), http=http)
+    await client.set_my_commands([("ajuda", "lista dos comandos"), ("status", "estado")])
+    await http.aclose()
+
+    assert captured[0].url.path == "/bot123:abc/setMyCommands"
+    payload = json.loads(captured[0].content)
+    assert payload["commands"] == [
+        {"command": "ajuda", "description": "lista dos comandos"},
+        {"command": "status", "description": "estado"},
+    ]
 
 
 @pytest.mark.asyncio
@@ -202,8 +223,15 @@ class _BootOrchestrator:
 
 
 class _GetMeClient:
+    def __init__(self) -> None:
+        self.menu: list[tuple[str, str]] | None = None
+
     async def get_me(self):
         return {"username": "teste"}
+
+    async def set_my_commands(self, commands):
+        self.menu = list(commands)
+        return True
 
     async def get_updates(self, offset=None):
         # Dorme ate o teste cancelar, sem girar em loop.
@@ -220,8 +248,9 @@ async def test_serve_liga_briefing_e_rotina_de_vagas_ao_subir():
     cfg = Config()
     cfg.telegram.allowed_chat_id = "42"
     orch = _BootOrchestrator()
+    tg = _GetMeClient()
     service = TelegramService(
-        cfg, orch, _GetMeClient(), None, TerminalUI(quiet=True), logging.getLogger("t")
+        cfg, orch, tg, None, TerminalUI(quiet=True), logging.getLogger("t")
     )
 
     task = asyncio.create_task(service.run())
@@ -231,6 +260,29 @@ async def test_serve_liga_briefing_e_rotina_de_vagas_ao_subir():
         await task
 
     assert orch.ligados == ["briefing", "career", "proactive", "memory"]
+
+
+@pytest.mark.asyncio
+async def test_serve_registra_menu_de_comandos_no_boot():
+    """O botao ``/`` do chat mostra o menu ao subir o serviço."""
+    import asyncio
+    import logging
+
+    cfg = Config()
+    cfg.telegram.allowed_chat_id = "42"
+    tg = _GetMeClient()
+    service = TelegramService(
+        cfg, _BootOrchestrator(), tg, None, TerminalUI(quiet=True), logging.getLogger("t")
+    )
+
+    task = asyncio.create_task(service.run())
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert tg.menu is not None
+    assert [cmd for cmd, _ in tg.menu] == [cmd for cmd, _ in _COMMANDS_MENU]
 
 
 class _BoomGetMeClient(_GetMeClient):
@@ -506,6 +558,9 @@ class _OffsetClient:
     async def get_me(self):
         return {"username": "teste"}
 
+    async def set_my_commands(self, commands):
+        return True
+
     async def send_chat_action(self, *args, **kwargs) -> None:
         pass
 
@@ -579,11 +634,11 @@ def test_offset_persiste_no_sqlite_de_verdade(tmp_path):
     """Round-trip com o MemoryStore real: o meta precisa sobreviver ao processo."""
     import logging
 
-    from zaya.memory.store import MemoryStore
+    from gaia.memory.store import MemoryStore
 
     cfg = Config()
     orch = _OffsetOrchestrator()
-    db = tmp_path / "zaya.db"
+    db = tmp_path / "gaia.db"
     orch.store = MemoryStore(db)
     service = TelegramService(
         cfg, orch, None, None, TerminalUI(quiet=True), logging.getLogger("t")
@@ -631,7 +686,7 @@ class _FakeThinkingClient:
 async def test_thinking_sink_envia_uma_vez_e_depois_edita():
     import logging
 
-    from zaya.telegram.thinking import ThinkingSink
+    from gaia.telegram.thinking import ThinkingSink
 
     client = _FakeThinkingClient()
     sink = ThinkingSink(client, logging.getLogger("t"), 42, min_interval=0.0)
@@ -651,7 +706,7 @@ async def test_thinking_sink_envia_uma_vez_e_depois_edita():
 async def test_thinking_sink_corta_texto_longo_e_nao_quebra_com_falha():
     import logging
 
-    from zaya.telegram.thinking import ThinkingSink
+    from gaia.telegram.thinking import ThinkingSink
 
     class ClienteRuim(_FakeThinkingClient):
         async def send_message(self, text, chat_id=None, **kwargs):

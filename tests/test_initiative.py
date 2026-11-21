@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from zaya.controller.initiative import InitiativeMixin
+from gaia.controller.initiative import InitiativeMixin
 
 NOW = datetime(2026, 11, 16, 20, 0)
 

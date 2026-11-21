@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from zaya.controller.smalltalk import fast_reply
+from gaia.controller.smalltalk import fast_reply
 
 NOW = datetime(2026, 11, 8, 9, 0)
 GREETING_TAILS = {
@@ -25,8 +25,8 @@ def test_greeting_uses_time_of_day():
     assert _tail(reply, "Bom dia") in GREETING_TAILS
 
 
-def test_greeting_with_zaya_and_punctuation():
-    reply = fast_reply("Oi, Zaya!", now=NOW)
+def test_greeting_with_gaia_and_punctuation():
+    reply = fast_reply("Oi, Gaia!", now=NOW)
     assert reply is not None
     assert _tail(reply, "Bom dia") in GREETING_TAILS
 
@@ -65,7 +65,7 @@ def test_thanks():
 def test_identity():
     reply = fast_reply("quem é você?", now=NOW)
     assert reply is not None
-    assert "Zaya" in reply
+    assert "Gaia" in reply
 
 
 def test_time():

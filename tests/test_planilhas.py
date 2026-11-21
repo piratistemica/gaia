@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from zaya.agent.errors import ToolError
-from zaya.agent.tools.base import ToolContext
-from zaya.agent.tools.planilhas import (
+from gaia.agent.errors import ToolError
+from gaia.agent.tools.base import ToolContext
+from gaia.agent.tools.planilhas import (
     _coluna,
     _intervalo,
     _letra,

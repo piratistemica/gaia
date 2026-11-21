@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from zaya.controller.intents import (
+from gaia.controller.intents import (
     derive_title,
     format_context,
     needs_second_brain_context,
@@ -42,7 +42,7 @@ def test_parse_quoted_title():
 
 def test_non_register():
     assert parse_register("qual é a capital da França?") is None
-    assert parse_register("Zaya, revise o projeto") is None
+    assert parse_register("Gaia, revise o projeto") is None
 
 
 def test_parse_preference():

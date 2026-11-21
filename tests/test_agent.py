@@ -7,9 +7,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from zaya.agent.errors import AgentError, ToolError
-from zaya.agent.providers.anthropic import AnthropicProvider
-from zaya.agent.providers.base import (
+from gaia.agent.errors import AgentError, ToolError
+from gaia.agent.providers.anthropic import AnthropicProvider
+from gaia.agent.providers.base import (
     ChatRequest,
     Finish,
     ProviderError,
@@ -17,12 +17,12 @@ from zaya.agent.providers.base import (
     TextDelta,
     ToolCallDelta,
 )
-from zaya.agent.providers.openai_compat import OpenAICompatibleProvider
-from zaya.agent.runtime import AgentClient
-from zaya.agent.tools import ToolContext, build_tools
-from zaya.agent.tools.filesystem import edit, grep, read, write
-from zaya.agent.types import ChatMessage, ModelRef, ToolCall
-from zaya.config import Config
+from gaia.agent.providers.openai_compat import OpenAICompatibleProvider
+from gaia.agent.runtime import AgentClient
+from gaia.agent.tools import ToolContext, build_tools
+from gaia.agent.tools.filesystem import edit, grep, read, write
+from gaia.agent.types import ChatMessage, ModelRef, ToolCall
+from gaia.config import Config
 
 
 # --------------------------------------------------------------------- modelos
@@ -259,7 +259,7 @@ class ScriptedProvider:
 def _client(tmp_path, isolated_env) -> AgentClient:
     cfg = Config.load(
         config_path=isolated_env / "missing.toml",
-        env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
     )
     cfg.agent.tools = True
     cfg.agent.auto_approve = True
@@ -443,11 +443,11 @@ def test_chat_message_roundtrip():
 
 
 def test_config_exige_chave_para_provedor_remoto(tmp_path, isolated_env, monkeypatch):
-    monkeypatch.delenv("ZAYA_AGENT_API_KEY", raising=False)
+    monkeypatch.delenv("GAIA_AGENT_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     cfg = Config.load(
         config_path=isolated_env / "missing.toml",
-        env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
     )
     client = AgentClient(cfg, tmp_path / "proj")
     with pytest.raises(AgentError, match="chave de API"):
@@ -457,7 +457,7 @@ def test_config_exige_chave_para_provedor_remoto(tmp_path, isolated_env, monkeyp
 def test_provider_local_nao_exige_chave(tmp_path, isolated_env):
     cfg = Config.load(
         config_path=isolated_env / "missing.toml",
-        env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
     )
     cfg.agent.provider = "ollama"
     client = AgentClient(cfg, tmp_path / "proj")

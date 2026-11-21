@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Endurece o servidor SSH do mini: desliga login por senha e login de root.
 # Rode uma vez, do MacBook:
-#   zmin sudo bash /home/talita/zaya/scripts/hardening-ssh.sh
+#   gmin sudo bash /home/talita/gaia/scripts/hardening-ssh.sh
 #
 # Seguro por construção: faz backup, valida com `sshd -t` antes de recarregar e
 # restaura o backup se a configuração ficar inválida. Autenticação por chave
@@ -11,7 +11,7 @@ set -euo pipefail
 CONF=/etc/ssh/sshd_config
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "precisa de root: use 'zmin sudo bash $0'" >&2
+  echo "precisa de root: use 'gmin sudo bash $0'" >&2
   exit 1
 fi
 

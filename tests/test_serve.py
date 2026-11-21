@@ -1,4 +1,4 @@
-"""Transporte do `zaya serve`: rotas, autorização e framing SSE."""
+"""Transporte do `gaia serve`: rotas, autorização e framing SSE."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from zaya.interface.remote import RemoteUI
-from zaya.serve.server import ServeConfigError, ServeServer
+from gaia.interface.remote import RemoteUI
+from gaia.serve.server import ServeConfigError, ServeServer
 
 
 class FakeTarget:
@@ -22,10 +22,26 @@ class FakeTarget:
         self.busy = False
 
     def health(self) -> dict[str, Any]:
-        return {"model": "deepseek/flash", "db": "/tmp/zaya.db"}
+        return {"model": "deepseek/flash", "db": "/tmp/gaia.db"}
 
     def sessions(self) -> list[dict[str, Any]]:
         return [{"id": 1, "channel": "cli", "mode": "assistente"}]
+
+    def models(self) -> list[dict[str, Any]]:
+        return [
+            {"slug": "deepseek/flash", "provider": "deepseek", "model": "flash", "current": True},
+            {"slug": "commandcode/deepseek/deepseek-v4-flash", "provider": "commandcode",
+             "model": "deepseek/deepseek-v4-flash", "current": False},
+        ]
+
+    def switch_model(self, slug: str) -> list[str]:
+        if self.busy:
+            raise RuntimeError("turno em andamento")
+        if slug == "quebrado":
+            raise ValueError("modelo invalido")
+        self.trocas = getattr(self, "trocas", [])
+        self.trocas.append(slug)
+        return [f"modelo da próxima mensagem: {slug}"]
 
     def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
         self.buscas = getattr(self, "buscas", [])
@@ -108,6 +124,59 @@ def test_sessions_lista_conversas(servidor):
     assert corpo["sessions"][0]["channel"] == "cli"
 
 
+def test_models_lista_modelos_e_marca_o_atual(servidor):
+    _, _, _, url = servidor
+    status, corpo = _pedido(url, "GET", "/models")
+    assert status == 200
+    slugs = [item["slug"] for item in corpo["models"]]
+    assert slugs == ["deepseek/flash", "commandcode/deepseek/deepseek-v4-flash"]
+    assert corpo["models"][0]["current"] is True
+
+
+def test_models_exige_token_quando_configurado():
+    ui = RemoteUI()
+    srv = ServeServer(FakeTarget(), ui, host="127.0.0.1", port=0, token="segredo")
+    url = srv.start()
+    try:
+        assert _pedido(url, "GET", "/models")[0] == 401
+        assert _pedido(url, "GET", "/models", token="segredo")[0] == 200
+    finally:
+        srv.shutdown()
+
+
+def test_model_troca_e_devolve_mensagens(servidor):
+    _, alvo, _, url = servidor
+    status, corpo = _pedido(
+        url, "POST", "/model", {"model": "commandcode/deepseek/deepseek-v4-flash"}
+    )
+    assert status == 200
+    assert corpo["ok"] is True
+    assert "commandcode/deepseek/deepseek-v4-flash" in corpo["messages"][0]
+    assert alvo.trocas == ["commandcode/deepseek/deepseek-v4-flash"]
+
+
+def test_model_vazio_e_recusado(servidor):
+    _, _, _, url = servidor
+    status, corpo = _pedido(url, "POST", "/model", {"model": "  "})
+    assert status == 400
+    assert corpo["error"] == "empty_model"
+
+
+def test_model_busy_vira_409(servidor):
+    _, alvo, _, url = servidor
+    alvo.busy = True
+    status, corpo = _pedido(url, "POST", "/model", {"model": "deepseek/flash"})
+    assert status == 409
+    assert corpo["error"] == "busy"
+
+
+def test_model_invalido_vira_400(servidor):
+    _, _, _, url = servidor
+    status, corpo = _pedido(url, "POST", "/model", {"model": "quebrado"})
+    assert status == 400
+    assert corpo["error"] == "model_failed"
+
+
 def test_turn_agenda_e_devolve_run(servidor):
     _, alvo, _, url = servidor
     status, corpo = _pedido(url, "POST", "/turn", {"text": "oi"})
@@ -184,7 +253,7 @@ def test_token_obrigatorio_quando_configurado():
 
 
 def test_bind_na_rede_sem_token_e_recusado():
-    with pytest.raises(ServeConfigError, match="ZAYA_SERVE_TOKEN"):
+    with pytest.raises(ServeConfigError, match="GAIA_SERVE_TOKEN"):
         ServeServer(FakeTarget(), RemoteUI(), host="100.66.45.57", port=0)
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from zaya.controller.modes import (
+from gaia.controller.modes import (
     DEFAULT_MODE,
     PERSONAS,
     get_persona,
@@ -54,7 +54,7 @@ def test_trabalhadora_aponta_para_o_playbook_de_vagas():
 
 def test_parse_mode_switch_falas_naturais():
     assert parse_mode_switch("muda para o modo trabalhadora") == "trabalhadora"
-    assert parse_mode_switch("Zaya, entra no modo pesquisadora") == "pesquisadora"
+    assert parse_mode_switch("Gaia, entra no modo pesquisadora") == "pesquisadora"
     assert parse_mode_switch("modo assistente") == "assistente"
     assert parse_mode_switch("modo conversa") == "assistente"
     assert parse_mode_switch("vira a parceira de trabalhadora") == "trabalhadora"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from zaya.briefing.compose import (
+from gaia.briefing.compose import (
     collect_habits,
     collect_tasks,
     day_recap,
@@ -318,7 +318,7 @@ def test_comentario_vazio_nao_suja_a_mensagem():
 
 
 def test_strip_tags_limpa_hashtags_e_espacos():
-    from zaya.briefing.compose import strip_tags
+    from gaia.briefing.compose import strip_tags
 
     assert strip_tags("Comprar #casa hoje") == "Comprar hoje"
     assert strip_tags("Comprar #casa, depois #mercado!") == "Comprar, depois!"

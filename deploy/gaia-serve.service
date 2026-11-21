@@ -1,0 +1,30 @@
+# `gaia serve`: o motor num processo e o Telegram dentro dele.
+# Instalar como unidade de USUARIO (nada de root):
+#   gmin serve install            # esta variante, so loopback (teste local)
+#   gmin serve install --tailnet  # escuta no 100.x para Mac/navegador
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now gaia-serve.service
+#
+# Requisitos: ~/.config/gaia/.env com a chave do provedor e GAIA_SERVE_TOKEN
+# (obrigatório na variante tailnet).
+# A guarda do config recusa escutar fora do loopback sem token.
+[Unit]
+Description=Gaia (motor + API/SSE para clientes remotos)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/gaia
+# Esta variante escuta so no loopback (sem token). Para o tailnet use
+# gaia-serve-tailnet.service.example (host 100.x + GAIA_SERVE_TOKEN).
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/.config/gaia/.env
+ExecStart=%h/gaia/.venv/bin/gaia serve --host 127.0.0.1
+Restart=always
+RestartSec=5
+# Um turno interrompido nao pode virar tempestade de reinicios.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Install]
+WantedBy=default.target

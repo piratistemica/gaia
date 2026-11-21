@@ -5,10 +5,10 @@ import io
 from rich.console import Console
 from rich.text import Text
 
-from zaya.interface.textual_markdown import (
+from gaia.interface.textual_markdown import (
     CODE_THEME,
     MARKDOWN_THEME,
-    ZayaMarkdown,
+    GaiaMarkdown,
     _safe_lexer,
     markdown_body,
     prepare_stream,
@@ -34,13 +34,13 @@ def test_markdown_body_empty_returns_empty_text():
     assert str(markdown_body("   \n  ")) == ""
 
 
-def test_markdown_body_returns_zaya_markdown():
+def test_markdown_body_returns_gaia_markdown():
     body = markdown_body("# Título\n\nTexto com **forte**.")
-    assert isinstance(body, ZayaMarkdown)
+    assert isinstance(body, GaiaMarkdown)
 
 
 def test_headings_render_left_aligned_with_markers():
-    out = _render(ZayaMarkdown("# Um\n\n## Dois\n\n### Três\n"))
+    out = _render(GaiaMarkdown("# Um\n\n## Dois\n\n### Três\n"))
     assert "▌ " in out
     assert "▎ " in out
     assert "▸ " in out
@@ -50,7 +50,7 @@ def test_headings_render_left_aligned_with_markers():
 
 
 def test_inline_code_and_emphasis_are_styled():
-    body = ZayaMarkdown("Aqui `x = 1` e **forte** e _ênfase_.")
+    body = GaiaMarkdown("Aqui `x = 1` e **forte** e _ênfase_.")
     out = _render(body)
     assert "`" not in out
     assert "x = 1" in out
@@ -58,9 +58,9 @@ def test_inline_code_and_emphasis_are_styled():
 
 
 def test_code_block_uses_valid_lexer_and_unknown_falls_back():
-    out = _render(ZayaMarkdown("```nao-existe\nprint('oi')\n```\n"))
+    out = _render(GaiaMarkdown("```nao-existe\nprint('oi')\n```\n"))
     assert "print('oi')" in out
-    py = _render(ZayaMarkdown("```python\nprint('oi')\n```\n"))
+    py = _render(GaiaMarkdown("```python\nprint('oi')\n```\n"))
     assert "print" in py
 
 

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from zaya.briefing.market import MarketRow, market_due, market_message
-from zaya.finance.quotes import Quote
+from gaia.briefing.market import MarketRow, market_due, market_message
+from gaia.finance.quotes import Quote
 
 DAY = date(2026, 11, 9)  # segunda-feira
 

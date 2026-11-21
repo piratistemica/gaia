@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from zaya.agent.catalog import (
+from gaia.agent.catalog import (
     ModelCatalog,
     ModelOption,
     collect_models,
@@ -58,7 +58,7 @@ def test_catalogo_encontra_slug_e_id_unico():
 
 
 def test_provider_candidates_coloca_o_atual_primeiro(monkeypatch):
-    monkeypatch.setattr("zaya.agent.catalog._has_own_key", lambda name: False)
+    monkeypatch.setattr("gaia.agent.catalog._has_own_key", lambda name: False)
     cfg = _cfg(provider="openai")
 
     names = provider_candidates(cfg)
@@ -69,7 +69,7 @@ def test_provider_candidates_coloca_o_atual_primeiro(monkeypatch):
 
 def test_provider_candidates_inclui_presets_com_chave_propria(monkeypatch):
     monkeypatch.setattr(
-        "zaya.agent.catalog._has_own_key", lambda name: name == "deepseek"
+        "gaia.agent.catalog._has_own_key", lambda name: name == "deepseek"
     )
     cfg = _cfg(provider="openai")
 
@@ -79,7 +79,7 @@ def test_provider_candidates_inclui_presets_com_chave_propria(monkeypatch):
 
 
 def test_provider_candidates_sem_repeticao(monkeypatch):
-    monkeypatch.setattr("zaya.agent.catalog._has_own_key", lambda name: True)
+    monkeypatch.setattr("gaia.agent.catalog._has_own_key", lambda name: True)
     cfg = _cfg(provider="deepseek")
 
     names = provider_candidates(cfg)
@@ -90,7 +90,7 @@ def test_provider_candidates_sem_repeticao(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_collect_models_reaproveita_o_cliente_atual(monkeypatch):
-    monkeypatch.setattr("zaya.agent.catalog.provider_candidates", lambda cfg: ["custom"])
+    monkeypatch.setattr("gaia.agent.catalog.provider_candidates", lambda cfg: ["custom"])
 
     class Client:
         async def list_models(self):
@@ -105,7 +105,7 @@ async def test_collect_models_reaproveita_o_cliente_atual(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_collect_models_erro_do_cliente_nao_derruba_o_catalogo(monkeypatch):
-    monkeypatch.setattr("zaya.agent.catalog.provider_candidates", lambda cfg: ["custom"])
+    monkeypatch.setattr("gaia.agent.catalog.provider_candidates", lambda cfg: ["custom"])
 
     class Client:
         async def list_models(self):
@@ -119,12 +119,12 @@ async def test_collect_models_erro_do_cliente_nao_derruba_o_catalogo(monkeypatch
 
 @pytest.mark.asyncio
 async def test_collect_models_marca_o_atual_mesmo_fora_da_lista(monkeypatch):
-    monkeypatch.setattr("zaya.agent.catalog.provider_candidates", lambda cfg: ["a", "b"])
+    monkeypatch.setattr("gaia.agent.catalog.provider_candidates", lambda cfg: ["a", "b"])
 
     async def fake_fetch(cfg, name, current, timeout):
         return name, ["m1", "m2"], ""
 
-    monkeypatch.setattr("zaya.agent.catalog._fetch_provider", fake_fetch)
+    monkeypatch.setattr("gaia.agent.catalog._fetch_provider", fake_fetch)
     catalog = await collect_models(_cfg(provider="a", model="sumiu"))
 
     assert catalog.slugs[0] == "a/sumiu"
@@ -135,12 +135,12 @@ async def test_collect_models_marca_o_atual_mesmo_fora_da_lista(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_collect_models_deduplica_e_ignora_vazios(monkeypatch):
-    monkeypatch.setattr("zaya.agent.catalog.provider_candidates", lambda cfg: ["a"])
+    monkeypatch.setattr("gaia.agent.catalog.provider_candidates", lambda cfg: ["a"])
 
     async def fake_fetch(cfg, name, current, timeout):
         return name, ["m1", "m1", "  "], ""
 
-    monkeypatch.setattr("zaya.agent.catalog._fetch_provider", fake_fetch)
+    monkeypatch.setattr("gaia.agent.catalog._fetch_provider", fake_fetch)
     catalog = await collect_models(_cfg(provider="a", model="m1"))
 
     assert catalog.slugs == ["a/m1"]

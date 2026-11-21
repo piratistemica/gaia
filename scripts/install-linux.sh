@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Prepara a Zaya para rodar no Ubuntu (desktop ou tablet), x86_64 ou arm64.
+# Prepara a Gaia para rodar no Ubuntu (desktop ou tablet), x86_64 ou arm64.
 #
 #   ./scripts/install-linux.sh              # instala tudo
 #   ./scripts/install-linux.sh --no-apt     # sem sudo/apt (deps já instaladas)
 #   ./scripts/install-linux.sh --no-launcher
 #
 # Instala: dependências de sistema (ffmpeg, PortAudio, clipboard), uv, Python
-# 3.12, a Zaya em um venv local, o comando `zaya` em ~/.local/bin e um atalho
+# 3.12, a Gaia em um venv local, o comando `gaia` em ~/.local/bin e um atalho
 # com ícone para abrir a interface em tela cheia no tablet.
 
 set -euo pipefail
 
-# O proprio script instala uv e o comando `zaya` em ~/.local/bin. Sem isso,
+# O proprio script instala uv e o comando `gaia` em ~/.local/bin. Sem isso,
 # rodando por SSH nao-interativo o `command -v uv` nao acha o que ja existe e
 # o script tenta baixar tudo de novo.
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
@@ -84,7 +84,7 @@ command -v uv >/dev/null 2>&1 || die "uv não ficou disponível no PATH."
 say "Garantindo Python 3.12..."
 uv python install 3.12
 
-say "Criando o ambiente e instalando a Zaya..."
+say "Criando o ambiente e instalando a Gaia..."
 cd "$REPO_DIR"
 # Idempotente: rodar o instalador de novo nao pode falhar so porque o ambiente
 # ja existe (o uv recusa criar em cima de um .venv existente).
@@ -95,15 +95,15 @@ uv pip install --python .venv/bin/python -e .
 
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
-launcher="$BIN_DIR/zaya"
-if [ -e "$launcher" ] && ! grep -q "talita/zaya" "$launcher" 2>/dev/null; then
-  warn "$launcher já existe e não parece ser da Zaya; escrevendo em zaya-local."
-  launcher="$BIN_DIR/zaya-local"
+launcher="$BIN_DIR/gaia"
+if [ -e "$launcher" ] && ! grep -q "talita/gaia" "$launcher" 2>/dev/null; then
+  warn "$launcher já existe e não parece ser da Gaia; escrevendo em gaia-local."
+  launcher="$BIN_DIR/gaia-local"
 fi
 cat > "$launcher" <<EOF
 #!/usr/bin/env bash
-# Launcher da Zaya (gerado por scripts/install-linux.sh)
-exec "$REPO_DIR/.venv/bin/zaya" "\$@"
+# Launcher da Gaia (gerado por scripts/install-linux.sh)
+exec "$REPO_DIR/.venv/bin/gaia" "\$@"
 EOF
 chmod +x "$launcher"
 say "Comando instalado em $launcher"
@@ -114,7 +114,7 @@ case ":$PATH:" in
      warn '  export PATH="$HOME/.local/bin:$PATH"' ;;
 esac
 
-CONFIG_FILE="${ZAYA_CONFIG:-$HOME/.config/zaya/config.toml}"
+CONFIG_FILE="${GAIA_CONFIG:-$HOME/.config/gaia/config.toml}"
 if [ ! -f "$CONFIG_FILE" ]; then
   say "Criando a configuração inicial..."
   "$launcher" config --init || true
@@ -126,20 +126,20 @@ if [ "$SKIP_LAUNCHER" -eq 0 ]; then
     if command -v "$candidate" >/dev/null 2>&1; then DETECTED="$candidate"; break; fi
   done
   case "$DETECTED" in
-    gnome-terminal) TERM_EXEC="gnome-terminal --maximize -- zaya" ;;
-    kgx)            TERM_EXEC="kgx --maximize -- zaya" ;;
-    konsole)        TERM_EXEC="konsole --fullscreen -e zaya" ;;
-    xfce4-terminal) TERM_EXEC="xfce4-terminal --maximize -e zaya" ;;
-    xterm)          TERM_EXEC="xterm -e zaya" ;;
+    gnome-terminal) TERM_EXEC="gnome-terminal --maximize -- gaia" ;;
+    kgx)            TERM_EXEC="kgx --maximize -- gaia" ;;
+    konsole)        TERM_EXEC="konsole --fullscreen -e gaia" ;;
+    xfce4-terminal) TERM_EXEC="xfce4-terminal --maximize -e gaia" ;;
+    xterm)          TERM_EXEC="xterm -e gaia" ;;
     *)              TERM_EXEC="" ;;
   esac
   if [ -n "$TERM_EXEC" ]; then
     APPS="$HOME/.local/share/applications"
     mkdir -p "$APPS"
-    cat > "$APPS/zaya.desktop" <<EOF
+    cat > "$APPS/gaia.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Zaya
+Name=Gaia
 Comment=Assistente pessoal
 Exec=$TERM_EXEC
 Icon=utilities-terminal
@@ -148,13 +148,13 @@ Categories=Utility;
 StartupNotify=true
 EOF
     update-desktop-database "$APPS" >/dev/null 2>&1 || true
-    say "Atalho criado: procure \"Zaya\" nos aplicativos."
+    say "Atalho criado: procure \"Gaia\" nos aplicativos."
   else
-    warn "Nenhum terminal conhecido encontrado; rode 'zaya' manualmente."
+    warn "Nenhum terminal conhecido encontrado; rode 'gaia' manualmente."
   fi
 fi
 
 say "Conferindo o ambiente..."
 "$launcher" doctor || true
 
-say "Pronto. Para conversar: zaya"
+say "Pronto. Para conversar: gaia"

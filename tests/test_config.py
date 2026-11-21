@@ -5,7 +5,7 @@ import tomllib
 
 import pytest
 
-from zaya.config import (
+from gaia.config import (
     Config,
     ServeConfig,
     model_env_override,
@@ -16,7 +16,7 @@ from zaya.config import (
 
 def test_defaults(isolated_env):
     cfg = Config.load(
-        config_path=isolated_env / "missing.toml", env={"ZAYA_DATA_DIR": str(isolated_env / "data")}
+        config_path=isolated_env / "missing.toml", env={"GAIA_DATA_DIR": str(isolated_env / "data")}
     )
     assert cfg.agent.provider == "deepseek"
     assert cfg.agent.model == "deepseek-flash"
@@ -54,11 +54,11 @@ provider = "say"
         encoding="utf-8",
     )
     env = {
-        "ZAYA_AGENT_MODEL": "gpt-y",
-        "ZAYA_TTS_PROVIDER": "edge",
-        "ZAYA_SECOND_BRAIN_PATH": str(isolated_env / "sb"),
-        "ZAYA_SB_AUTO_CONTEXT": "false",
-        "ZAYA_DATA_DIR": str(isolated_env / "data2"),
+        "GAIA_AGENT_MODEL": "gpt-y",
+        "GAIA_TTS_PROVIDER": "edge",
+        "GAIA_SECOND_BRAIN_PATH": str(isolated_env / "sb"),
+        "GAIA_SB_AUTO_CONTEXT": "false",
+        "GAIA_DATA_DIR": str(isolated_env / "data2"),
     }
     cfg = Config.load(config_path=config_path, env=env)
     assert cfg.agent.provider == "openai"
@@ -80,7 +80,7 @@ directory = "/tmp/proj"
 """,
         encoding="utf-8",
     )
-    cfg = Config.load(config_path=config_path, env={"ZAYA_DATA_DIR": str(isolated_env / "data")})
+    cfg = Config.load(config_path=config_path, env={"GAIA_DATA_DIR": str(isolated_env / "data")})
     assert cfg.agent.provider == "deepseek"
     assert cfg.agent.model == "deepseek-flash"
     assert cfg.agent.auto_approve is True
@@ -91,7 +91,7 @@ def test_chave_do_ambiente_chega_ao_agente(isolated_env):
     cfg = Config.load(
         config_path=isolated_env / "missing.toml",
         env={
-            "ZAYA_DATA_DIR": str(isolated_env / "data"),
+            "GAIA_DATA_DIR": str(isolated_env / "data"),
             "DEEPSEEK_API_KEY": "sk-teste",
         },
     )
@@ -101,15 +101,15 @@ def test_chave_do_ambiente_chega_ao_agente(isolated_env):
 
 def test_env_types_are_inferred_from_model(isolated_env):
     env = {
-        "ZAYA_UI": "terminal",  # string, antes era tratado como bool
-        "ZAYA_UI_DASHBOARD_COLLAPSED": "false",
-        "ZAYA_TELEGRAM_AUTO_APPROVE": "true",
-        "ZAYA_AUDIO_SILENCE_MS": "1500",
-        "ZAYA_AUDIO_VAD_THRESHOLD": "0.7",
-        "ZAYA_SB_AUTO_CONTEXT": "yes",
-        "ZAYA_FAST": "off",
-        "ZAYA_UI_MARKDOWN": "false",
-        "ZAYA_DATA_DIR": str(isolated_env / "data"),
+        "GAIA_UI": "terminal",  # string, antes era tratado como bool
+        "GAIA_UI_DASHBOARD_COLLAPSED": "false",
+        "GAIA_TELEGRAM_AUTO_APPROVE": "true",
+        "GAIA_AUDIO_SILENCE_MS": "1500",
+        "GAIA_AUDIO_VAD_THRESHOLD": "0.7",
+        "GAIA_SB_AUTO_CONTEXT": "yes",
+        "GAIA_FAST": "off",
+        "GAIA_UI_MARKDOWN": "false",
+        "GAIA_DATA_DIR": str(isolated_env / "data"),
     }
     cfg = Config.load(config_path=isolated_env / "missing.toml", env=env)
     assert cfg.interface.ui == "terminal"
@@ -125,21 +125,21 @@ def test_env_types_are_inferred_from_model(isolated_env):
 def test_dotenv_fica_visivel_para_subprocessos(tmp_path, monkeypatch):
     dotenv = tmp_path / ".env"
     dotenv.write_text(
-        "ZAYA_TELEGRAM_BOT_TOKEN=abc123\nZAYA_TELEGRAM_ENABLED=true\n",
+        "GAIA_TELEGRAM_BOT_TOKEN=abc123\nGAIA_TELEGRAM_ENABLED=true\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("ZAYA_DOTENV", str(dotenv))
-    monkeypatch.setenv("ZAYA_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.delenv("ZAYA_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("ZAYA_TELEGRAM_ENABLED", raising=False)
+    monkeypatch.setenv("GAIA_DOTENV", str(dotenv))
+    monkeypatch.setenv("GAIA_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("GAIA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("GAIA_TELEGRAM_ENABLED", raising=False)
     try:
         cfg = Config.load(config_path=tmp_path / "missing.toml")
         assert cfg.telegram.bot_token == "abc123"
-        assert os.environ["ZAYA_TELEGRAM_BOT_TOKEN"] == "abc123"
-        assert os.environ["ZAYA_TELEGRAM_ENABLED"] == "true"
+        assert os.environ["GAIA_TELEGRAM_BOT_TOKEN"] == "abc123"
+        assert os.environ["GAIA_TELEGRAM_ENABLED"] == "true"
     finally:
-        os.environ.pop("ZAYA_TELEGRAM_BOT_TOKEN", None)
-        os.environ.pop("ZAYA_TELEGRAM_ENABLED", None)
+        os.environ.pop("GAIA_TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("GAIA_TELEGRAM_ENABLED", None)
 
 
 def test_write_default_config(tmp_path):
@@ -185,7 +185,7 @@ def test_save_agent_model_preserva_comentarios_e_faz_backup(tmp_path):
     backup = target.with_name("config.toml.bak")
     assert backup.read_text(encoding="utf-8") == original
 
-    cfg = Config.load(config_path=target, env={"ZAYA_DATA_DIR": str(tmp_path / "data")})
+    cfg = Config.load(config_path=target, env={"GAIA_DATA_DIR": str(tmp_path / "data")})
     assert cfg.agent.provider == "openai"
     assert cfg.agent.model_slug() == "openai/gpt-x"
 
@@ -203,7 +203,7 @@ def test_save_agent_model_adiciona_secao_quando_falta(tmp_path):
     assert data["agent"] == {"provider": "deepseek", "model": "deepseek-flash"}
     assert data["tts"]["provider"] == "say"
 
-    cfg = Config.load(config_path=target, env={"ZAYA_DATA_DIR": str(tmp_path / "data")})
+    cfg = Config.load(config_path=target, env={"GAIA_DATA_DIR": str(tmp_path / "data")})
     assert cfg.agent.model_slug() == "deepseek/deepseek-flash"
 
 
@@ -216,11 +216,20 @@ def test_save_agent_model_exige_provider_e_model(tmp_path):
 
 def test_model_env_override_lista_apenas_variaveis_preenchidas():
     assert model_env_override({}) == []
-    assert model_env_override({"ZAYA_AGENT_MODEL": "  "}) == []
-    assert model_env_override({"ZAYA_AGENT_MODEL": "gpt-x"}) == ["ZAYA_AGENT_MODEL"]
+    assert model_env_override({"GAIA_AGENT_MODEL": "  "}) == []
+    assert model_env_override({"GAIA_AGENT_MODEL": "gpt-x"}) == ["GAIA_AGENT_MODEL"]
     assert model_env_override(
-        {"ZAYA_AGENT_PROVIDER": "openai", "ZAYA_AGENT_MODEL": "gpt-x"}
-    ) == ["ZAYA_AGENT_PROVIDER", "ZAYA_AGENT_MODEL"]
+        {"GAIA_AGENT_PROVIDER": "openai", "GAIA_AGENT_MODEL": "gpt-x"}
+    ) == ["GAIA_AGENT_PROVIDER", "GAIA_AGENT_MODEL"]
+
+
+def test_public_dict_redige_o_token_do_serve():
+    cfg = Config()
+    cfg.serve.token = "segredo-do-serve"
+    cfg.agent.api_key = "chave-do-modelo"
+    data = cfg.public_dict()
+    assert data["serve"]["token"] == "***"
+    assert data["agent"]["api_key"] == "***"
 
 
 def test_serve_defaults_sao_loopback_e_sem_token():
@@ -254,10 +263,10 @@ def test_serve_recusa_escuta_na_rede_sem_token():
 def test_serve_vem_do_ambiente():
     cfg = Config.load(
         env={
-            "ZAYA_SERVE_HOST": "100.66.45.57",
-            "ZAYA_SERVE_PORT": "9000",
-            "ZAYA_SERVE_TOKEN": "abc",
-            "ZAYA_SERVE_ALLOW_REMOTE": "true",
+            "GAIA_SERVE_HOST": "100.66.45.57",
+            "GAIA_SERVE_PORT": "9000",
+            "GAIA_SERVE_TOKEN": "abc",
+            "GAIA_SERVE_ALLOW_REMOTE": "true",
         }
     )
     assert cfg.serve.host == "100.66.45.57"
@@ -269,7 +278,7 @@ def test_serve_vem_do_ambiente():
 def test_template_padrao_traz_a_secao_serve(tmp_path):
     target = tmp_path / "config.toml"
     write_default_config(target)
-    cfg = Config.load(config_path=target, env={"ZAYA_DATA_DIR": str(tmp_path)})
+    cfg = Config.load(config_path=target, env={"GAIA_DATA_DIR": str(tmp_path)})
     assert cfg.serve.host == "127.0.0.1"
     assert cfg.serve.port == 8787
     assert "enabled = false" in target.read_text(encoding="utf-8")

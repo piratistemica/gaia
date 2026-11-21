@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 
-from zaya.interface.remote import RENDER_METHODS, STREAM_METHODS, RemoteUI
+from gaia.interface.remote import RENDER_METHODS, STREAM_METHODS, RemoteUI
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -116,7 +116,7 @@ def test_controller_so_usa_metodos_do_contrato():
     """Guarda de deriva: `ui.<novo>(` no controller obriga atualizar o remote."""
     chamadas: set[str] = set()
     padrao = re.compile(r"\bui\.([a-z_][a-z0-9_]*)\(")
-    for arquivo in (RAIZ / "zaya").rglob("*.py"):
+    for arquivo in (RAIZ / "gaia").rglob("*.py"):
         if "interface" in arquivo.parts:
             continue
         chamadas.update(padrao.findall(arquivo.read_text(encoding="utf-8")))
@@ -162,7 +162,7 @@ def test_unsubscribe_para_de_receber():
 
 
 def test_historico_nao_estoura():
-    from zaya.interface.remote import HISTORY
+    from gaia.interface.remote import HISTORY
 
     ui = RemoteUI()
     for _ in range(HISTORY + 5):

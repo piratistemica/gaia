@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from zaya.controller.proactive import (
+from gaia.controller.proactive import (
     classify_voice_control,
     greeting_for,
     in_quiet_hours,
@@ -89,7 +89,7 @@ def test_voice_control():
     assert classify_voice_control("parar") == "stop"
     assert classify_voice_control("para") == "stop"
     assert classify_voice_control("texto") == "stop"
-    assert classify_voice_control("Zaya, modo texto.") == "stop"
+    assert classify_voice_control("Gaia, modo texto.") == "stop"
     assert classify_voice_control("sair") == "quit"
     assert classify_voice_control("tchau!") == "quit"
     assert classify_voice_control("continuar o projeto") is None

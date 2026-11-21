@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-import zaya.browser.session as browser_session
-from zaya.browser.session import BrowserError, BrowserSession, playwright_available
-from zaya.config import Config
+import gaia.browser.session as browser_session
+from gaia.browser.session import BrowserError, BrowserSession, playwright_available
+from gaia.config import Config
 
 
 def test_playwright_available_retorna_bool():

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from zaya.interface.terminal import TerminalUI
+from gaia.interface.terminal import TerminalUI
 
 
 def test_terminal_quiet_recusa_por_padrao():

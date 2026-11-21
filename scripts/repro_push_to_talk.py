@@ -8,10 +8,10 @@ from __future__ import annotations
 import asyncio
 import types
 
-from zaya.audio.recorder import Recorder
-from zaya.config import AudioConfig, STTConfig
-from zaya.interface.textual_app import ZayaTextualApp
-from zaya.stt.faster_whisper import WhisperTranscriber
+from gaia.audio.recorder import Recorder
+from gaia.config import AudioConfig, STTConfig
+from gaia.interface.textual_app import GaiaTextualApp
+from gaia.stt.faster_whisper import WhisperTranscriber
 
 STATUS: list[str] = []
 SUBMITTED: list[str] = []
@@ -59,7 +59,7 @@ async def answer(text: str, sink) -> str:
 
 
 async def main() -> None:
-    app = ZayaTextualApp(answer, voice=FakeVoice())
+    app = GaiaTextualApp(answer, voice=FakeVoice())
     original = app._set_status
 
     def spy(text: str) -> None:

@@ -6,8 +6,8 @@ from datetime import datetime
 
 import httpx
 
-from zaya.agent.providers.anthropic import AnthropicProvider
-from zaya.agent.providers.base import (
+from gaia.agent.providers.anthropic import AnthropicProvider
+from gaia.agent.providers.base import (
     ChatRequest,
     Finish,
     TextDelta,
@@ -15,16 +15,16 @@ from zaya.agent.providers.base import (
     Usage,
     UsageDelta,
 )
-from zaya.agent.providers.openai_compat import OpenAICompatibleProvider
-from zaya.agent.runtime import AgentClient
-from zaya.agent.session import AgentSession
-from zaya.agent.tools import ToolContext
-from zaya.agent.tools.filesystem import read
-from zaya.agent.types import ChatMessage, ModelRef, ToolCall
-from zaya.config import Config
-from zaya.controller.intents import format_context, needs_second_brain_context
-from zaya.controller.modes import PERSONAS
-from zaya.controller.prompt import (
+from gaia.agent.providers.openai_compat import OpenAICompatibleProvider
+from gaia.agent.runtime import AgentClient
+from gaia.agent.session import AgentSession
+from gaia.agent.tools import ToolContext
+from gaia.agent.tools.filesystem import read
+from gaia.agent.types import ChatMessage, ModelRef, ToolCall
+from gaia.config import Config
+from gaia.controller.intents import format_context, needs_second_brain_context
+from gaia.controller.modes import PERSONAS
+from gaia.controller.prompt import (
     clean_preferences,
     compose_system,
     route_model,
@@ -87,7 +87,7 @@ def test_catalogo_completo_independe_do_modo_e_do_pedido():
     """
     from pathlib import Path
 
-    from zaya.agent.tools import ToolContext, build_tools
+    from gaia.agent.tools import ToolContext, build_tools
 
     tools = build_tools(ToolContext(Path(".")))
     assert tools.names() == ("read", "write", "edit", "list", "glob", "grep", "bash")
@@ -95,7 +95,7 @@ def test_catalogo_completo_independe_do_modo_e_do_pedido():
 
 def test_sem_filtro_por_turno_ou_por_modo():
     """Nao existe mais heuristica de intencao nem escopo por persona."""
-    from zaya.controller import prompt
+    from gaia.controller import prompt
 
     assert not hasattr(prompt, "tools_for_turn")
     assert not hasattr(prompt, "ACTION_HINTS")
@@ -406,7 +406,7 @@ class ScriptedProvider:
 def _client(tmp_path, isolated_env) -> AgentClient:
     cfg = Config.load(
         config_path=isolated_env / "missing.toml",
-        env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
     )
     cfg.agent.tools = True
     cfg.agent.auto_approve = True
@@ -718,7 +718,7 @@ def test_session_repara_tool_call_sem_resultado():
 
 
 def test_session_store_corrige_historico_ao_carregar(tmp_path):
-    from zaya.agent.session import SessionStore
+    from gaia.agent.session import SessionStore
 
     store = SessionStore(tmp_path / "sessions")
     session = AgentSession(id="ses_quebrada")
@@ -785,15 +785,15 @@ def test_humor_alto_entra_no_prefixo_e_pode_ser_desligado():
     com_humor = compose_system(persona, humor="alto")
     sem_humor = compose_system(persona, humor="off")
 
-    assert "Humor da Zaya" in com_humor.static
+    assert "Humor da Gaia" in com_humor.static
     assert "piada" in com_humor.static
-    assert "Humor da Zaya" not in sem_humor.static
+    assert "Humor da Gaia" not in sem_humor.static
     # O humor faz parte do prefixo estavel: nao muda entre turnos.
     assert com_humor.static == compose_system(persona, humor="alto").static
 
 
 def test_humor_normaliza_nivel_e_ignora_desconhecido():
-    from zaya.controller.prompt import humor_directive
+    from gaia.controller.prompt import humor_directive
 
     assert "engraçadinha" in humor_directive("MÉDIO")
     assert "humor sempre ligado" in humor_directive("Alto")

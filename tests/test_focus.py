@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from zaya.agenda.client import lunation_note_id
-from zaya.focus import (
+from gaia.agenda.client import lunation_note_id
+from gaia.focus import (
     PHASES,
     FocusStore,
     moon_phase,

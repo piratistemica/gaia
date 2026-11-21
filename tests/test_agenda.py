@@ -5,11 +5,11 @@ from typing import ClassVar
 
 import pytest
 
-from zaya.agenda.client import AgendaClient, _load_env_file
-from zaya.agent.errors import ToolError
-from zaya.agent.tools import ToolContext, build_tools
-from zaya.agent.tools.agenda import build_agenda_tools
-from zaya.config import AgendaConfig
+from gaia.agenda.client import AgendaClient, _load_env_file
+from gaia.agent.errors import ToolError
+from gaia.agent.tools import ToolContext, build_tools
+from gaia.agent.tools.agenda import build_agenda_tools
+from gaia.config import AgendaConfig
 
 
 def test_env_file_e_cliente_habilitado(tmp_path):
@@ -113,7 +113,7 @@ class _FakeClient:
 
 @pytest.fixture
 def tools_agenda(tmp_path, monkeypatch):
-    import zaya.agent.tools.agenda as modulo
+    import gaia.agent.tools.agenda as modulo
 
     monkeypatch.setattr(modulo, "AgendaClient", _FakeClient)
     _FakeClient.created = []
@@ -216,7 +216,7 @@ def test_agenda_marcar_nao_encontrada(tools_agenda):
 
 def test_agenda_tool_sem_credencial_avisa(tmp_path):
     """Sem .env da Agenda a ferramenta explica o que falta, não estoura solta."""
-    from zaya.agent.tools.agenda import agenda_dia
+    from gaia.agent.tools.agenda import agenda_dia
 
     ctx = ToolContext(tmp_path, True, AgendaConfig(env_file=str(tmp_path / "nao.env")))
     with pytest.raises(ToolError, match="Agenda"):
@@ -224,7 +224,7 @@ def test_agenda_tool_sem_credencial_avisa(tmp_path):
 
 
 def test_agenda_dia_nao_mostra_hashtags(tools_agenda, monkeypatch):
-    import zaya.agent.tools.agenda as modulo
+    import gaia.agent.tools.agenda as modulo
 
     notas = [
         {"id": "a", "text": "fio dental #saude", "is_checkbox": True, "completed": False},

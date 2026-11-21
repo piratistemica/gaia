@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from zaya.audio.recorder import SileroVAD, UtteranceSegmenter
-from zaya.config import AudioConfig
+from gaia.audio.recorder import SileroVAD, UtteranceSegmenter
+from gaia.config import AudioConfig
 
 SR = 16000
 BLOCK = int(SR * 0.03)  # 30ms

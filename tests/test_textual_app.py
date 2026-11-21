@@ -8,16 +8,16 @@ import pytest
 from textual import events
 from textual.widgets import Input, OptionList
 
-from zaya.agent.catalog import ModelOption
-from zaya.controller.modes import PERSONAS
-from zaya.interface import textual_app
-from zaya.interface.textual_app import (
+from gaia.agent.catalog import ModelOption
+from gaia.controller.modes import PERSONAS
+from gaia.interface import textual_app
+from gaia.interface.textual_app import (
     _HELP,
     CollapsibleCard,
+    GaiaTextualApp,
     TextualSink,
-    ZayaTextualApp,
 )
-from zaya.interface.textual_screens import (
+from gaia.interface.textual_screens import (
     CommandPalette,
     ModelPicker,
     ModePicker,
@@ -111,7 +111,7 @@ class _FakeVoice:
         self.agenda = _FakeAgenda()
         self.session_id = "ses_fake"
         self.mode_key = "assistente"
-        self.mode_name = "Zaya"
+        self.mode_name = "Gaia"
         self.selected_modes: list[str] = []
         self.model_calls: list[str] = []
         self.spoken: list[str] = []
@@ -165,8 +165,8 @@ def test_app_pode_iniciar_no_modo_selecao():
     async def _answer(text, sink):
         return "ok"
 
-    normal = ZayaTextualApp(_answer)
-    selecao = ZayaTextualApp(_answer, start_selecting=True)
+    normal = GaiaTextualApp(_answer)
+    selecao = GaiaTextualApp(_answer, start_selecting=True)
 
     assert normal._selection_mode is False
     assert selecao._selection_mode is True
@@ -174,11 +174,11 @@ def test_app_pode_iniciar_no_modo_selecao():
 
 @pytest.mark.asyncio
 async def test_app_textual_responde_sem_erro():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("i")
-        field = app.query_one("#input", textual_app.ZayaInput)
+        field = app.query_one("#input", textual_app.GaiaInput)
         field.text = "oi"
         await pilot.press("enter")
         await pilot.pause()
@@ -187,7 +187,7 @@ async def test_app_textual_responde_sem_erro():
 
 @pytest.mark.asyncio
 async def test_submit_text_finishes_with_answer():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         captured: dict[str, str] = {}
@@ -205,7 +205,7 @@ async def test_submit_text_reports_answer_errors():
     async def broken(text: str, sink) -> str:
         raise RuntimeError("boom")
 
-    app = ZayaTextualApp(broken)
+    app = GaiaTextualApp(broken)
     async with app.run_test() as pilot:
         await pilot.pause()
         captured: dict[str, str] = {}
@@ -220,7 +220,7 @@ async def test_submit_text_reports_answer_errors():
 
 @pytest.mark.asyncio
 async def test_submit_text_ignores_second_turn_while_running():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         calls: list[str] = []
@@ -237,7 +237,7 @@ async def test_submit_text_ignores_second_turn_while_running():
 
 @pytest.mark.asyncio
 async def test_help_command_writes_help_note():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         written: list[str] = []
@@ -251,7 +251,7 @@ async def test_help_command_writes_help_note():
 
 @pytest.mark.asyncio
 async def test_quit_command_exits_app():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         exits: list[object] = []
@@ -265,7 +265,7 @@ async def test_quit_command_exits_app():
 
 @pytest.mark.asyncio
 async def test_plain_text_is_sent_to_answer():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     received: list[str] = []
 
     async def fake_submit(text: str) -> None:
@@ -275,20 +275,20 @@ async def test_plain_text_is_sent_to_answer():
         await pilot.pause()
         app.submit_text = fake_submit
 
-        event = SimpleNamespace(value="olá zaya", input=SimpleNamespace(value=""))
+        event = SimpleNamespace(value="olá gaia", input=SimpleNamespace(value=""))
         await app.on_input_submitted(event)
         await asyncio.sleep(0)
         await pilot.pause()
 
-    assert received == ["olá zaya"]
+    assert received == ["olá gaia"]
 
 
 @pytest.mark.asyncio
 async def test_paste_multilinha_preserva_o_texto_como_veio():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
-        field = app.query_one("#input", textual_app.ZayaInput)
+        field = app.query_one("#input", textual_app.GaiaInput)
         field.focus()
 
         app.post_message(events.Paste("primeira linha\nsegunda linha\n\nterceira linha"))
@@ -299,7 +299,7 @@ async def test_paste_multilinha_preserva_o_texto_como_veio():
 
 @pytest.mark.asyncio
 async def test_enter_envia_o_texto_colado_e_limpa_o_campo():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     received: list[str] = []
 
     async def fake_submit(text: str) -> None:
@@ -308,7 +308,7 @@ async def test_enter_envia_o_texto_colado_e_limpa_o_campo():
     async with app.run_test() as pilot:
         await pilot.pause()
         app.submit_text = fake_submit
-        field = app.query_one("#input", textual_app.ZayaInput)
+        field = app.query_one("#input", textual_app.GaiaInput)
         field.focus()
 
         app.post_message(events.Paste("primeira linha\nsegunda linha"))
@@ -322,7 +322,7 @@ async def test_enter_envia_o_texto_colado_e_limpa_o_campo():
 
 @pytest.mark.asyncio
 async def test_voice_toggle_without_voice_reports_unavailable():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         await app.action_toggle_voice()
@@ -350,14 +350,14 @@ def test_sink_buffers_and_streams():
 
 
 def test_set_status_is_safe_before_mount():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     app._set_status("antes do mount")
     assert app._status_base == "antes do mount"
 
 
 @pytest.mark.asyncio
 async def test_set_status_is_safe_after_unmount():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         app._set_status("durante")
@@ -368,7 +368,7 @@ async def test_set_status_is_safe_after_unmount():
 
 @pytest.mark.asyncio
 async def test_startup_sem_modal_de_modo():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         assert len(app.screen_stack) == 1  # nenhum modal na abertura
@@ -378,7 +378,7 @@ async def test_startup_sem_modal_de_modo():
 @pytest.mark.asyncio
 async def test_tab_abre_modal_de_modo_sem_trocar():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("tab")
@@ -395,7 +395,7 @@ async def test_tab_abre_modal_de_modo_sem_trocar():
 @pytest.mark.asyncio
 async def test_f6_abre_seletor_de_modelos():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("f6")
@@ -412,7 +412,7 @@ async def test_f6_abre_seletor_de_modelos():
 @pytest.mark.asyncio
 async def test_seletor_de_modelos_aplica_a_escolha():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("f6")
@@ -433,7 +433,7 @@ async def test_seletor_de_modelos_aplica_a_escolha():
 @pytest.mark.asyncio
 async def test_modelo_com_argumento_troca_direto():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         app._handle_modelo_command("/modelo p/q")
@@ -449,7 +449,7 @@ async def test_modelo_com_argumento_troca_direto():
 @pytest.mark.asyncio
 async def test_modelo_sem_argumento_abre_seletor():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         app._handle_modelo_command("/modelo")
@@ -460,11 +460,11 @@ async def test_modelo_sem_argumento_abre_seletor():
 
 @pytest.mark.asyncio
 async def test_modebar_mostra_modo_e_sessoes_clicavel():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         texto = app._modebar.content
-        assert "Zaya" in str(texto)
+        assert "Gaia" in str(texto)
         assert "Tab modo" not in str(texto)
         assert "Sessões" not in str(texto)
         assert "Sessões" in str(app.query_one("#session-button").content)
@@ -477,7 +477,7 @@ async def test_modebar_mostra_modo_e_sessoes_clicavel():
 @pytest.mark.asyncio
 async def test_shortcuts_work_with_voice_and_modals(monkeypatch):
     monkeypatch.setattr(textual_app, "ContinuousListener", _FakeListener)
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
 
@@ -512,7 +512,7 @@ async def test_shortcuts_work_with_voice_and_modals(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_palette_escape_closes_without_submitting():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("escape")
@@ -537,7 +537,7 @@ async def test_palette_escape_closes_without_submitting():
 
 @pytest.mark.asyncio
 async def test_paleta_busca_e_enter_abre_o_comando():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("f1")
@@ -557,7 +557,7 @@ async def test_paleta_busca_e_enter_abre_o_comando():
 
 @pytest.mark.asyncio
 async def test_paleta_setas_escolhem_comando():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("f1")
@@ -579,7 +579,7 @@ async def test_paleta_setas_escolhem_comando():
 async def test_f_liga_modo_voz_e_enter_volta_ao_texto(monkeypatch):
     monkeypatch.setattr(textual_app, "ContinuousListener", _FakeListener)
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
 
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
@@ -609,7 +609,7 @@ async def test_f_liga_modo_voz_e_enter_volta_ao_texto(monkeypatch):
 async def test_v_liga_modo_voz_e_t_volta_ao_texto(monkeypatch):
     monkeypatch.setattr(textual_app, "ContinuousListener", _FakeListener)
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
 
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
@@ -630,7 +630,7 @@ async def test_v_liga_modo_voz_e_t_volta_ao_texto(monkeypatch):
 @pytest.mark.asyncio
 async def test_resposta_e_falada_quando_modo_voz_esta_ligado():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -648,7 +648,7 @@ async def test_resposta_e_falada_quando_modo_voz_esta_ligado():
 @pytest.mark.asyncio
 async def test_resposta_nao_e_falada_no_modo_texto():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -682,7 +682,7 @@ async def test_escuta_continua_transcreve_e_submete(monkeypatch):
     voice.transcriber = SimpleNamespace(
         transcribe=lambda audio, vad_filter=None: "  olá por voz  "
     )
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     received: list[str] = []
 
     async def fake_submit(text: str) -> None:
@@ -706,7 +706,7 @@ async def test_escuta_continua_transcreve_e_submete(monkeypatch):
 @pytest.mark.asyncio
 async def test_falha_de_transcricao_mostra_o_motivo_real():
     """Antes virava 'não entendi'; agora mostra a causa (modelo, download)."""
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
 
     def boom(audio, vad_filter=None):
         raise RuntimeError("modelo base indisponivel")
@@ -721,7 +721,7 @@ async def test_falha_de_transcricao_mostra_o_motivo_real():
 
 @pytest.mark.asyncio
 async def test_palette_input_does_not_submit_chat():
-    app = ZayaTextualApp(_answer)
+    app = GaiaTextualApp(_answer)
     async with app.run_test() as pilot:
         await pilot.pause()
         received: list[str] = []
@@ -740,7 +740,7 @@ async def test_palette_input_does_not_submit_chat():
 
 @pytest.mark.asyncio
 async def test_troca_de_modo_usa_worker_serializado(monkeypatch):
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         captured: dict[str, object] = {}
@@ -762,7 +762,7 @@ async def test_troca_de_modo_usa_worker_serializado(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_menu_button_abre_paleta_de_atalhos():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.click("#menu-button")
@@ -773,7 +773,7 @@ async def test_menu_button_abre_paleta_de_atalhos():
 @pytest.mark.asyncio
 async def test_tab_abre_modal_mesmo_digitando():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("i")
@@ -787,7 +787,7 @@ async def test_tab_abre_modal_mesmo_digitando():
 @pytest.mark.asyncio
 async def test_click_modebar_abre_modal_de_modo():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.click("#modebar")
@@ -799,7 +799,7 @@ async def test_click_modebar_abre_modal_de_modo():
 
 @pytest.mark.asyncio
 async def test_clicar_painel_recolhe_e_expande():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         painel = app.query_one(".dashboard-panel", CollapsibleCard)
@@ -818,7 +818,7 @@ async def test_clicar_painel_recolhe_e_expande():
 async def test_painel_abre_expandido_quando_configurado():
     voice = _FakeVoice()
     voice.cfg.interface.dashboard_collapsed = False
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         painel = app.query_one(".dashboard-panel", CollapsibleCard)
@@ -827,7 +827,7 @@ async def test_painel_abre_expandido_quando_configurado():
 
 @pytest.mark.asyncio
 async def test_f5_mostra_e_oculta_lua_e_metas():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         paineis = list(app.query(".dashboard-panel"))
@@ -846,7 +846,7 @@ async def test_f5_mostra_e_oculta_lua_e_metas():
 
 @pytest.mark.asyncio
 async def test_f4_liga_e_desliga_selecao_de_texto():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         assert app._selection_mode is False
@@ -866,7 +866,7 @@ async def test_f4_liga_e_desliga_selecao_de_texto():
 
 @pytest.mark.asyncio
 async def test_abre_com_selecao_quando_configurado():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
+    app = GaiaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         assert app.ALLOW_SELECT is True
@@ -875,7 +875,7 @@ async def test_abre_com_selecao_quando_configurado():
 
 @pytest.mark.asyncio
 async def test_arrastar_seleciona_texto_e_copia():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
+    app = GaiaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
     async with app.run_test(size=(90, 30)) as pilot:
         await pilot.pause()
         copiados: list[str] = []
@@ -896,7 +896,7 @@ async def test_arrastar_seleciona_texto_e_copia():
 
 @pytest.mark.asyncio
 async def test_ctrl_c_copia_selecao():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
+    app = GaiaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
     async with app.run_test(size=(90, 30)) as pilot:
         await pilot.pause()
         app._clear_messages()
@@ -917,7 +917,7 @@ async def test_ctrl_c_copia_selecao():
 
 @pytest.mark.asyncio
 async def test_arrastar_no_painel_nao_recolhe_e_clique_recolhe():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
+    app = GaiaTextualApp(_answer, voice=_FakeVoice(), start_selecting=True)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         painel = app.query_one(".dashboard-panel", CollapsibleCard)
@@ -943,7 +943,7 @@ async def test_arrastar_no_painel_nao_recolhe_e_clique_recolhe():
 @pytest.mark.asyncio
 async def test_modal_de_modo_aplica_modo_escolhido():
     voice = _FakeVoice()
-    app = ZayaTextualApp(_answer, voice=voice)
+    app = GaiaTextualApp(_answer, voice=voice)
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("tab")
@@ -959,17 +959,17 @@ async def test_modal_de_modo_aplica_modo_escolhido():
 
 @pytest.mark.asyncio
 async def test_resposta_usa_markdown_por_padrao():
-    from zaya.interface.textual_markdown import ZayaMarkdown
+    from gaia.interface.textual_markdown import GaiaMarkdown
 
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
-        assert isinstance(app._body("# Título\n\n**forte**"), ZayaMarkdown)
+        assert isinstance(app._body("# Título\n\n**forte**"), GaiaMarkdown)
 
 
 @pytest.mark.asyncio
 async def test_markdown_pode_ser_desligado_na_config():
-    app = ZayaTextualApp(_answer, voice=_FakeVoice())
+    app = GaiaTextualApp(_answer, voice=_FakeVoice())
     app._voice.cfg.interface.markdown_render = False
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
@@ -985,7 +985,7 @@ async def test_f6_sem_modelos_avisa_e_nao_abre_modal():
         async def show_model_options(self):
             return [("warning", "nenhum modelo")], []
 
-    app = ZayaTextualApp(_answer, voice=SemModelos())
+    app = GaiaTextualApp(_answer, voice=SemModelos())
     async with app.run_test(size=(110, 40)) as pilot:
         await pilot.pause()
         await pilot.press("f6")

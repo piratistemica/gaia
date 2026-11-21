@@ -1,0 +1,23 @@
+# Variante para expor no tailnet (SSH + clientes de fora de casa).
+# Instale com `gmin serve install --tailnet` (ele confere o IP do tailnet e
+# exige GAIA_SERVE_TOKEN no ~/.config/gaia/.env).
+# Ajustar à mão só se o IP do mini mudar: `tailscale ip -4`.
+[Unit]
+Description=Gaia (motor + API/SSE no tailnet)
+# Unidade de USUARIO: nao pode Requires=tailscaled.service (unidade de
+# sistema). O host sobe o tailscale no boot; se o IP ainda nao existir no
+# bind, o Restart=always tenta de novo.
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/gaia
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-%h/.config/gaia/.env
+Environment=GAIA_SERVE_ALLOW_REMOTE=true
+ExecStart=%h/gaia/.venv/bin/gaia serve --host 100.66.45.57
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

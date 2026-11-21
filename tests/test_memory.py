@@ -3,11 +3,11 @@ from __future__ import annotations
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
-from zaya.memory.store import SCHEMA_VERSION, MemoryStore
+from gaia.memory.store import SCHEMA_VERSION, MemoryStore
 
 
 def test_conversations_and_turns(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         conv = store.get_or_create_conversation("/proj")
         assert conv["project_path"] == "/proj"
@@ -35,7 +35,7 @@ def test_conversations_and_turns(tmp_path):
 
 
 def test_conversations_per_mode(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         assistente = store.get_or_create_conversation("/proj", "assistente")
         trabalhadora = store.get_or_create_conversation("/proj", "trabalhadora")
@@ -68,7 +68,7 @@ def test_conversations_per_mode(tmp_path):
 
 
 def test_migracao_v3_renomeia_modos_e_funde_conversa(tmp_path):
-    path = tmp_path / "zaya.db"
+    path = tmp_path / "gaia.db"
     conn = sqlite3.connect(path)
     conn.executescript(
         """
@@ -117,7 +117,7 @@ def test_migracao_v3_renomeia_modos_e_funde_conversa(tmp_path):
 
 
 def test_rehome_conversations_e_richest_mode(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         antiga = store.get_or_create_conversation("/old/proj", "assistente")
         store.add_turn(int(antiga["id"]), "user", "oi")
@@ -149,7 +149,7 @@ def test_rehome_conversations_e_richest_mode(tmp_path):
 
 
 def test_reminders(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         rid = store.add_reminder("beber água", "2026-11-08T10:00:00+00:00")
         assert store.reminder_stats()["pending"] == 1
@@ -171,7 +171,7 @@ def test_reminders(tmp_path):
 
 
 def test_meta(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         assert store.get_meta("model") is None
         store.set_meta("model", "deepseek/deepseek-flash")
@@ -183,7 +183,7 @@ def test_meta(tmp_path):
 
 
 def test_pragmas_configured(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         assert store._conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
         assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
@@ -194,7 +194,7 @@ def test_pragmas_configured(tmp_path):
 
 
 def test_concurrent_writes_are_serialized(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         conv = store.get_or_create_conversation("/proj")
         conversation_id = int(conv["id"])
@@ -214,14 +214,14 @@ def test_concurrent_writes_are_serialized(tmp_path):
 
 
 def test_close_is_idempotent_and_context_manager(tmp_path):
-    with MemoryStore(tmp_path / "zaya.db") as store:
+    with MemoryStore(tmp_path / "gaia.db") as store:
         store.set_meta("k", "v")
     store.close()
     store.close()
 
 
 def test_schema_version_recorded(tmp_path):
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         assert store.schema_version() == SCHEMA_VERSION
         assert store.get_meta("schema_version") == str(SCHEMA_VERSION)
@@ -266,7 +266,7 @@ def test_migrates_old_database_without_mode(tmp_path):
 
 def test_conversations_are_separated_by_channel(tmp_path):
     """Terminal e Telegram nao dividem conversa, mesmo com pasta e modo iguais."""
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     try:
         cli = store.get_or_create_conversation("/proj", "assistente")
         tg = store.get_or_create_conversation("/proj", "assistente", "telegram")
@@ -303,7 +303,7 @@ def test_conversations_are_separated_by_channel(tmp_path):
 
 def test_channel_migration_defaults_existing_conversations_to_cli(tmp_path):
     """Banco v4 (sem channel) migra com as conversas antigas no canal cli."""
-    path = tmp_path / "zaya.db"
+    path = tmp_path / "gaia.db"
     conn = sqlite3.connect(path)
     with conn:
         conn.execute(

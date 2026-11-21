@@ -1,7 +1,7 @@
 [project]
-name = "zaya-assistant"
+name = "gaia-assistant"
 version = "0.1.0"
-description = "Zaya: assistente pessoal de voz com agente proprio e Second Brain em Markdown."
+description = "Gaia: assistente pessoal de voz com agente proprio e Second Brain em Markdown."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
@@ -32,14 +32,14 @@ browser = [
 ]
 
 [project.scripts]
-zaya = "zaya.cli:main"
+gaia = "gaia.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["zaya"]
+packages = ["gaia"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -47,14 +47,14 @@ testpaths = ["tests"]
 addopts = "-q"
 
 [tool.coverage.run]
-source = ["zaya"]
+source = ["gaia"]
 branch = true
 
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
 follow_imports = "silent"
-files = ["zaya"]
+files = ["gaia"]
 
 [tool.ruff]
 line-length = 100

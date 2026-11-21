@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from zaya.controller.goals import GoalTracker, goal_block
+from gaia.controller.goals import GoalTracker, goal_block
 
 
 def _tracker(tmp_path):

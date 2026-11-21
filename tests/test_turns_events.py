@@ -7,8 +7,8 @@ import logging
 
 import pytest
 
-from zaya.agent.errors import AgentError
-from zaya.agent.events import (
+from gaia.agent.errors import AgentError
+from gaia.agent.events import (
     PermissionAsked,
     ReasoningDelta,
     TextDelta,
@@ -18,7 +18,7 @@ from zaya.agent.events import (
     TurnFailed,
     TurnStarted,
 )
-from zaya.controller.orchestrator import Orchestrator
+from gaia.controller.orchestrator import Orchestrator
 
 
 class FakeUI:

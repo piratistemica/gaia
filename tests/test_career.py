@@ -5,8 +5,8 @@ from datetime import date
 
 import pytest
 
-from zaya.career.models import Job, ScoredJob, normalize
-from zaya.career.score import (
+from gaia.career.models import Job, ScoredJob, normalize
+from gaia.career.score import (
     company_points,
     local_points,
     location_ok,
@@ -16,7 +16,7 @@ from zaya.career.score import (
     seniority_of,
     title_points,
 )
-from zaya.career.service import (
+from gaia.career.service import (
     SearchResult,
     career_due,
     collect,
@@ -29,7 +29,7 @@ from zaya.career.service import (
     state_path,
     summary_line,
 )
-from zaya.career.sources import clean_html
+from gaia.career.sources import clean_html
 
 DAY = date(2026, 11, 9)  # segunda-feira
 
@@ -233,7 +233,7 @@ async def test_collect_filtra_deduplica_e_ordena(monkeypatch):
     async def fake_fetch_all(sources=()):
         return [existente, ruim, boa, boa], ["Jobicy: HTTPStatusError"]
 
-    monkeypatch.setattr("zaya.career.service.fetch_all", fake_fetch_all)
+    monkeypatch.setattr("gaia.career.service.fetch_all", fake_fetch_all)
     state = {"vagas": [{"empresa": "Stefanini", "cargo": "Analista de Suporte N1"}]}
 
     result = await collect(state)
@@ -251,7 +251,7 @@ async def test_collect_sem_novidade(monkeypatch):
     async def fake_fetch_all(sources=()):
         return [job()], []
 
-    monkeypatch.setattr("zaya.career.service.fetch_all", fake_fetch_all)
+    monkeypatch.setattr("gaia.career.service.fetch_all", fake_fetch_all)
 
     result = await collect({"vagas": []})
 
@@ -332,13 +332,13 @@ def test_pendentes_ignoram_o_que_ja_foi_entregue_e_o_que_nao_tem_score():
         ]
     }
 
-    pendentes = __import__("zaya.career.service", fromlist=["pending_jobs"]).pending_jobs(state)
+    pendentes = __import__("gaia.career.service", fromlist=["pending_jobs"]).pending_jobs(state)
 
     assert [item["id"] for item in pendentes] == ["vaga-003"]
 
 
 def test_mark_delivered_libera_o_reenvio_so_do_que_foi_enviado():
-    from zaya.career.service import mark_delivered
+    from gaia.career.service import mark_delivered
 
     state = _estado(score_job(job()), score_job(job(title="Outra", company="Acme")))
 
@@ -396,7 +396,7 @@ def test_presencial_no_exterior_continua_fora_mesmo_com_idioma():
 
 
 def test_casamento_de_cargo_e_por_palavra_inteira():
-    from zaya.career.score import title_points as tp
+    from gaia.career.score import title_points as tp
 
     # "rater" dentro de "berater" nao faz de um conselheiro de saude uma vaga.
     assert tp(job(title="Gesundheitsberater (w/m/d)")) == 0
@@ -409,14 +409,14 @@ def test_casamento_de_cargo_e_por_palavra_inteira():
 
 def test_job_line_mostra_remoto_sem_a_sede_da_empresa():
     vaga = score_job(job(location="Seattle, Washington", remote=True, location_kind="office"))
-    linha = __import__("zaya.career.service", fromlist=["job_line"]).job_line(1, vaga)
+    linha = __import__("gaia.career.service", fromlist=["job_line"]).job_line(1, vaga)
 
     assert "remoto" in linha
     assert "Seattle" not in linha
 
 
 def test_salario_anual_nao_e_lido_como_mensal():
-    from zaya.career.sources import _salary
+    from gaia.career.sources import _salary
 
     anual = _salary(80000, 90000, "USD", period="ano")
     mensal = _salary(2800, 3200, "BRL", period="monthly")

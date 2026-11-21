@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zaya.cli_parser import build_parser
+from gaia.cli_parser import build_parser
 
 
 def test_parser_ask_command():
@@ -28,17 +28,17 @@ def test_parser_top_level_flags():
 
 
 def test_textual_modules_expose_public_api():
-    from zaya.interface.textual_app import _HELP, TextualSink, ZayaTextualApp
-    from zaya.interface.textual_render import _welcome_art, card
-    from zaya.interface.textual_screens import CommandPalette, SessionPicker
+    from gaia.interface.textual_app import _HELP, GaiaTextualApp, TextualSink
+    from gaia.interface.textual_render import _welcome_art, card
+    from gaia.interface.textual_screens import CommandPalette, SessionPicker
 
-    assert ZayaTextualApp and TextualSink and _HELP
+    assert GaiaTextualApp and TextualSink and _HELP
     assert card and _welcome_art
     assert CommandPalette and SessionPicker
 
 
 def test_welcome_art_wordmark_cabe_na_largura():
-    from zaya.interface.textual_render import _welcome_art
+    from gaia.interface.textual_render import _welcome_art
 
     art = _welcome_art(78)
     assert art
@@ -66,8 +66,8 @@ def test_parser_serve_flags():
 
 
 def test_parser_remote_vale_antes_do_subcomando():
-    args = build_parser().parse_args(["--remote", "http://zaya:8787", "ask", "oi"])
-    assert args.remote == "http://zaya:8787"
+    args = build_parser().parse_args(["--remote", "http://gaia:8787", "ask", "oi"])
+    assert args.remote == "http://gaia:8787"
     assert args.command == "ask"
 
 
@@ -79,13 +79,13 @@ def test_remote_ask_fala_com_servidor_e_nao_com_o_motor_local(monkeypatch):
     """Regressão: `ask` vinha antes do ramo remoto e rodava tudo no Mac.
 
     O cliente fino não pode abrir banco nem indexar o Second Brain: o pedido
-    tem de ir por HTTP para o `zaya serve`.
+    tem de ir por HTTP para o `gaia serve`.
     """
     import sys
 
     import pytest
 
-    from zaya import cli
+    from gaia import cli
 
     visto: dict = {}
 
@@ -112,10 +112,10 @@ def test_remote_ask_fala_com_servidor_e_nao_com_o_motor_local(monkeypatch):
         cli, "_ask_command", lambda *a, **k: pytest.fail("rodou o motor local")
     )
     monkeypatch.setattr(
-        sys, "argv", ["zaya", "--remote", "http://zaya:8799", "ask", "oi"]
+        sys, "argv", ["gaia", "--remote", "http://gaia:8799", "ask", "oi"]
     )
 
     cli.main()
 
-    assert visto["base"] == "http://zaya:8799"
+    assert visto["base"] == "http://gaia:8799"
     assert visto["texto"] == "oi"

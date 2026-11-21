@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from zaya.agent.types import AssistantMessage
-from zaya.config import Config, SecondBrainConfig
-from zaya.memory.dream import (
+from gaia.agent.types import AssistantMessage
+from gaia.config import Config, SecondBrainConfig
+from gaia.memory.dream import (
     Dreamer,
     compose_dream_note,
     dream_recap,
@@ -17,9 +17,9 @@ from zaya.memory.dream import (
     in_dream_window,
     keywords,
 )
-from zaya.memory.store import MemoryStore
-from zaya.secondbrain.index import SecondBrainIndex
-from zaya.secondbrain.notes import Note, SecondBrain
+from gaia.memory.store import MemoryStore
+from gaia.secondbrain.index import SecondBrainIndex
+from gaia.secondbrain.notes import Note, SecondBrain
 
 
 class _FakeClient:
@@ -46,10 +46,10 @@ class _FakeClient:
 def sonho(tmp_path, isolated_env):
     cfg = Config.load(
         config_path=tmp_path / "missing.toml",
-        env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
     )
     cfg.memory.use_llm = False
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     sb_cfg = SecondBrainConfig(path=str(tmp_path / "brain"), default_folder="Inbox")
     index = SecondBrainIndex(sb_cfg, tmp_path / "sb.db")
     brain = SecondBrain(sb_cfg, index)
@@ -429,7 +429,7 @@ async def test_descartar_marca_o_dia_e_nao_sonha_de_novo(sonho):
 
 async def test_corrida_entre_processos_adota_a_nota_existente(sonho):
     """TUI e servico do Telegram podem sonhar o mesmo dia ao mesmo tempo."""
-    from zaya.secondbrain.notes import NoteConflict
+    from gaia.secondbrain.notes import NoteConflict
 
     cfg, store, brain, index, proj = sonho
     dia = date.today()
@@ -494,7 +494,7 @@ class _FakeEmbedder:
 
 
 def test_busca_semantica_encontra_sinonimo_que_a_lexical_perde(tmp_path):
-    from zaya.secondbrain.index import SecondBrainIndex
+    from gaia.secondbrain.index import SecondBrainIndex
 
     sb_cfg = SecondBrainConfig(path=str(tmp_path / "brain"))
     embedder = _FakeEmbedder()
@@ -516,7 +516,7 @@ def test_busca_semantica_encontra_sinonimo_que_a_lexical_perde(tmp_path):
 
 
 def test_index_sem_embedder_nao_cria_vetores(tmp_path):
-    from zaya.secondbrain.index import SecondBrainIndex
+    from gaia.secondbrain.index import SecondBrainIndex
 
     sb_cfg = SecondBrainConfig(path=str(tmp_path / "brain"))
     index = SecondBrainIndex(sb_cfg, tmp_path / "sb.db")
@@ -533,7 +533,7 @@ def test_index_sem_embedder_nao_cria_vetores(tmp_path):
 
 
 def test_backfill_embeda_chunks_antigos(tmp_path):
-    from zaya.secondbrain.index import SecondBrainIndex
+    from gaia.secondbrain.index import SecondBrainIndex
 
     sb_cfg = SecondBrainConfig(path=str(tmp_path / "brain"))
     raiz = tmp_path / "brain"
@@ -557,7 +557,7 @@ def test_backfill_embeda_chunks_antigos(tmp_path):
 
 
 def test_cosine_e_pack_unpack():
-    from zaya.secondbrain.embeddings import cosine, pack, unpack
+    from gaia.secondbrain.embeddings import cosine, pack, unpack
 
     vetor = [0.5, -0.25, 1.0]
     assert unpack(pack(vetor)) == vetor
@@ -568,7 +568,7 @@ def test_cosine_e_pack_unpack():
 
 
 def test_embedder_desligado_sem_modelo():
-    from zaya.secondbrain.embeddings import build_embedder
+    from gaia.secondbrain.embeddings import build_embedder
 
     assert build_embedder("").enabled is False
     assert build_embedder("  ").enabled is False
@@ -579,7 +579,7 @@ def test_embedder_desligado_sem_modelo():
 
 async def test_sonho_prefere_busca_semantica(sonho, tmp_path):
     """Com embedder, o sonho acha nota antiga por sentido, nao por palavra."""
-    from zaya.secondbrain.index import SecondBrainIndex
+    from gaia.secondbrain.index import SecondBrainIndex
 
     cfg, store, brain, _index, proj = sonho
     dia = date.today()
@@ -603,7 +603,7 @@ async def test_sonho_prefere_busca_semantica(sonho, tmp_path):
 
 def test_limiar_de_ressonancia_vem_da_config(tmp_path):
     """bge-m3 da ~0.45 entre frases sem relacao: 0.2 deixava tudo passar."""
-    from zaya.secondbrain.index import SecondBrainIndex
+    from gaia.secondbrain.index import SecondBrainIndex
 
     class _Raso(_FakeEmbedder):
         def embed(self, texts):
@@ -615,7 +615,7 @@ def test_limiar_de_ressonancia_vem_da_config(tmp_path):
 
     cfg = Config.load(
         config_path=tmp_path / "missing.toml",
-        env={"ZAYA_DATA_DIR": str(tmp_path / "data")},
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
     )
     assert cfg.secondbrain.embed_min_score == 0.35
 
@@ -640,7 +640,7 @@ async def test_sonho_ignora_notas_de_andaime(sonho):
     brain.create_note(
         "Boas-vindas",
         "Esta é a nota inicial do seu Second Brain de exemplo. Ideias "
-        "capturadas por voz pela Zaya aparecem aqui.",
+        "capturadas por voz pela Gaia aparecem aqui.",
         folder="Inbox",
         confirm=True,
     )

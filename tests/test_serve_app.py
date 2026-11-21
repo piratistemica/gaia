@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from zaya.interface.remote import RemoteUI
-from zaya.serve.app import MotorOcupado, OrchestratorTarget
+from gaia.interface.remote import RemoteUI
+from gaia.serve.app import MotorOcupado, OrchestratorTarget
 
 
 class FakeClient:
@@ -21,13 +21,29 @@ class FakeClient:
     async def abort(self, session_id: str) -> None:
         self.abortados.append(session_id)
 
+    async def list_models(self) -> list[str]:
+        return ["flash", "deepseek-v4-flash"]
+
 
 class FakeOrch:
     def __init__(self, *, falhar: bool = False, demorar: float = 0.0) -> None:
         self.cfg = type(
             "C",
             (),
-            {"agent": type("A", (), {"model_slug": lambda self: "deepseek/flash"})()},
+            {
+                "agent": type(
+                    "A",
+                    (),
+                    {
+                        "model_slug": lambda self: "deepseek/flash",
+                        "provider": "deepseek",
+                        "model": "flash",
+                        "base_url": "",
+                        "api_key": "",
+                        "model_copy": lambda self, update: self,
+                    },
+                )()
+            },
         )()
         self.session_id = "sess-1"
         self.channel = "serve"
@@ -52,6 +68,11 @@ class FakeOrch:
         if self.falhar:
             raise RuntimeError("provedor caiu")
         return f"resposta para {text}"
+
+    async def model_messages(self, argument: str) -> list[tuple[str, str]]:
+        self.trocas = getattr(self, "trocas", [])
+        self.trocas.append(argument)
+        return [("success", f"modelo da próxima mensagem: {argument}")]
 
     async def aclose(self) -> None:
         pass
@@ -93,6 +114,38 @@ def test_health_traz_modelo_sessao_e_busy(loop):
 def test_sessions_delega_para_o_orquestrador(loop):
     alvo = OrchestratorTarget(FakeOrch(), RemoteUI())
     assert alvo.sessions()[0]["channel"] == "serve"
+
+
+def test_models_lista_pelo_catalogo(loop):
+    alvo = OrchestratorTarget(FakeOrch(), RemoteUI())
+    alvo.attach_loop(loop)
+
+    modelos = alvo.models()
+
+    slugs = [item["slug"] for item in modelos]
+    assert "deepseek/flash" in slugs
+    assert modelos[0]["current"] is True
+
+
+def test_switch_model_devolve_as_mensagens(loop):
+    orch = FakeOrch()
+    alvo = OrchestratorTarget(orch, RemoteUI())
+    alvo.attach_loop(loop)
+
+    mensagens = alvo.switch_model("commandcode/deepseek/deepseek-v4-flash")
+
+    assert mensagens == [
+        "modelo da próxima mensagem: commandcode/deepseek/deepseek-v4-flash"
+    ]
+    assert orch.trocas == ["commandcode/deepseek/deepseek-v4-flash"]
+
+
+def test_switch_model_recusa_com_turno_em_andamento(loop):
+    alvo = OrchestratorTarget(FakeOrch(demorar=0.4), RemoteUI())
+    alvo.attach_loop(loop)
+    alvo.turn("primeiro")
+    with pytest.raises(MotorOcupado):
+        alvo.switch_model("deepseek/flash")
 
 
 def test_turn_roda_no_loop_e_emite_run_finished(loop):
@@ -164,8 +217,8 @@ def test_eventos_do_servidor_sao_json(loop):
 
 
 def test_resolver_de_host_porta_token_prioriza_a_cli():
-    from zaya.cli_serve import _resolver
-    from zaya.config import Config
+    from gaia.cli_serve import _resolver
+    from gaia.config import Config
 
     cfg = Config()
     args = type("Args", (), {"host": "100.66.45.57", "port": 9000, "token": "x"})()
@@ -214,13 +267,13 @@ def _porta_livre() -> int:
 def test_serve_command_sobe_http_e_encerra_limpo(monkeypatch):
     import http.client
 
-    from zaya.cli_serve import _serve_command
-    from zaya.config import Config
+    from gaia.cli_serve import _serve_command
+    from gaia.config import Config
 
     orch = FakeOrchServico()
     store, index = _Store(), _Index()
     monkeypatch.setattr(
-        "zaya.cli_serve._build_app", lambda *a, **k: (orch, store, index)
+        "gaia.cli_serve._build_app", lambda *a, **k: (orch, store, index)
     )
     porta = _porta_livre()
     cfg = Config()
@@ -264,12 +317,12 @@ def test_serve_command_sobe_http_e_encerra_limpo(monkeypatch):
 
 
 def test_serve_command_recusa_bind_na_rede_sem_token(monkeypatch):
-    from zaya.cli_serve import _serve_command
-    from zaya.config import Config
+    from gaia.cli_serve import _serve_command
+    from gaia.config import Config
 
     orch = FakeOrchServico()
     monkeypatch.setattr(
-        "zaya.cli_serve._build_app", lambda *a, **k: (orch, _Store(), _Index())
+        "gaia.cli_serve._build_app", lambda *a, **k: (orch, _Store(), _Index())
     )
     cfg = Config()
     cfg.serve.telegram = False

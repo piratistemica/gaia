@@ -9,22 +9,22 @@ from pathlib import Path
 
 import pytest
 
-import zaya.controller.orchestrator as orchestrator_module
-from zaya.controller.briefing import BriefingMixin
-from zaya.controller.career import CareerMixin
-from zaya.controller.commands import CommandsMixin
-from zaya.controller.contract import OrchestratorContract
-from zaya.controller.goals import GoalTracker
-from zaya.controller.initiative import InitiativeMixin
-from zaya.controller.memory import MemoryMixin
-from zaya.controller.orchestrator import Orchestrator
-from zaya.controller.registration import RegistrationMixin
-from zaya.controller.speech import SpeechMixin
-from zaya.controller.turns import TurnMixin
-from zaya.controller.voice import VoiceMixin
-from zaya.finance.watchlist import Watchlist
-from zaya.memory.store import MemoryStore
-from zaya.tasks.store import TaskStore
+import gaia.controller.orchestrator as orchestrator_module
+from gaia.controller.briefing import BriefingMixin
+from gaia.controller.career import CareerMixin
+from gaia.controller.commands import CommandsMixin
+from gaia.controller.contract import OrchestratorContract
+from gaia.controller.goals import GoalTracker
+from gaia.controller.initiative import InitiativeMixin
+from gaia.controller.memory import MemoryMixin
+from gaia.controller.orchestrator import Orchestrator
+from gaia.controller.registration import RegistrationMixin
+from gaia.controller.speech import SpeechMixin
+from gaia.controller.turns import TurnMixin
+from gaia.controller.voice import VoiceMixin
+from gaia.finance.watchlist import Watchlist
+from gaia.memory.store import MemoryStore
+from gaia.tasks.store import TaskStore
 
 
 class FakeUI:
@@ -144,21 +144,21 @@ class FakeTranscriber:
 
 @pytest.fixture
 def orch(tmp_path, cfg, monkeypatch):
-    monkeypatch.setenv("ZAYA_WATCHLIST_PATH", str(tmp_path / "watchlist.json"))
-    monkeypatch.setenv("ZAYA_GOALS_FILE", str(tmp_path / "goals.json"))
+    monkeypatch.setenv("GAIA_WATCHLIST_PATH", str(tmp_path / "watchlist.json"))
+    monkeypatch.setenv("GAIA_GOALS_FILE", str(tmp_path / "goals.json"))
     cfg.focus.path = str(tmp_path / "focus.json")
     monkeypatch.setattr(
         orchestrator_module, "TaskStore", lambda: TaskStore(tmp_path / "tasks.json")
     )
 
-    store = MemoryStore(tmp_path / "zaya.db")
+    store = MemoryStore(tmp_path / "gaia.db")
     brain = FakeBrain(tmp_path / "brain")
     ui = FakeUI()
     tts = FakeTTS()
     client = FakeClient()
     instance = Orchestrator(
         cfg=cfg,
-        logger=logging.getLogger("test.zaya"),
+        logger=logging.getLogger("test.gaia"),
         ui=ui,
         store=store,
         index=FakeIndex(),
@@ -259,7 +259,7 @@ async def test_prompt_dinamico_vai_na_mensagem_nao_no_system(orch, monkeypatch):
     assert "[Agora:" not in captured["system"]
     assert "[Agora:" in captured["text"]
     assert captured["history_text"] == "qual a capital da França?"
-    assert "Diretriz da Zaya" in captured["system"]
+    assert "Diretriz da Gaia" in captured["system"]
 
 
 @pytest.mark.asyncio
@@ -605,7 +605,7 @@ async def test_sessao_ausente_reinjeta_o_historico_local(orch):
     assert conversa["agent_session_id"] != "ses_sumiu"
     contexto = orch._take_resume_context()
     assert "Talita: quero vaga de suporte" in contexto
-    assert "Zaya: vamos revisar seu curriculo" in contexto
+    assert "Gaia: vamos revisar seu curriculo" in contexto
     assert orch._take_resume_context() == ""
 
 
@@ -724,8 +724,8 @@ async def test_briefing_do_meio_dia_mostra_pendentes(orch):
 
 @pytest.mark.asyncio
 async def test_career_envia_uma_vez_por_dia_e_grava_o_estado(orch, monkeypatch):
-    from zaya.career.models import Job
-    from zaya.career.service import load_state
+    from gaia.career.models import Job
+    from gaia.career.service import load_state
 
     jobs = [
         Job(
@@ -744,7 +744,7 @@ async def test_career_envia_uma_vez_por_dia_e_grava_o_estado(orch, monkeypatch):
     async def fake_fetch_all(sources=()):
         return jobs, []
 
-    monkeypatch.setattr("zaya.career.service.fetch_all", fake_fetch_all)
+    monkeypatch.setattr("gaia.career.service.fetch_all", fake_fetch_all)
     orch.telegram = FakeTelegram()
     dia = datetime.now().astimezone().date()
 
@@ -764,8 +764,8 @@ async def test_career_envia_uma_vez_por_dia_e_grava_o_estado(orch, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_career_deduplica_na_segunda_rodada(orch, monkeypatch):
-    from zaya.career.models import Job
-    from zaya.career.service import load_state
+    from gaia.career.models import Job
+    from gaia.career.service import load_state
 
     jobs = [
         Job(
@@ -781,7 +781,7 @@ async def test_career_deduplica_na_segunda_rodada(orch, monkeypatch):
     async def fake_fetch_all(sources=()):
         return jobs, []
 
-    monkeypatch.setattr("zaya.career.service.fetch_all", fake_fetch_all)
+    monkeypatch.setattr("gaia.career.service.fetch_all", fake_fetch_all)
     orch.telegram = FakeTelegram()
     dia = datetime.now().astimezone().date()
 
@@ -827,8 +827,8 @@ async def test_start_career_liga_a_rotina_sem_bootstrap(orch):
 
 @pytest.mark.asyncio
 async def test_career_reenvia_o_que_o_telegram_nao_entregou(orch, monkeypatch):
-    from zaya.career.models import Job
-    from zaya.career.service import load_state, pending_jobs
+    from gaia.career.models import Job
+    from gaia.career.service import load_state, pending_jobs
 
     jobs = [
         Job(
@@ -844,7 +844,7 @@ async def test_career_reenvia_o_que_o_telegram_nao_entregou(orch, monkeypatch):
     async def fake_fetch_all(sources=()):
         return jobs, []
 
-    monkeypatch.setattr("zaya.career.service.fetch_all", fake_fetch_all)
+    monkeypatch.setattr("gaia.career.service.fetch_all", fake_fetch_all)
     orch.telegram = FalhaUmaVezTelegram()
     dia = datetime.now().astimezone().date()
 
@@ -870,7 +870,7 @@ async def test_career_reenvia_o_que_o_telegram_nao_entregou(orch, monkeypatch):
 def test_career_due_respeita_config(orch):
     from datetime import date as _date
 
-    from zaya.career.service import career_due
+    from gaia.career.service import career_due
 
     cfg = orch.cfg.career
     dia = _date(2026, 11, 9)  # segunda
@@ -942,7 +942,7 @@ async def test_fecho_da_noite_sem_insight_quando_o_modelo_falha(orch):
 
 # ------------------------------------------------------------------- modelos
 def _catalogo(*slugs: str, current: str = "deepseek/deepseek-flash"):
-    from zaya.agent.catalog import ModelCatalog, ModelOption
+    from gaia.agent.catalog import ModelCatalog, ModelOption
 
     options = []
     for index, slug in enumerate(slugs):
@@ -955,7 +955,7 @@ def _catalogo(*slugs: str, current: str = "deepseek/deepseek-flash"):
 
 @pytest.mark.asyncio
 async def test_modelo_sem_argumento_lista_numerada(orch, monkeypatch):
-    import zaya.agent.catalog as catalog_module
+    import gaia.agent.catalog as catalog_module
 
     async def fake(cfg, *, client=None, timeout=6.0):
         return _catalogo("deepseek/deepseek-flash", "deepseek/deepseek-chat")
@@ -972,7 +972,7 @@ async def test_modelo_sem_argumento_lista_numerada(orch, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_comando_modelo_imprime_a_lista_no_terminal(orch, monkeypatch):
-    import zaya.agent.catalog as catalog_module
+    import gaia.agent.catalog as catalog_module
 
     async def fake(cfg, *, client=None, timeout=6.0):
         return _catalogo("deepseek/deepseek-flash")
@@ -987,7 +987,7 @@ async def test_comando_modelo_imprime_a_lista_no_terminal(orch, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_modelo_por_numero_troca_e_persiste(orch, monkeypatch, tmp_path):
-    import zaya.agent.catalog as catalog_module
+    import gaia.agent.catalog as catalog_module
 
     async def fake(cfg, *, client=None, timeout=6.0):
         return _catalogo("deepseek/deepseek-flash", "openai/gpt-5")
@@ -1007,7 +1007,7 @@ async def test_modelo_por_numero_troca_e_persiste(orch, monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_modelo_por_numero_fora_da_lista_avisa(orch, monkeypatch):
-    import zaya.agent.catalog as catalog_module
+    import gaia.agent.catalog as catalog_module
 
     async def fake(cfg, *, client=None, timeout=6.0):
         return _catalogo("deepseek/deepseek-flash")
@@ -1023,7 +1023,7 @@ async def test_modelo_por_numero_fora_da_lista_avisa(orch, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_modelo_por_slug_troca_sem_consultar_catalogo(orch, monkeypatch, tmp_path):
-    import zaya.agent.catalog as catalog_module
+    import gaia.agent.catalog as catalog_module
 
     def explode(*args, **kwargs):  # pragma: no cover - so falha se for chamado
         raise AssertionError("slug explícito não deve listar provedores")
@@ -1041,7 +1041,7 @@ async def test_modelo_por_slug_troca_sem_consultar_catalogo(orch, monkeypatch, t
 
 @pytest.mark.asyncio
 async def test_modelo_sem_barra_resolve_provedor_pela_lista(orch, monkeypatch):
-    import zaya.agent.catalog as catalog_module
+    import gaia.agent.catalog as catalog_module
 
     async def fake(cfg, *, client=None, timeout=6.0):
         return _catalogo("deepseek/deepseek-flash", "openai/gpt-5")
@@ -1056,7 +1056,7 @@ async def test_modelo_sem_barra_resolve_provedor_pela_lista(orch, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_modelo_id_desconhecido_cai_no_provedor_atual(orch, monkeypatch):
-    import zaya.agent.catalog as catalog_module
+    import gaia.agent.catalog as catalog_module
 
     async def fake(cfg, *, client=None, timeout=6.0):
         return _catalogo("deepseek/deepseek-flash")

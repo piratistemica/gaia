@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from zaya.client.remote_client import RemoteClient, RemoteError
-from zaya.interface.remote import RemoteUI
-from zaya.serve.server import ServeServer
+from gaia.client.remote_client import RemoteClient, RemoteError
+from gaia.interface.remote import RemoteUI
+from gaia.serve.server import ServeServer
 
 
 class FakeTarget:
