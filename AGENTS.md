@@ -63,7 +63,8 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/interface/terminal.py` | UI Rich; `textual_app.py` | TUI |
 | `gaia/interface/remote.py` | `RemoteUI`: serializa eventos para o serve (fan-out + histórico) |
 | `gaia/serve/server.py` | HTTP + SSE + `/control`; `app.py` | ponte `OrchestratorTarget`; `control_api.py` | rotas do painel; `web.py`/`static/` | web |
-| `gaia/control/` | Control Center: `runs` (histórico), `skills`, `automations`, `health`, `secrets`, `settings`, `providers`, `center` |
+| `gaia/control/` | Control Center: `runs` (histórico), `skills`, `automations` (agenda + seed/load/retry), `health`, `secrets`, `settings`, `providers`, `center` |
+| `gaia/controller/scheduler.py` | agendador único: lê `automations`, calcula `due()`, chama o handler da skill, faz retry e notifica falha |
 | `gaia/client/remote_client.py` | cliente `gaia --remote` |
 | `gaia/telegram/`, `whatsapp/`, `browser/` | canais e integrações |
 | `gaia/audiobook/` | PDF/texto → MP3: `extract.py` (PDF sem dependência), `normalize.py` (limpeza + capítulos), `jobs.py` (narração, ID3/CHAP), `service.py` (lote inbox→outbox) |
@@ -130,10 +131,13 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 - **Nova skill no Control Center:** adicione um `Skill(...)` em
   `gaia/control/skills.py` (id, kind, `requires`, `provides`, `schedule_hint`,
   `module`). O painel nao muda: ele le o registry. Se a skill tiver horario,
-  descreva a janela em `gaia/control/automations.py::describe`. Se ela executar
-  de verdade, envolva o corpo com `record_run(...)` **depois** do gate de
-  horario — iniciar nao e sucesso. Testes: `tests/test_control_skills.py`,
-  `tests/test_control_automations.py`, `tests/test_runs_instrumentation.py`.
+  descreva a janela em `gaia/control/automations.py::describe` (vira semente da
+  tabela `automations`) e registre o handler em
+  `gaia/controller/scheduler.py::_AUTOMATION_METHODS`. Se ela executar de
+  verdade, envolva o corpo com `record_run(...)` **depois** do gate de horario
+  — iniciar nao e sucesso. Testes: `tests/test_control_skills.py`,
+  `tests/test_control_automations.py`, `tests/test_runs_instrumentation.py`,
+  `tests/test_scheduler.py`.
 - **Nova rota do painel:** adicione no `get`/`post` de
   `gaia/serve/control_api.py` e o metodo correspondente em
   `gaia/control/center.py`. Toda rota `/control/api/*` exige
@@ -197,13 +201,18 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 - `docs/prompt-correcoes.md` é uma **spec ativa ainda não aplicada**: lembretes
   perdidos, `always` por sessão e truncamento do bash mantendo o fim.
 - Control Center: Fases A e B implementadas (`gaia/control/`, `/control`).
-  Fases C/D/E (**não** implementadas) em
-  `docs/plans/2026-11-22-control-center-fases-cde.md`, com prompt de retomada
-  pronto em `docs/plans/2026-11-22-control-center-continuar.md`: scheduler
-  governavel (pausar/executar), retry com backoff, notificacao de falha no
-  Telegram e niveis de autonomia. O painel hoje **observa**; nao **governa**.
-  Divida conhecida: `gaia/control/automations.py` descreve a agenda em
-  paralelo aos gates dos workers — a Fase C elimina os gates.
+  Fase C **em andamento**: schema v7 (`automations`), agendador unico
+  (`gaia/controller/scheduler.py`) substituindo os gates por rotina, retry
+  com backoff so em `network`/`unknown` e notificacao de falha no Telegram
+  (uma por falha). A divida da duplicacao de agenda foi paga: a tabela
+  `automations` e a fonte de verdade e os workers nao decidem mais a hora.
+  Faltam em C: rotas `PATCH/run/pause/resume/runs` do painel, CRUD de skills
+  e botoes na UI. Fases D/E (`[proactivity] autonomy`, sugestao de automacao,
+  retencao de 90 dias, export de diagnostico, integracao ponta a ponta) ainda
+  **nao** implementadas: `docs/plans/2026-11-22-control-center-fases-cde.md`
+  tem a tabela de status item por item — mantenha-a atualizada.
+  A correcao de proatividade no `serve` (`owns_telegram`, `_speak` mudo em
+  `serve`) esta aplicada (commit `12f15b1`).
 - Segurança pendente: sandbox/env do `bash`, lock no `POST /turn`, aprovação
   remota vs. callback do Telegram, redação de `serve.token`, timeout de
   permissão.

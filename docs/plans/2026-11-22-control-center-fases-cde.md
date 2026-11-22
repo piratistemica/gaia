@@ -1,8 +1,37 @@
 # Agent Control Center — Fases C, D e E (prompt para retomar depois)
 
-> **Status: não implementado.** Documento de retomada. O design completo está em
-> `2026-11-22-agent-control-center-design.md`; as Fases A e B saem na mesma
-> sessão. Leia o design antes deste arquivo.
+> **Status: em execução (fase C parcial).** Documento de retomada. O design
+> completo está em `2026-11-22-agent-control-center-design.md`; as Fases A e B
+> saíram na sessão anterior. Leia o design antes deste arquivo. O estado
+> verificado de cada item está na seção seguinte, no fim do arquivo.
+
+## Estado da execução (verificado no código)
+
+Atualize esta tabela **na mesma mudança** em que o item sair; ela é a única
+lista de status deste plano.
+
+| Item | Status | Onde / observação |
+|---|---|---|
+| C.1 tabela `automations` (schema v7) | **feito** (`39142d0`) | `MemoryStore` (`upsert_automation`, `update_automation`, `list_automations`, `get_automation`) + `control/automations.seed/load/update` |
+| C.2 endpoints das automações | pendente | `GET /automations` já existe (fase A); faltam `PATCH {id}`, `run`, `pause`, `resume`, `runs` |
+| C.3 scheduler único | **feito** (`2ccbe99`) | `gaia/controller/scheduler.py` (`_scheduler_loop`, `_scheduler_tick`, `run_automation_now`); gates de hora removidos de briefing/career/memory. `claim_meta` preservado como segunda barreira |
+| C.4 missed + retry | **feito** (`2ccbe99`) | `retry_allowed`/`backoff_seconds`; só `network`/`unknown`; `auth`/`config` não repetem |
+| C.5 CRUD de skills no painel | pendente | ativar/desativar grava no TOML via `control/settings.update`; `dry_run` não existe nos handlers |
+| C.6 notificação de falha (D8) | **feito** (`2ccbe99`) | `_notify_automation_failure` com `claim_meta("automation_failed:<id>:<dia>")`, uma por falha |
+| C.7 (report) | — | a numeração do prompt de retomada difere deste arquivo: aqui C.2 são os endpoints e C.5/C.6 são skills/notificação |
+| D.1 `[proactivity] autonomy` | pendente | modelo, `_ENV_MAP`, `_DEFAULT_CONFIG_TEMPLATE`, `.env.example` |
+| D.2 roteamento observe/inform/act | pendente | hoje `_say_proactive` sempre fala |
+| D.3 proatividade no `serve` | **feito** (`12f15b1`) | `owns_telegram` + `_speak` não toca áudio em `serve`; testes do plano de proatividade aplicados |
+| D.4 sugestão de automação | pendente | nunca cria sozinho |
+| E.1 retenção de runs | pendente | `prune_runs` já existe; falta o job diário |
+| E.2 export de diagnóstico | pendente | rota do Error Center |
+| E.3 integração ponta a ponta | pendente | porta efêmera, token, run manual, falha, retry, notificação |
+| E.4 README/AGENTS/.env.example | pendente | atualizar na mesma mudança dos itens acima |
+| E.5 `docs/README.md` | pendente | move este plano para "implementado" no fim |
+
+**Divergência conhecida entre este arquivo e o prompt de retomada:** o prompt
+lista os endpoints como "C.4"; este arquivo os chama de C.2. O código segue os
+nomes das rotas, não a numeração. Ao concluir a fase, unifique.
 
 ## Como usar este documento
 

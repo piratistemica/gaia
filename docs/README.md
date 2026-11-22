@@ -26,11 +26,11 @@ estado atual. O status abaixo foi verificado no código.
 | [`plans/2026-11-16-gmin-admin.md`](plans/2026-11-16-gmin-admin.md) | parcial: `gmin.sh` tem doctor/logs/restart/deploy/test/agenda/ask/shell/sudo/serve; backup/restore/audit/fix não existem |
 | [`plans/2026-11-19-serve-cliente-fino.md`](plans/2026-11-19-serve-cliente-fino.md) | fases 1 e 2 implementadas (`gaia serve`, `--remote`, web); partes 2/3 são backlog |
 | [`plans/2026-11-20-handoff.md`](plans/2026-11-20-handoff.md) | diário de sessão; leia o "Estado operacional", mas confirme no ambiente |
-| [`plans/2026-11-22-proatividade-e-ambiente.md`](plans/2026-11-22-proatividade-e-ambiente.md) | **plano ativo, não aplicado**: no `serve` a proatividade vai para o TTS local em vez do Telegram; `~/.zshrc` aponta para config sem `.env` |
+| [`plans/2026-11-22-proatividade-e-ambiente.md`](plans/2026-11-22-proatividade-e-ambiente.md) | **fase 0 aplicada** (`owns_telegram`, `_speak` mudo em `serve`); o resto (deploy no mini, `.zshrc`) é operacional e não está aplicado |
 | [`plans/2026-11-22-mac-cliente-fino.md`](plans/2026-11-22-mac-cliente-fino.md) | **plano ativo, não aplicado**: o que falta para o Mac virar cliente fino (TUI remota, `ui.confirm`, 12 eventos não desenhados, voz, trava de escrita). Inclui o dano da sobrescrita silenciosa do Second Brain |
 | [`plans/2026-11-22-agent-control-center-design.md`](plans/2026-11-22-agent-control-center-design.md) | implementado (fases A e B): Control Center em `/control`, `gaia/control/`, schema v6 (`runs`) |
 | [`plans/2026-11-22-control-center-ab.md`](plans/2026-11-22-control-center-ab.md) | implementado: plano tarefa por tarefa das fases A e B (histórico de execução da tarefa) |
-| [`plans/2026-11-22-control-center-fases-cde.md`](plans/2026-11-22-control-center-fases-cde.md) | **backlog, não aplicado**: Fases C/D/E (scheduler governável, autonomia, retry, notificação de falha) com prompt de retomada |
+| [`plans/2026-11-22-control-center-fases-cde.md`](plans/2026-11-22-control-center-fases-cde.md) | **em execução**: fase C parcial (schema v7, scheduler único, retry, notificação). Tabela de status item por item dentro do arquivo; D/E são backlog |
 | [`plans/2026-11-22-control-center-continuar.md`](plans/2026-11-22-control-center-continuar.md) | **prompt de retomada** das fases C/D/E, com o estado verificado das fases A/B (commit, rotas, testes) |
 
 ## Specs e análises

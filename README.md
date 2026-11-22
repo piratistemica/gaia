@@ -186,7 +186,7 @@ administra credenciais.
 | **Overview** | modelo ativo, saúde dos componentes, automações e últimas execuções |
 | **Models & Providers** | presets com estado da credencial (mascarada), teste de conexão real (401/402/timeout), troca de modelo |
 | **Skills** | catálogo derivado do núcleo: status, quando roda, última execução, módulo |
-| **Automations** | agenda declarada com `next_run` e o estado real de cada rotina |
+| **Automations** | agenda governada (tabela `automations`): `next_run`, estado real, retry configurado e última execução |
 | **Activity** | histórico de execuções (`runs`) filtrável por skill e status |
 | **Error Center** | falhas com tipo de erro, tentativa e detalhes técnicos |
 | **System Settings** | config efetiva com **origem** (`toml`/`.env`/default); campo travado quando o `.env` vence, com botão para remover o override |
@@ -196,9 +196,26 @@ com `.bak` ao lado e releitura de conferência: se a gravação não bater, o
 backup é restaurado e a tela mostra o erro. Segredos ficam no `.env`
 (`chmod 600`, backup `.env.bak`) e só aparecem mascarados (`sk-…1234`).
 
-O que ainda **não** existe (Fases C/D/E em `docs/plans/`): pausar/executar uma
-automação pelo painel, retry automático com backoff, notificação de falha no
-Telegram e níveis de autonomia da proatividade.
+O agendador é **único** e vive no `gaia serve` (mesmo processo que é dono do
+banco): a cada ciclo ele lê a tabela `automations`, calcula se a rotina está
+devida e chama o handler da skill. Não há cron do sistema nem APScheduler.
+Cada rotina mantém a reserva `claim_meta` como segunda barreira — o painel é a
+primeira, o banco continua impedindo entrega dupla se algo escapar.
+
+- **Retry:** falha de rede/desconhecido é tentada de novo com backoff
+  exponencial até `retry_max` (padrão 2). `auth` e `config` **não** repetem: o
+  problema é humano e insistir esconde o erro.
+- **Notificação:** falha de automação com `delivery=telegram` manda uma
+  mensagem curta no chat — uma por falha, não por tentativa. Falha local
+  (memória, sonho) vai só para o Error Center.
+- **Proatividade no `serve`:** o processo que é dono do poller entrega no chat;
+  o TTS local não toca numa máquina headless.
+
+O que ainda **não** existe: pausar/executar uma automação pela tela (as rotas
+`PATCH/run/pause/resume` são a próxima parte da fase C), CRUD de skills no
+painel, níveis de autonomia da proatividade (`observe`/`inform`/`act`), retenção
+de execuções e exportação de diagnóstico. O estado item por item está em
+`docs/plans/2026-11-22-control-center-fases-cde.md`.
 
 **Voz:** `F` fala uma vez, `V` alterna a voz, `C` liga a escuta contínua
 (microfone aberto: fala → executa → responde → volta a ouvir), `M` silencia.
