@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from gaia.config import Config
 from gaia.control import automations as automations_mod
@@ -221,24 +221,29 @@ class ControlCenter:
         return secrets_mod.remove_secret(self.env_path, key)
 
     # ------------------------------------------------------------------ interno
+    # Rotulo do painel -> atributo do motor que precisa estar vivo. Briefing e
+    # vagas nao tem mais tarefa propria desde a fase C: quem dispara as duas e
+    # o ``_scheduler_task``. Vigiar ``_briefing_task``/``_career_task`` (que
+    # nunca mais sao criadas) acusava "worker parado" num motor saudavel.
+    _TAREFAS: ClassVar[dict[str, str]] = {
+        "iniciativa": "_proactive_task",
+        "memoria": "_memory_task",
+        "briefing": "_scheduler_task",
+        "vagas": "_scheduler_task",
+    }
+
     def _tasks(self) -> dict[str, bool]:
         """Workers do motor vivos? Falso = automacao nao vai rodar."""
         if self.orch is None:
             return {}
-        mapa = {
-            "iniciativa": "_proactive_task",
-            "memoria": "_memory_task",
-            "briefing": "_briefing_task",
-            "vagas": "_career_task",
-        }
         estado: dict[str, bool] = {}
-        for rotulo, atributo in mapa.items():
-            tarefa = getattr(self.orch, atributo, None)
-            if tarefa is None:
+        for rotulo, atributo in self._TAREFAS.items():
+            if not self._worker_esperado(rotulo):
                 # Worker desligado pela config nao e worker morto.
-                estado[rotulo] = not self._worker_esperado(rotulo)
+                estado[rotulo] = True
                 continue
-            estado[rotulo] = not tarefa.done()
+            tarefa = getattr(self.orch, atributo, None)
+            estado[rotulo] = tarefa is not None and not tarefa.done()
         return estado
 
     def _worker_esperado(self, rotulo: str) -> bool:
