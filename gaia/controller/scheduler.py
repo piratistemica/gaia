@@ -118,6 +118,9 @@ class SchedulerMixin(OrchestratorContract):
             chave = item.claim_key(now)
             if chave:
                 self.store.delete_meta(chave)
+        # O resultado tem de ser o run DESTA execucao: ``last_run`` sozinho
+        # confunde uma falha de hoje com o sucesso de ontem (e vice-versa).
+        anterior = self._automation_result(item).get("id")
         try:
             ok = bool(
                 await handler(item, now, trigger=trigger, attempt=attempt)
@@ -132,6 +135,15 @@ class SchedulerMixin(OrchestratorContract):
             ok = False
 
         resultado = self._automation_result(item)
+        if not resultado or resultado.get("id") == anterior:
+            # Nada executou: a skill esta desligada na config (ex.: Telegram
+            # off) ou nao havia o que fazer. Nao e falha, nao gera retry nem
+            # aviso — o run e a prova de execucao real.
+            self._retry_plan.pop(item.id, None)
+            # Devolve a janela: se a config for ligada durante o dia (ex.:
+            # Telegram subiu depois do horario), o proximo tick ainda tenta.
+            automations_mod.release(item, self.store, now)
+            return ok
         if ok or str(resultado.get("status")) == "completed":
             self._retry_plan.pop(item.id, None)
             return ok

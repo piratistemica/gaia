@@ -356,3 +356,32 @@ async def test_delivery_local_nao_manda_mensagem(orch):
         final=True,
     )
     assert orch.telegram.enviados == []
+
+
+class _SemRun(FakeOrchestrator):
+    """Handler que nao executa nada (skill desligada na config)."""
+
+    async def _automation_career(self, item, now, *, trigger="schedule", attempt=1):
+        self.chamadas.append((item.id, trigger, attempt))
+        return False
+
+
+async def test_sem_run_nao_e_falha_nem_retry(orch, cfg, store):
+    """Skill desligada na config: nada executou, nada registrado, nada avisado.
+
+    Regressao real: o agendador olhava o ``last_run`` (de outro dia) e tratava
+    "nao executou" como falha ``unknown``, armando retry e mensagem no chat.
+    """
+    seed(cfg, store)
+    antes = store.begin_run(kind="career", automation="career:weekly")
+    store.finish_run(antes, status="completed", detail="de ontem")
+    sem_run = _SemRun(cfg, store, FakeTelegram())
+
+    await sem_run._scheduler_tick(SEGUNDA)
+
+    assert ("career:weekly", "schedule", 1) in sem_run.chamadas
+    assert sem_run._retry_plan == {}
+    assert sem_run.telegram.enviados == []
+    # A janela foi devolvida: o proximo tick ainda pode executar de verdade.
+    item = automations_mod.find_loaded(cfg, store, "career:weekly")
+    assert store.get_meta(item.window_key(SEGUNDA)) is None
