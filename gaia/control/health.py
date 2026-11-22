@@ -229,14 +229,17 @@ def telegram_health(cfg: Config, last_error: str = "") -> dict[str, Any]:
 
 
 def scheduler_health(
-    cfg: Config, store: MemoryStore | None, tasks: dict[str, bool] | None = None
+    cfg: Config,
+    store: MemoryStore | None,
+    tasks: dict[str, bool] | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Workers vivos + automacoes perdidas (o alerta mais importante)."""
     from gaia.control.automations import describe_automations
 
     tasks = tasks or {}
     mortos = [nome for nome, vivo in tasks.items() if not vivo]
-    itens = describe_automations(cfg, store)
+    itens = describe_automations(cfg, store, now)
     perdidas = [item["id"] for item in itens if item["status"] == "missed"]
     falhas = [
         item["id"]
@@ -318,6 +321,7 @@ def system_health(
     tasks: dict[str, bool] | None = None,
     env: dict[str, str] | None = None,
     telegram_error: str = "",
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Todos os componentes, na ordem em que a tela mostra."""
     if index is None:
@@ -328,7 +332,7 @@ def system_health(
         second_brain_health(cfg, index),
         providers_health(cfg, providers),
         telegram_health(cfg, telegram_error),
-        scheduler_health(cfg, store, tasks),
+        scheduler_health(cfg, store, tasks, now),
         config_health(cfg, env),
     ]
 

@@ -161,23 +161,25 @@ def test_scheduler_worker_parado(cfg, store):
     assert "career" in item["detail"]
 
 
+def _segunda(hora=12, minuto=0):
+    from datetime import datetime
+
+    return datetime(2026, 11, 23, hora, minuto).astimezone()
+
+
 def test_scheduler_aponta_automacao_perdida(cfg, store):
     cfg.career.days = [0]
     cfg.career.at = "08:00"
     cfg.career.until = "09:00"
-    from datetime import datetime
-
-    agora = datetime.now().astimezone()
-    if agora.weekday() != 0 or agora.strftime("%H:%M") < "09:30":
-        pytest.skip("teste depende da janela de segunda-feira")
-    item = scheduler_health(cfg, store, {})
-    assert item["status"] in {"ok", "warn"}
-    assert "career:weekly" in item["detail"] or item["status"] == "ok"
+    item = scheduler_health(cfg, store, {}, now=_segunda(12))
+    assert item["status"] == "warn"
+    assert "career:weekly" in item["detail"]
 
 
 def test_scheduler_ok_com_workers_vivos(cfg, store):
-    item = scheduler_health(cfg, store, {"career": True, "briefing": True})
-    assert item["status"] in {"ok", "warn"}
+    # Segunda 08:30: tudo dentro da janela ou ainda por vir.
+    item = scheduler_health(cfg, store, {"career": True, "briefing": True}, now=_segunda(8, 30))
+    assert item["status"] == "ok"
     assert "automacao" in item["detail"]
 
 

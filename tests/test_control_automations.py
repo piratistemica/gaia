@@ -218,3 +218,33 @@ def test_needs_attention_pega_missed_e_falha(cfg, store):
     itens = describe_automations(cfg, store, depois)
     ids = {item["id"] for item in needs_attention(itens)}
     assert "career:weekly" in ids
+
+
+def test_done_key_da_memoria_usa_a_chave_real(cfg):
+    """A rotina grava memory_consolidated:; o painel precisa olhar essa chave."""
+    item = _item(cfg, "memory:daily")
+    assert item.claim_key(SEGUNDA) == "memory:2026-11-23"
+    assert item.done_key(SEGUNDA) == "memory_consolidated:2026-11-23"
+    sonho = _item(cfg, "memory:dream")
+    assert sonho.done_key(SEGUNDA) == "memory_dreamed:2026-11-23"
+
+
+def test_done_key_vazia_quando_a_claim_ja_e_a_conclusao(cfg):
+    assert _item(cfg, "career:weekly").done_key(SEGUNDA) == ""
+    assert _item(cfg, "briefing:morning").done_key(SEGUNDA) == ""
+
+
+def test_nao_e_missed_quando_a_chave_de_conclusao_existe(cfg, store):
+    """Memory ja consolidada hoje (chave real), sem run: nao e 'perdida'."""
+    cfg.memory.at = "23:00"
+    store.set_meta("memory_consolidated:2026-11-23", "/SecondBrain/Memoria/x.md")
+    item = _item(cfg, "memory:daily")
+    depois = datetime(2026, 11, 24, 6, 0).astimezone()
+    assert status(item, cfg, store, depois) != "missed"
+
+
+def test_sonho_com_memoria_dreamed_gravada_nao_e_missed(cfg, store):
+    store.set_meta("memory_dreamed:2026-11-23", "/SecondBrain/Sonhos/x.md")
+    item = _item(cfg, "memory:dream")
+    depois = datetime(2026, 11, 23, 12, 0).astimezone()
+    assert status(item, cfg, store, depois) != "missed"

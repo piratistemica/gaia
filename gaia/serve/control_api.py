@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import parse_qs
 
 logger = logging.getLogger("gaia.control.api")
 
@@ -237,12 +236,4 @@ def _aguardar(handler: Any, resultado: Any) -> Any:
     return esperar(resultado)
 
 
-def query(path: str) -> tuple[str, dict[str, list[str]]]:
-    """Separa rota e query string (usado pelo handler)."""
-    from urllib.parse import urlparse
-
-    url = urlparse(path)
-    return url.path.rstrip("/") or "/", parse_qs(url.query)
-
-
-__all__ = ["delete", "get", "post", "query"]
+__all__ = ["delete", "get", "post"]

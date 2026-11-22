@@ -40,8 +40,12 @@ class Automation:
     at: str  # HH:MM
     until: str  # HH:MM
     delivery: str  # telegram | local
-    # Prefixo da chave de reserva diaria em ``meta`` (ex.: "career:").
+    # Prefixo da chave de reserva diaria em ``meta`` (ex.: "career:{day}").
     claim_prefix: str = ""
+    # Chave de ``meta`` que a rotina real grava ao terminar (quando difere do
+    # prefixo, ex.: "memory_consolidated:{day}"). O painel precisa das duas:
+    # uma e a reserva antes de executar, a outra e a conclusao.
+    done_prefix: str = ""
     # Slot extra para rotinas com mais de uma janela por dia (briefing).
     slot: str = ""
     enabled_path: str = ""
@@ -51,9 +55,16 @@ class Automation:
 
     def claim_key(self, day: datetime) -> str:
         """Chave de ``claim_meta`` equivalente a usada pela rotina real."""
-        if not self.claim_prefix:
+        return self._key(self.claim_prefix, day)
+
+    def done_key(self, day: datetime) -> str:
+        """Chave que a rotina grava ao concluir (vazia = a propia claim)."""
+        return self._key(self.done_prefix, day) if self.done_prefix else ""
+
+    def _key(self, prefixo: str, day: datetime) -> str:
+        if not prefixo:
             return ""
-        base = self.claim_prefix.format(day=day.date().isoformat())
+        base = prefixo.format(day=day.date().isoformat())
         return f"{base}:{self.slot}" if self.slot else base
 
     def matches_day(self, when: datetime) -> bool:
@@ -156,6 +167,7 @@ def describe(cfg: Config) -> list[Automation]:
             until="23:59",
             delivery="local",
             claim_prefix="memory:{day}",
+            done_prefix="memory_consolidated:{day}",
             enabled_path="memory.enabled",
         ),
         Automation(
@@ -167,6 +179,7 @@ def describe(cfg: Config) -> list[Automation]:
             until=memory.dream_until,
             delivery="local",
             claim_prefix="dream:{day}",
+            done_prefix="memory_dreamed:{day}",
             enabled_path="memory.dream_enabled",
             opportunistic=True,
         ),
@@ -261,6 +274,9 @@ def _ran_today(
         return False
     chave = item.claim_key(now)
     if chave and store.get_meta(chave):
+        return True
+    concluida = item.done_key(now)
+    if concluida and store.get_meta(concluida):
         return True
     ultima = store.last_run(item.skill, item.id)
     if ultima is None:

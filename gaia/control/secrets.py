@@ -17,7 +17,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -48,16 +47,6 @@ def allowed_keys() -> tuple[str, ...]:
             if nome not in chaves:
                 chaves.append(nome)
     return tuple(sorted(chaves))
-
-
-@dataclass(frozen=True)
-class SecretEntry:
-    key: str
-    masked: str
-    present: bool
-    # linha do arquivo (1-based) para a remocao cirurgica
-    line: int = 0
-    commented: bool = False
 
 
 _LINE = re.compile(r"^(?P<lead>\s*)(?P<comment>#\s*)?(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$")
@@ -290,7 +279,6 @@ def _writable(caminho: Path) -> bool:
 
 
 __all__ = [
-    "SecretEntry",
     "allowed_keys",
     "describe_secrets",
     "list_secrets",

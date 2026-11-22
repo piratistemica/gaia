@@ -206,7 +206,3 @@ def summary_since(store: MemoryStore, days: int = 1) -> dict[str, Any]:
         timespec="seconds"
     )
     return store.runs_summary(since)
-
-
-def failed_runs(store: MemoryStore, limit: int = 20) -> list[dict[str, Any]]:
-    return [render_run(row) for row in store.list_runs(limit=limit, status="failed")]
