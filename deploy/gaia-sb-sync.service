@@ -1,0 +1,14 @@
+[Unit]
+Description=Sincroniza o SecondBrain da Gaia com o GitHub
+Documentation=https://github.com/talitadeoa/second-brain
+
+[Service]
+Type=oneshot
+# 15 min: o suficiente para a memoria das 23h e o sonho das 2h chegarem no Mac
+# antes de voce abrir o Obsidian, sem ficar commitando a cada minuto.
+ExecStart=%h/.local/bin/sb-sync
+# Conflito (exit 2) nao deve virar "failed" toda hora: o script ja deixa a
+# arvore limpa e imprime o que resolver. Falha de rede (exit 3) tambem pode
+# esperar a proxima rodada.
+SuccessExitStatus=2
+TimeoutStartSec=180

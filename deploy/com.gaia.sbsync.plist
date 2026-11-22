@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.gaia.sbsync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/talita/gaia/scripts/sb-sync.sh</string>
+  </array>
+
+  <!-- A cada 15 min, igual ao timer do mini. O script so faz commit quando ha
+       algo escrito, entao rodar mais vezes que isso e desperdicio. -->
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- launchd comeca com um PATH minimo; sem isso o `git` pode nao existir. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/talita</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/talita/Library/Logs/gaia-sbsync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/talita/Library/Logs/gaia-sbsync.err.log</string>
+
+  <!-- Conflito (exit 2) nao e falha da unidade: o script ja deixou a arvore
+       limpa e imprimiu o que resolver. -->
+  <key>KeepAlive</key>
+  <false/>
+</dict>
+</plist>

@@ -1,0 +1,13 @@
+[Unit]
+Description=Sincroniza o SecondBrain a cada 15 minutos
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+AccuracySec=1min
+# Sem Persistent=true: se o mini estava desligado, nao adianta rodar uma
+# rajada de sincronizacoes atrasadas — a proxima rodada ja pega tudo.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -13,6 +13,10 @@
 #   gmin serve rollback    # volta o dono do Telegram para o gaia-telegram
 #   gmin serve logs [-f]   # journal do gaia-serve
 #   gmin serve status      # estado do gaia-serve e /health
+#   gmin sb sync           # sincroniza o SecondBrain agora (Mac <-> mini)
+#   gmin sb install        # instala o timer de 15 min no mini (systemd)
+#   gmin sb install-mac     # instala o agente launchd no Mac
+#   gmin sb status         # estado do sync nos dois lados
 #   gmin shell             # sessão persistente (screen) no mini
 #   gmin sudo <comando…>   # roda com sudo; a senha é digitada AQUI
 #
@@ -25,6 +29,9 @@ REMOTE_REPO="${GMIN_REMOTE_REPO:-/home/talita/gaia}"
 REMOTE_PY="$REMOTE_REPO/.venv/bin/python"
 UNIT="gaia-telegram.service"
 SERVE_UNIT="gaia-serve.service"
+SB_UNIT="gaia-sb-sync"
+LOCAL_SB="${GAIA_SECONDBRAIN:-$HOME/SecondBrain}"
+REMOTE_SB="${GMIN_REMOTE_SB:-/home/talita/SecondBrain}"
 
 SSH=(ssh -o ConnectTimeout=8 "$HOST")
 
@@ -264,6 +271,70 @@ cmd_sudo() {
   "${SSH[@]}" -t "sudo$citado"
 }
 
+cmd_sb() {
+  local acao="${1:-sync}"
+  case "$acao" in
+    sync)
+      need_ssh
+      [ -d "$LOCAL_SB/.git" ] || die "$LOCAL_SB nao e um repositorio git"
+      info "sincronizando nos dois lados"
+      # Mac primeiro (empurra o que foi escrito aqui), mini depois (recebe e
+      # empurra os sonhos da madrugada) e Mac de novo (recebe o que o mini
+      # escreveu). Duas passadas sao baratas: sem mudanca, o script so faz
+      # fetch/pull.
+      "$LOCAL_REPO/scripts/sb-sync.sh" || die "sb-sync falhou no Mac (conflito? veja git status)"
+      "${SSH[@]}" 'PATH=$HOME/.local/bin:$PATH sb-sync' \
+        || die "sb-sync falhou no mini (conflito? resolva la)"
+      "$LOCAL_REPO/scripts/sb-sync.sh" || die "sb-sync falhou no Mac (conflito? veja git status)"
+      ;;
+    install)
+      need_ssh
+      info "instalando $SB_UNIT.service + .timer no mini"
+      scp -q "$LOCAL_REPO/scripts/sb-sync.sh" "$HOST:~/.local/bin/sb-sync" \
+        || die "falha ao copiar sb-sync"
+      "${SSH[@]}" 'mkdir -p ~/.config/systemd/user && chmod +x ~/.local/bin/sb-sync' \
+        || die "falha ao preparar ~/.local/bin"
+      scp -q "$LOCAL_REPO/deploy/gaia-sb-sync.service" \
+        "$HOST:~/.config/systemd/user/$SB_UNIT.service" || die "falha ao copiar a unidade"
+      scp -q "$LOCAL_REPO/deploy/gaia-sb-sync.timer" \
+        "$HOST:~/.config/systemd/user/$SB_UNIT.timer" || die "falha ao copiar o timer"
+      "${SSH[@]}" "systemctl --user daemon-reload && systemctl --user enable --now $SB_UNIT.timer" \
+        || die "falha ao ativar o timer"
+      "${SSH[@]}" "systemctl --user list-timers $SB_UNIT.timer --no-pager"
+      printf 'ativo: o mini sincroniza sozinho a cada 15 min.\n'
+      printf 'no Mac, use: gmin sb install-mac\n'
+      ;;
+    install-mac)
+      # O Mac nao tem systemd: a unidade e um launchd agent do usuario.
+      local plist="$HOME/Library/LaunchAgents/com.gaia.sbsync.plist"
+      mkdir -p "$HOME/Library/Logs" || die "sem ~/Library/Logs"
+      cp "$LOCAL_REPO/deploy/com.gaia.sbsync.plist" "$plist" || die "falha ao copiar o plist"
+      plutil -lint "$plist" >/dev/null || die "plist invalido"
+      launchctl bootout "gui/$(id -u)/com.gaia.sbsync" 2>/dev/null || true
+      launchctl bootstrap "gui/$(id -u)" "$plist" || die "falha ao carregar o launchd agent"
+      printf 'ativo no Mac: com.gaia.sbsync a cada 15 min\n'
+      printf 'logs: ~/Library/Logs/gaia-sbsync.log\n'
+      ;;
+    status)
+      info "== Mac =="
+      "$LOCAL_REPO/scripts/sb-sync.sh" status || printf 'Mac: falhou (veja o erro acima)\n'
+      info "== mini =="
+      if "${SSH[@]}" true 2>/dev/null; then
+        "${SSH[@]}" 'PATH=$HOME/.local/bin:$PATH sb-sync status' \
+          || printf 'mini: falhou (veja o erro acima)\n'
+      else
+        printf 'mini: sem SSH em %s (Tailscale parado? use GMIN_HOST=gaia-lan)\n' "$HOST"
+      fi
+      exit 0
+      ;;
+    logs)
+      need_ssh
+      "${SSH[@]}" "journalctl --user -u $SB_UNIT.service --no-pager -n 40"
+      ;;
+    *) die "use: gmin sb sync|install|install-mac|status|logs" ;;
+  esac
+}
+
 main() {
   local sub="${1:-doctor}"
   shift || true
@@ -276,9 +347,10 @@ main() {
     agenda) cmd_agenda "${1:-}" ;;
     ask) cmd_ask "$@" ;;
     serve) cmd_serve "$@" ;;
+    sb) cmd_sb "$@" ;;
     shell|ssh) cmd_shell ;;
     sudo) cmd_sudo "$@" ;;
-    -h|--help|help) sed -n '2,20p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' ;;
+    -h|--help|help) sed -n '2,22p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' ;;
     *) die "subcomando desconhecido: $sub (use: gmin help)" ;;
   esac
 }

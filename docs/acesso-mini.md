@@ -34,12 +34,54 @@ gmin agenda [AAAA-MM-DD] # exatamente o que a Gaia vê na Agenda
 gmin ask "pergunta"      # conversa com a Gaia do mini sem passar pelo Telegram
 gmin shell               # sessão `screen` persistente (sobrevive a queda de wifi)
 gmin sudo <comando…>     # roda com sudo; a senha é digitada AQUI, no MacBook
+gmin sb sync             # sincroniza o SecondBrain agora (Mac <-> mini)
+gmin sb status           # estado do sync nos dois lados
+gmin sb install          # timer de 15 min no mini (systemd)
+gmin sb install-mac      # agente launchd de 15 min no Mac
 ```
 
 `gmin deploy` sincroniza o repo menos o que não deve sair do MacBook
 (`.git`, `.venv`, `data/`, `config/`, caches) e só reinicia o serviço se o código
 importar no destino. Antes de reiniciar ele não faz nada destrutivo: não usa
 `--delete`.
+
+## Second Brain: um repo, duas máquinas
+
+`~/SecondBrain` é um repositório git nas duas pontas
+(`github.com/talitadeoa/second-brain`, privado). O que sincroniza é **texto**:
+`Memoria/`, `Sonhos/`, `Inbox/`, `Pesquisa/`, `planilhas/`, `cv/`, `preferences.md`.
+O que **nunca** sincroniza: `gaia.db`, `sb_index.db` (ambos no `.gitignore`) e
+`.gaia/`, `.zaya/` (backups locais). Sincronizar banco SQLite corrompe — é a
+mesma regra do "um único processo escritor".
+
+```bash
+sb-sync                  # nas duas máquinas: commita, puxa, empurra
+gmin sb sync             # faz os dois lados de uma vez, de fora
+```
+
+Agendamento (uma vez só):
+
+```bash
+gmin sb install          # mini: gaia-sb-sync.timer, a cada 15 min
+gmin sb install-mac      # Mac: launchd com.gaia.sbsync, a cada 15 min
+```
+
+Regras do `scripts/sb-sync.sh`, que valem para qualquer sincronização manual:
+
+- **Conflito não é resolvido sozinho.** O script aborta com exit 2, deixa a
+  árvore limpa e imprime o que resolver. Perder um sonho ou uma memória porque
+  "o git resolveu" é pior que ficar um tempo sem sincronizar.
+- **Identidade explícita.** O mini não tem `git config --global`; o script falha
+  se `user.name`/`user.email` não estiverem no repo local.
+- **Credencial própria.** O mini empurra com a chave `~/.ssh/sb_deploy` (deploy
+  key só neste repo, via `core.sshCommand`), não com a chave pessoal do Mac.
+- **Sem `--force`, sem `--delete`.** Nada de espelhar pasta: o que existe nas
+  duas pontas só muda por commit.
+
+O que **não** se resolve por aqui: memória/sonho que já divergiram no texto
+(aconteceu em 17–21/11, quando o Mac e o mini consolidavam o mesmo dia). A
+unificação de 22/11 está em `~/gaia-backups/sb-unificacao-20261122/`, com
+`conflitos-mac/` e `conflitos-mini/` de cada arquivo divergente.
 
 ## Uma vez só: senha do sudo
 
