@@ -342,7 +342,7 @@ def test_channel_migration_defaults_existing_conversations_to_cli(tmp_path):
 def test_schema_v6_cria_tabela_runs(tmp_path):
     store = MemoryStore(tmp_path / "gaia.db")
     try:
-        assert store.schema_version() == 6
+        assert store.schema_version() >= 6
         cols = {
             row["name"]
             for row in store._conn.execute("PRAGMA table_info(runs)").fetchall()
@@ -375,8 +375,86 @@ def test_migracao_v5_para_v6_preserva_dados(tmp_path):
 
     store = MemoryStore(path)
     try:
-        assert store.schema_version() == 6
+        assert store.schema_version() == SCHEMA_VERSION
         assert len(store.pending_reminders()) == 1
         store._conn.execute("SELECT COUNT(*) FROM runs").fetchone()
+    finally:
+        store.close()
+
+
+def test_schema_v7_cria_tabela_automations(tmp_path):
+    store = MemoryStore(tmp_path / "gaia.db")
+    try:
+        assert store.schema_version() == 7
+        colunas = {
+            row["name"]
+            for row in store._conn.execute(
+                "PRAGMA table_info(automations)"
+            ).fetchall()
+        }
+        assert {
+            "id",
+            "skill",
+            "enabled",
+            "days",
+            "at",
+            "until",
+            "delivery",
+            "retry_max",
+            "retry_backoff_minutes",
+            "last_result",
+            "updated_at",
+        } <= colunas
+    finally:
+        store.close()
+
+
+def test_migracao_v6_para_v7_preserva_runs(tmp_path):
+    path = tmp_path / "gaia.db"
+    store = MemoryStore(path)
+    run = store.begin_run(kind="career", automation="career:weekly")
+    store.finish_run(run, status="completed", detail="3 vagas")
+    # Simula um banco da fase B: schema v6 e sem a tabela nova.
+    store.set_meta("schema_version", "6")
+    with store._conn:
+        store._conn.execute("DROP TABLE automations")
+    store.close()
+
+    store = MemoryStore(path)
+    try:
+        assert store.schema_version() == 7
+        assert store.list_runs(kind="career")[0]["detail"] == "3 vagas"
+        assert store.list_automations() == []
+    finally:
+        store.close()
+
+
+def test_upsert_e_edicao_de_automacao(tmp_path):
+    store = MemoryStore(tmp_path / "gaia.db")
+    try:
+        store.upsert_automation(
+            id="career:weekly",
+            skill="career",
+            days="0",
+            at="09:00",
+            until="18:00",
+            delivery="telegram",
+        )
+        item = store.get_automation("career:weekly")
+        assert item is not None
+        assert item["enabled"] == 1
+        assert item["at"] == "09:00"
+
+        assert store.update_automation("career:weekly", enabled=False, at="07:30")
+        atual = store.get_automation("career:weekly")
+        assert atual is not None
+        assert atual["enabled"] == 0
+        assert atual["at"] == "07:30"
+        # O upsert e idempotente e nao duplica linha.
+        store.upsert_automation(
+            id="career:weekly", skill="career", at="08:00", until="12:00"
+        )
+        assert len(store.list_automations()) == 1
+        assert store.update_automation("nao-existe", at="10:00") is False
     finally:
         store.close()

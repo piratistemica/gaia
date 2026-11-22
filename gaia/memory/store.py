@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 # Versao atual do schema. Incremente ao adicionar novas migracoes em _migrate.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # v5: conversas separadas por canal (cli, telegram, whatsapp).
 DEFAULT_CHANNEL = "cli"
@@ -122,6 +122,24 @@ class MemoryStore:
                     ON runs(kind, started_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_runs_status
                     ON runs(status, started_at DESC);
+
+                -- v7: agenda governavel (Control Center fase C). A tabela e a
+                -- fonte de verdade de QUANDO cada rotina roda; as colunas
+                -- espelham ``gaia/control/automations.py``. O seed inicial vem
+                -- do Config e preserva o comportamento anterior.
+                CREATE TABLE IF NOT EXISTS automations (
+                    id TEXT PRIMARY KEY,
+                    skill TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    days TEXT NOT NULL DEFAULT '',
+                    at TEXT NOT NULL DEFAULT '',
+                    until TEXT NOT NULL DEFAULT '',
+                    delivery TEXT NOT NULL DEFAULT 'local',
+                    retry_max INTEGER NOT NULL DEFAULT 2,
+                    retry_backoff_minutes REAL NOT NULL DEFAULT 10,
+                    last_result TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             self._migrate()
@@ -695,6 +713,102 @@ class MemoryStore:
                 "DELETE FROM runs WHERE started_at < ?", (before_iso,)
             )
             return int(cursor.rowcount or 0)
+
+    # ------------------------------------------------------------- automations
+    def list_automations(self) -> list[dict[str, Any]]:
+        """Agenda persistida, na ordem estavel de ``id``."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM automations ORDER BY id ASC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_automation(self, automation_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM automations WHERE id = ?", (automation_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_automation(
+        self,
+        *,
+        id: str,
+        skill: str,
+        enabled: bool = True,
+        days: str = "",
+        at: str = "",
+        until: str = "",
+        delivery: str = "local",
+        retry_max: int = 2,
+        retry_backoff_minutes: float = 10.0,
+        last_result: str = "",
+    ) -> None:
+        """Cria ou substitui uma automacao (todas as colunas).
+
+        ``days`` e ``at``/``until`` ficam como texto (``"0,2,4"`` e
+        ``"HH:MM"``) para a tabela nao depender de tipo do SQLite.
+        """
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO automations
+                    (id, skill, enabled, days, at, until, delivery,
+                     retry_max, retry_backoff_minutes, last_result, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    skill = excluded.skill,
+                    enabled = excluded.enabled,
+                    days = excluded.days,
+                    at = excluded.at,
+                    until = excluded.until,
+                    delivery = excluded.delivery,
+                    retry_max = excluded.retry_max,
+                    retry_backoff_minutes = excluded.retry_backoff_minutes,
+                    last_result = excluded.last_result,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    id,
+                    skill,
+                    int(bool(enabled)),
+                    days,
+                    at,
+                    until,
+                    delivery,
+                    int(retry_max),
+                    float(retry_backoff_minutes),
+                    last_result,
+                    _now(),
+                ),
+            )
+
+    def update_automation(self, automation_id: str, **campos: Any) -> bool:
+        """Edicao parcial (so as colunas enviadas); False se nao existe."""
+        permitidas = {
+            "skill",
+            "enabled",
+            "days",
+            "at",
+            "until",
+            "delivery",
+            "retry_max",
+            "retry_backoff_minutes",
+            "last_result",
+        }
+        mudancas = {chave: valor for chave, valor in campos.items() if chave in permitidas}
+        if not mudancas:
+            return self.get_automation(automation_id) is not None
+        if "enabled" in mudancas:
+            mudancas["enabled"] = int(bool(mudancas["enabled"]))
+        colunas = ", ".join(f"{chave} = ?" for chave in mudancas)
+        valores = [*mudancas.values(), _now(), automation_id]
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                f"UPDATE automations SET {colunas}, updated_at = ? WHERE id = ?",
+                valores,
+            )
+            return cursor.rowcount > 0
 
     def stats(self) -> dict[str, Any]:
         with self._lock:
