@@ -27,6 +27,10 @@ estado atual. O status abaixo foi verificado no código.
 | [`plans/2026-11-19-serve-cliente-fino.md`](plans/2026-11-19-serve-cliente-fino.md) | fases 1 e 2 implementadas (`gaia serve`, `--remote`, web); partes 2/3 são backlog |
 | [`plans/2026-11-20-handoff.md`](plans/2026-11-20-handoff.md) | diário de sessão; leia o "Estado operacional", mas confirme no ambiente |
 | [`plans/2026-11-22-proatividade-e-ambiente.md`](plans/2026-11-22-proatividade-e-ambiente.md) | **plano ativo, não aplicado**: no `serve` a proatividade vai para o TTS local em vez do Telegram; `~/.zshrc` aponta para config sem `.env` |
+| [`plans/2026-11-22-mac-cliente-fino.md`](plans/2026-11-22-mac-cliente-fino.md) | **plano ativo, não aplicado**: o que falta para o Mac virar cliente fino (TUI remota, `ui.confirm`, 12 eventos não desenhados, voz, trava de escrita). Inclui o dano da sobrescrita silenciosa do Second Brain |
+| [`plans/2026-11-22-agent-control-center-design.md`](plans/2026-11-22-agent-control-center-design.md) | **design aprovado, não implementado**: Control Center web no `gaia serve` (providers, secrets mascarados, config com origem, histórico de execuções, system health) |
+| [`plans/2026-11-22-control-center-ab.md`](plans/2026-11-22-control-center-ab.md) | **plano ativo, não aplicado**: Fases A e B do Control Center, tarefa por tarefa com testes |
+| [`plans/2026-11-22-control-center-fases-cde.md`](plans/2026-11-22-control-center-fases-cde.md) | **backlog, não aplicado**: Fases C/D/E (scheduler governável, autonomia, retry, notificação de falha) com prompt de retomada |
 
 ## Specs e análises
 
