@@ -138,6 +138,18 @@ class OrchestratorTarget:
             return
         asyncio.run_coroutine_threadsafe(self._abortar(), self._loop)
 
+    # ------------------------------------------------------------- control center
+    def run_awaitable(self, aguardavel: Any, timeout: float = 60.0) -> Any:
+        """Executa um awaitable no loop do motor e devolve o resultado.
+
+        O HTTP roda noutra thread; sem esta ponte, ``await`` no handler
+        travaria o socket. Mesmo padrao de ``models()``.
+        """
+        if self._loop is None:
+            raise RuntimeError("serve sem loop asyncio ligado")
+        futuro = asyncio.run_coroutine_threadsafe(aguardavel, self._loop)
+        return futuro.result(timeout=timeout)
+
     # ------------------------------------------------------------------ interno
     async def _executar(self, text: str) -> None:
         try:

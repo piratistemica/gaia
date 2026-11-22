@@ -14,6 +14,7 @@ from typing import Any
 
 from gaia.cli_runtime import _build_app
 from gaia.config import Config
+from gaia.control.center import ControlCenter
 from gaia.interface.remote import RemoteUI
 from gaia.serve.app import OrchestratorTarget
 from gaia.serve.server import ServeConfigError, ServeServer
@@ -22,19 +23,20 @@ from gaia.telegram.service import TelegramService
 logger = logging.getLogger(__name__)
 
 
-def _resolver(cfg: Config, args: Any) -> tuple[str, int, str]:
+def _resolver(cfg: Config, args: Any) -> tuple[str, int, str, str]:
     host = getattr(args, "host", None) or cfg.serve.host
     porta = getattr(args, "port", None)
     if porta is None:
         porta = cfg.serve.port
     token = getattr(args, "token", None) or cfg.serve.token
-    return host, int(porta), token
+    control = getattr(args, "control_token", None) or cfg.serve.control_token
+    return host, int(porta), token, control
 
 
 async def _serve_command(
     cfg: Config, args: Any, parar: asyncio.Event | None = None
 ) -> int:
-    host, porta, token = _resolver(cfg, args)
+    host, porta, token, control_token = _resolver(cfg, args)
     quer_telegram = bool(cfg.serve.telegram and cfg.telegram.enabled)
     if getattr(args, "no_telegram", False):
         quer_telegram = False
@@ -49,8 +51,29 @@ async def _serve_command(
         raise
 
     alvo = OrchestratorTarget(orchestrator, ui)
+    centro = ControlCenter(
+        cfg,
+        store,
+        index=index,
+        orch=orchestrator,
+        runner=alvo.run_awaitable,
+        switcher=lambda slug: [
+            texto for _nivel, texto in (orchestrator.model_messages(slug))
+        ]
+        if callable(getattr(orchestrator, "model_messages", None))
+        else [],
+        models=alvo.models,
+    )
     try:
-        servidor = ServeServer(alvo, ui, host=host, port=porta, token=token)
+        servidor = ServeServer(
+            alvo,
+            ui,
+            host=host,
+            port=porta,
+            token=token,
+            control_token=control_token,
+            center=centro,
+        )
     except ServeConfigError as exc:
         ui.error(str(exc))
         ui.hint("defina GAIA_SERVE_TOKEN no .env ou use --host 127.0.0.1")
@@ -83,6 +106,13 @@ async def _serve_command(
             f"{'ligado' if quer_telegram else 'desligado'} · "
             f"token {'sim' if token else 'nao'}"
         )
+        if control_token:
+            ui.info(f"control center em {url}/control")
+        else:
+            ui.hint(
+                "control center desativado: defina GAIA_CONTROL_TOKEN no .env "
+                "(token separado do chat)"
+            )
         ui.hint(f"cliente: gaia --remote {url}")
 
         if quer_telegram:

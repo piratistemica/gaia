@@ -428,6 +428,10 @@ class ServeConfig(BaseModel):
     port: int = 8787
     # Segredo: apenas via ambiente/.env (GAIA_SERVE_TOKEN).
     token: str = ""
+    # Segredo do Control Center: apenas via ambiente/.env (GAIA_CONTROL_TOKEN).
+    # Separado do token do chat de proposito — o token de conversa nao pode
+    # administrar credenciais e configuracao. Sem ele, /control/api nao existe.
+    control_token: str = ""
     # Bind fora do loopback (ex.: IP do tailnet) exige token. Ver allow_remote.
     allow_remote: bool = False
     # Sobe o poller do Telegram junto do servidor (um processo so).
@@ -564,6 +568,8 @@ class Config(BaseModel):
             data["secondbrain"]["embed_api_key"] = "***"
         if data.get("serve", {}).get("token"):
             data["serve"]["token"] = "***"
+        if data.get("serve", {}).get("control_token"):
+            data["serve"]["control_token"] = "***"
         return data
 
     # ------------------------------------------------------------------ load
@@ -693,6 +699,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "GAIA_SERVE_HOST": ("serve", "host"),
     "GAIA_SERVE_PORT": ("serve", "port"),
     "GAIA_SERVE_TOKEN": ("serve", "token"),
+    "GAIA_CONTROL_TOKEN": ("serve", "control_token"),
     "GAIA_SERVE_ALLOW_REMOTE": ("serve", "allow_remote"),
     "GAIA_SERVE_TELEGRAM": ("serve", "telegram"),
     "GAIA_UI_SELECTION_MODE": ("interface", "selection_mode"),

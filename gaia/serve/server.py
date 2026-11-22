@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,12 +26,13 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from gaia.interface.remote import RemoteUI
-from gaia.serve import web
+from gaia.serve import control_api, web
 
 logger = logging.getLogger(__name__)
 
 DECISIONS = {"once", "always", "reject"}
 HEARTBEAT_SECONDS = 15.0
+CONTROL_PREFIX = "/control"
 
 
 class Target(Protocol):
@@ -98,6 +100,22 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         return header[len(prefixo) :].strip() == token
 
+    def _autorizado_controle(self) -> bool:
+        """Token do painel e SEPARADO do token do chat (separacao de poderes).
+
+        O token de chat nao da poder administrativo: ele so conversa. Se
+        ``GAIA_CONTROL_TOKEN`` nao estiver definido, a API do painel nao existe
+        (503) — nunca herda o ``serve.token`` por omissao.
+        """
+        esperado = self.app.control_token
+        if not esperado:
+            return False
+        header = self.headers.get("Authorization", "")
+        prefixo = "Bearer "
+        if not header.startswith(prefixo):
+            return False
+        return secrets.compare_digest(header[len(prefixo) :].strip(), esperado)
+
     def _corpo(self) -> dict[str, Any] | None:
         tamanho = int(self.headers.get("Content-Length") or 0)
         if tamanho <= 0:
@@ -146,6 +164,15 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(corpo)
             return
+        if rota == CONTROL_PREFIX or rota == f"{CONTROL_PREFIX}/":
+            self._pagina_controle()
+            return
+        if rota.startswith(f"{CONTROL_PREFIX}/static/"):
+            self._asset_controle(rota[len(f"{CONTROL_PREFIX}/static/") :])
+            return
+        if rota.startswith(f"{CONTROL_PREFIX}/api/"):
+            control_api.get(self, rota, parse_qs(url.query))
+            return
         if rota == "/search":
             if not self._autorizado():
                 self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
@@ -184,6 +211,13 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         url = urlparse(self.path)
         rota = url.path.rstrip("/") or "/"
+        if rota.startswith(f"{CONTROL_PREFIX}/api/"):
+            corpo = self._corpo()
+            if corpo is None:
+                self._erro(HTTPStatus.BAD_REQUEST, "bad_json", "corpo JSON invalido")
+                return
+            control_api.post(self, rota, corpo)
+            return
         if not self._autorizado():
             self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
             return
@@ -250,7 +284,77 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._erro(HTTPStatus.NOT_FOUND, "not_found", f"rota desconhecida: {rota}")
 
+    # ------------------------------------------------------- paginas do painel
+    def _pagina_controle(self) -> None:
+        """HTML do painel. Se nao ha token configurado, a tela explica o porque.
+
+        A pagina e publica de proposito (ela pede o token), mas sem
+        ``GAIA_CONTROL_TOKEN`` ela nao passa de uma instrucao: nenhuma rota de
+        API existe, entao nao ha o que administrar.
+        """
+        if not self.app.control_token:
+            corpo = (
+                b"<!doctype html><html lang=pt-BR><meta charset=utf-8>"
+                b"<title>Control Center desativado</title>"
+                b"<body style='font:15px system-ui;padding:2rem;max-width:60ch'>"
+                b"<h1>Control Center desativado</h1>"
+                b"<p>Defina <code>GAIA_CONTROL_TOKEN</code> no "
+                b"<code>~/.config/gaia/.env</code> e reinicie o "
+                b"<code>gaia serve</code>.</p>"
+                b"<p>O token do chat (<code>GAIA_SERVE_TOKEN</code>) nao vale "
+                b"aqui: o painel administra credenciais e configuracao.</p>"
+                b"</body></html>"
+            )
+            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(corpo)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(corpo)
+            return
+        self._arquivo(web.control_page(), "text/html; charset=utf-8")
+
+    def _asset_controle(self, nome: str) -> None:
+        achado = web.control_asset(nome)
+        if achado is None:
+            self._erro(HTTPStatus.NOT_FOUND, "not_found", f"asset: {nome}")
+            return
+        corpo, tipo = achado
+        self._arquivo(corpo, tipo)
+
+    def _arquivo(self, corpo: bytes, tipo: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(corpo)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(corpo)
+
     # --------------------------------------------------------------------- SSE
+    def do_PUT(self) -> None:
+        url = urlparse(self.path)
+        rota = url.path.rstrip("/") or "/"
+        if not rota.startswith(f"{CONTROL_PREFIX}/api/"):
+            self._erro(HTTPStatus.NOT_FOUND, "not_found", f"rota desconhecida: {rota}")
+            return
+        corpo = self._corpo()
+        if corpo is None:
+            self._erro(HTTPStatus.BAD_REQUEST, "bad_json", "corpo JSON invalido")
+            return
+        control_api.post(self, rota, corpo)
+
+    def do_PATCH(self) -> None:
+        self.do_PUT()
+
+    def do_DELETE(self) -> None:
+        url = urlparse(self.path)
+        rota = url.path.rstrip("/") or "/"
+        if not rota.startswith(f"{CONTROL_PREFIX}/api/"):
+            self._erro(HTTPStatus.NOT_FOUND, "not_found", f"rota desconhecida: {rota}")
+            return
+        control_api.delete(self, rota)
+
     def _eventos(self, query: dict[str, list[str]]) -> None:
         since: int | None = None
         brutos = query.get("since") or []
@@ -311,6 +415,8 @@ class ServeServer:
         host: str = "127.0.0.1",
         port: int = 8787,
         token: str = "",
+        control_token: str = "",
+        center: Any = None,
     ) -> None:
         if not _eh_loopback(host) and not token.strip():
             raise ServeConfigError(
@@ -319,6 +425,9 @@ class ServeServer:
         self.target = target
         self.ui = ui
         self.token = token.strip()
+        # Segredo separado do token do chat: sem ele, /control/api nao existe.
+        self.control_token = control_token.strip()
+        self.center = center if self.control_token else None
         self.parar = threading.Event()
         self._httpd = ThreadingHTTPServer((host, port), _Handler)
         self._httpd.daemon_threads = True

@@ -221,11 +221,26 @@ def test_resolver_de_host_porta_token_prioriza_a_cli():
     from gaia.config import Config
 
     cfg = Config()
-    args = type("Args", (), {"host": "100.66.45.57", "port": 9000, "token": "x"})()
-    assert _resolver(cfg, args) == ("100.66.45.57", 9000, "x")
+    args = type(
+        "Args", (), {"host": "100.66.45.57", "port": 9000, "token": "x"}
+    )()
+    assert _resolver(cfg, args) == ("100.66.45.57", 9000, "x", "")
 
     vazio = type("Args", (), {"host": None, "port": None, "token": None})()
-    assert _resolver(cfg, vazio) == ("127.0.0.1", 8787, "")
+    assert _resolver(cfg, vazio) == ("127.0.0.1", 8787, "", "")
+
+
+
+def test_resolver_do_token_do_painel():
+    """O token do Control Center vem do config/.env, nunca do token do chat."""
+    from gaia.cli_serve import _resolver
+    from gaia.config import Config
+
+    cfg = Config()
+    cfg.serve.token = "chat"
+    cfg.serve.control_token = "controle"
+    args = type("Args", (), {"host": None, "port": None, "token": None})()
+    assert _resolver(cfg, args) == ("127.0.0.1", 8787, "chat", "controle")
 
 
 class _Store:
