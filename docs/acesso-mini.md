@@ -6,6 +6,27 @@ Mac, navegador e celular são telas (`gaia --remote` ou a web em `GET /`). Para
 administrar, tudo sai do MacBook por SSH com chave — sem senha, sem abrir porta
 no roteador.
 
+## Control Center: o dia a dia é o navegador
+
+O painel roda **no mini** (mesmo processo do motor) e é acessado de qualquer
+tela do tailnet:
+
+```
+http://gaia:8787/control          # MagicDNS, funciona fora de casa
+http://100.66.45.57:8787/control  # mesmo endereço, sem depender do DNS
+```
+
+A tela pede o token do painel (`GAIA_CONTROL_TOKEN`, separado do token do chat)
+e o guarda no `localStorage` — nunca na URL. Sem ele, `/control` mostra a
+instrução e `/control/api/*` responde 503.
+
+Por que aqui e não no MacBook: o painel lê o `gaia.db`, a agenda
+(`automations`) e os workers **do processo que é dono deles**. Um `gaia serve`
+no MacBook mostraria o banco do MacBook — outra Gaia, outro histórico, outra
+agenda. A regra "um único escritor" vale também para o painel.
+
+O chat web é a outra tela: `http://gaia:8787/` (mesmo endereço, token do chat).
+
 ## O básico que já existe
 
 `~/.ssh/config` no MacBook:
