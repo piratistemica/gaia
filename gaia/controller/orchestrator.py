@@ -32,6 +32,7 @@ from gaia.controller.registration import RegistrationMixin
 from gaia.controller.speech import SpeechMixin
 from gaia.controller.turns import TurnMixin
 from gaia.controller.voice import VoiceMixin
+from gaia.estudos.client import EstudosClient
 from gaia.finance.watchlist import Watchlist
 from gaia.focus import FocusStore
 from gaia.interface.terminal import TerminalUI
@@ -139,7 +140,9 @@ class Orchestrator(
         self.focus = FocusStore(cfg.focus.path)
         self.tasks = TaskStore()
         self.agenda = AgendaClient(cfg.agenda)
+        self.estudos = EstudosClient(cfg.estudos)
         self._agenda_next_check = 0.0
+        self._estudos_next_check = 0.0
         self._agenda_seen: set[str] = set()
         self._agenda_day = None
         self._tts_lock = asyncio.Lock()

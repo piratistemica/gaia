@@ -67,6 +67,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/telegram/`, `whatsapp/`, `browser/` | canais e integrações |
 | `gaia/audiobook/` | PDF/texto → MP3: `extract.py` (PDF sem dependência), `normalize.py` (limpeza + capítulos), `jobs.py` (narração, ID3/CHAP), `service.py` (lote inbox→outbox) |
 | `gaia/agenda/` | cliente da Agenda (Supabase), usado por ferramentas `agenda_*` |
+| `gaia/estudos/` | progresso dos simulados do Abin Suite (Supabase proprio), tools `estudos_*` e cobranca proativa |
 | `gaia/career/`, `finance/`, `tasks/`, `focus.py` | rotinas de vagas, bolsa, tarefas, foco |
 
 ## Fluxo de um turno
@@ -134,7 +135,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 - **Novo modo:** `controller/modes.py` (`PERSONAS`) e teste em `test_modes.py`.
 - **Nova automação:** `controller/briefing.py` (janelas `*_at`/`*_until`) ou
   `controller/initiative.py` (lembretes/check-in); use `claim_meta` para
-  garantir "uma vez por dia".
+  garantir "uma vez por dia". Ex.: `_check_estudos` (cobra estudo atrasado).
 
 ## Armadilhas já descobertas
 
@@ -142,6 +143,12 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   header e o evento se perde para sempre.
 - **Permissão:** quem espera é o `RemoteUI`, não o `Target`; o transporte resolve
   a UI primeiro e só depois avisa o alvo (senão trava até o timeout).
+- **Proatividade no `serve` não chega no Telegram.** `_say_proactive` decide
+  por `self.channel == "telegram"`; com o poller embutido no `gaia serve`
+  (`channel="serve"`) a mensagem cai em `_speak()` — áudio local numa máquina
+  headless — e num evento SSE sem cliente. Briefing/fecho passam porque chamam
+  `telegram.send_message` direto. Correção em
+  `docs/plans/2026-11-22-proatividade-e-ambiente.md` (ainda não aplicada).
 - **`ui.permission` precisa de `request_id`**; sem ele, nega por padrão.
 - **Texto final do turno** no `serve`/web vem em `run_finished.text`; o
   `stream_end` pode chegar sem texto (provedor sem deltas).

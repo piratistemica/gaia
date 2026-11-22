@@ -366,6 +366,22 @@ class AgendaConfig(BaseModel):
     tasks_poll_seconds: float = 0.0
 
 
+class EstudosConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    # .env do projeto Abin Suite (Supabase proprio, separado da Agenda).
+    env_file: str = "~/abin-suite/.env"
+    poll_minutes: float = 60.0
+    # Cobrar proativamente quando nao estudou e a meta esta atrasada.
+    remind_when_late: bool = True
+    # So cobra a partir deste horario (HH:MM), uma vez por dia.
+    remind_at: str = "20:00"
+    # Dias de estudo (0=seg, 1=ter, ..., 6=dom). Padrao: dom/qua/sex/sab.
+    study_days: list[int] = Field(default_factory=lambda: [6, 2, 4, 5])
+    max_items: int = 5
+
+
 class TelegramConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -436,6 +452,7 @@ class Config(BaseModel):
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     agenda: AgendaConfig = Field(default_factory=AgendaConfig)
+    estudos: EstudosConfig = Field(default_factory=EstudosConfig)
     focus: FocusConfig = Field(default_factory=FocusConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     serve: ServeConfig = Field(default_factory=ServeConfig)
@@ -568,6 +585,7 @@ class Config(BaseModel):
                 raw = tomllib.load(fh)
 
         _migrate_legacy_config(raw)
+        _migrate_legacy_model(raw)
         _apply_env(raw, env)
 
         cfg = cls.model_validate(raw)
@@ -640,6 +658,12 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "GAIA_AGENDA_NOTIFY_PENDING": ("agenda", "notify_pending"),
     "GAIA_AGENDA_POLL_MINUTES": ("agenda", "poll_minutes"),
     "GAIA_AGENDA_TASKS_POLL_SECONDS": ("agenda", "tasks_poll_seconds"),
+    "GAIA_ESTUDOS_ENABLED": ("estudos", "enabled"),
+    "GAIA_ESTUDOS_ENV_FILE": ("estudos", "env_file"),
+    "GAIA_ESTUDOS_POLL_MINUTES": ("estudos", "poll_minutes"),
+    "GAIA_ESTUDOS_REMIND_WHEN_LATE": ("estudos", "remind_when_late"),
+    "GAIA_ESTUDOS_REMIND_AT": ("estudos", "remind_at"),
+    "GAIA_ESTUDOS_MAX_ITEMS": ("estudos", "max_items"),
     "GAIA_AUDIO_AUTO_MUTE_SECONDS": ("audio", "auto_mute_seconds"),
     "GAIA_AUDIO_CONTINUOUS": ("audio", "continuous"),
     "GAIA_AUDIO_INPUT_DEVICE": ("audio", "input_device"),
@@ -1110,6 +1134,18 @@ poll_minutes = 30
 max_items = 5
 notify_pending = false
 tasks_poll_seconds = 0      # 0 = nao checa sozinho
+
+[estudos]
+# Progresso dos simulados do Abin Suite (Supabase proprio, separado da Agenda).
+# Credenciais no .env apontado por env_file: VITE_SUPABASE_URL,
+# SUPABASE_SERVICE_ROLE_KEY e ESTUDOS_USER_ID.
+enabled = true
+env_file = "~/abin-suite/.env"
+poll_minutes = 60
+remind_when_late = true     # cobra quando nao estudou e a meta esta atrasada
+remind_at = "20:00"         # so a partir deste horario, uma vez por dia
+study_days = [6, 2, 4, 5]   # dias de estudo (0=seg..6=dom): dom, qua, sex, sab
+max_items = 5
 
 [telegram]
 enabled = false

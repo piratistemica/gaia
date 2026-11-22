@@ -75,6 +75,7 @@ class AgentClient:
             cfg.agenda,
             cfg.secondbrain.path,
             audiobook=cfg.audiobook,
+            estudos=cfg.estudos,
         )
         self.tools: ToolSet = (
             build_tools(self._tool_context) if cfg.agent.tools else ToolSet()

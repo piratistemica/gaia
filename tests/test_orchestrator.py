@@ -1498,3 +1498,81 @@ async def test_briefing_personalizado_cai_na_lista_se_o_modelo_falhar(orch):
     assert await orch._send_briefing("morning", dia) is True
     assert orch.telegram.sent[0].startswith("Bom dia")
     assert "Responder a Stefanini" in orch.telegram.sent[0]
+
+
+@pytest.mark.asyncio
+async def test_atalho_troca_sem_consultar_a_rede(orch, monkeypatch):
+    import gaia.agent.catalog as catalog_module
+
+    def explode(*args, **kwargs):  # pragma: no cover - so falha se for chamado
+        raise AssertionError("atalho não pode listar provedores")
+
+    monkeypatch.setattr(catalog_module, "collect_models", explode)
+    orch.cfg.config_file = ""
+
+    responses = await orch.model_messages("cc")
+
+    assert orch.cfg.agent.provider == "commandcode"
+    assert orch.cfg.agent.model == "deepseek/deepseek-v4.1-flash"
+    assert any("modelo da próxima mensagem" in text for _k, text in responses)
+
+
+@pytest.mark.asyncio
+async def test_atalho_volta_para_o_ultimo_modelo_de_cada_provedor(orch, monkeypatch):
+    import gaia.agent.catalog as catalog_module
+
+    def explode(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("atalho não pode listar provedores")
+
+    monkeypatch.setattr(catalog_module, "collect_models", explode)
+    orch.cfg.config_file = ""
+
+    await orch.model_messages("commandcode/z-ai/glm-5.3-flash")
+    await orch.model_messages("ds")
+    responses = await orch.model_messages("cc")
+
+    assert orch.cfg.agent.provider == "commandcode"
+    assert orch.cfg.agent.model == "z-ai/glm-5.3-flash"
+    assert any("z-ai/glm-5.3-flash" in text for _k, text in responses)
+
+
+@pytest.mark.asyncio
+async def test_troca_de_provedor_ajusta_o_modelo_rapido(orch, monkeypatch, tmp_path):
+    import gaia.agent.catalog as catalog_module
+
+    def explode(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("slug explícito não deve listar provedores")
+
+    monkeypatch.setattr(catalog_module, "collect_models", explode)
+    alvo = tmp_path / "config.toml"
+    alvo.write_text(
+        '[agent]\nprovider = "commandcode"\nmodel = "m"\n'
+        'fast_model = "deepseek/deepseek-v4.1-flash-fast"\n',
+        encoding="utf-8",
+    )
+    orch.cfg.config_file = str(alvo)
+
+    await orch.model_messages("deepseek/deepseek-flash")
+
+    # Na direta o rapido e o proprio V4.1 Flash (id "deepseek-flash"); o id
+    # da Command Code nunca vai para o endpoint da DeepSeek.
+    assert orch.cfg.agent.fast_model == "deepseek-flash"
+    assert 'fast_model = "deepseek-flash"' in alvo.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_atalho_sem_destino_avisa_em_vez_de_virar_modelo(orch, monkeypatch):
+    """`zen` sem chave/uso anterior nao pode virar o modelo literal 'zen'."""
+    import gaia.agent.catalog as catalog_module
+
+    def explode(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("atalho conhecido nao deve listar provedores")
+
+    monkeypatch.setattr(catalog_module, "collect_models", explode)
+    orch.cfg.config_file = ""
+
+    responses = await orch.model_messages("zen")
+
+    assert responses[0][0] == "warning"
+    assert "sem modelo definido" in responses[0][1]
+    assert orch.cfg.agent.model != "zen"

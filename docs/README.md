@@ -26,6 +26,7 @@ estado atual. O status abaixo foi verificado no código.
 | [`plans/2026-11-16-gmin-admin.md`](plans/2026-11-16-gmin-admin.md) | parcial: `gmin.sh` tem doctor/logs/restart/deploy/test/agenda/ask/shell/sudo/serve; backup/restore/audit/fix não existem |
 | [`plans/2026-11-19-serve-cliente-fino.md`](plans/2026-11-19-serve-cliente-fino.md) | fases 1 e 2 implementadas (`gaia serve`, `--remote`, web); partes 2/3 são backlog |
 | [`plans/2026-11-20-handoff.md`](plans/2026-11-20-handoff.md) | diário de sessão; leia o "Estado operacional", mas confirme no ambiente |
+| [`plans/2026-11-22-proatividade-e-ambiente.md`](plans/2026-11-22-proatividade-e-ambiente.md) | **plano ativo, não aplicado**: no `serve` a proatividade vai para o TTS local em vez do Telegram; `~/.zshrc` aponta para config sem `.env` |
 
 ## Specs e análises
 

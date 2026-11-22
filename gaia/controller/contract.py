@@ -27,6 +27,7 @@ from gaia.controller.goals import GoalTracker
 from gaia.controller.intents import RegisterIntent
 from gaia.controller.modes import Persona
 from gaia.controller.proactive import ReminderSpec
+from gaia.estudos.client import EstudosClient
 from gaia.finance.watchlist import Watchlist
 from gaia.focus import FocusStore
 from gaia.interface.terminal import TerminalUI
@@ -76,6 +77,7 @@ class OrchestratorContract(ABC):
     focus: FocusStore
     tasks: TaskStore
     agenda: AgendaClient
+    estudos: EstudosClient
 
     # --- estado de execucao ---
     _voice_ok: bool | None
@@ -123,6 +125,7 @@ class OrchestratorContract(ABC):
     _agenda_next_check: float
     _agenda_seen: set[str]
     _agenda_day: date | None
+    _estudos_next_check: float
 
     # --- fala/streaming ---
     _tts_lock: asyncio.Lock

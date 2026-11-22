@@ -800,3 +800,28 @@ def test_humor_normaliza_nivel_e_ignora_desconhecido():
     assert humor_directive("off") == ""
     assert humor_directive("sei_la") == ""
     assert humor_directive(None) == ""
+
+
+def test_modelo_rapido_de_outro_provedor_nao_e_roteado():
+    # id de outro provedor nunca vai para o endpoint atual: cai no rapido do
+    # proprio preset (a direta usa o V4.1 Flash dela).
+    assert route_model("me lembre de beber água", "commandcode/x", "deepseek") == ModelRef(
+        "deepseek", "deepseek-flash"
+    )
+    # Na direta, um fast_model vazio cai no rapido do preset (V4.1 Flash).
+    assert route_model("me lembre de beber água", "", "deepseek") == ModelRef(
+        "deepseek", "deepseek-flash"
+    )
+    assert route_model("me lembre de beber água", "z-ai/glm-5.3-flash", "deepseek") == ModelRef(
+        "deepseek", "deepseek-flash"
+    )
+    # Id sem prefixo de provedor conhecido tambem cai no preset.
+    assert route_model("me lembre de beber água", "modelo-alheio", "deepseek") == ModelRef(
+        "deepseek", "modelo-alheio"
+    )
+
+
+def test_modelo_rapido_do_provedor_atual_continua_valendo():
+    assert route_model(
+        "me lembre de beber água", "commandcode/z-ai/glm-5.3-flash", "commandcode"
+    ) == ModelRef("commandcode", "z-ai/glm-5.3-flash")

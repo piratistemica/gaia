@@ -604,7 +604,10 @@ class TerminalUI:
             ("/nota <título>", "lê uma nota do Second Brain"),
             ("/indexar", "reindexa o Second Brain"),
             ("/novo · /nova", "inicia nova conversa e sessão do agente"),
-            ("/modelo [número|provider/model]", "lista/troca o modelo da sessão (F6 no app)"),
+            (
+                "/modelo [número|provider/model|atalho]",
+                "lista/troca o modelo; atalhos cc, ds, glm, turbo, zen (F6 no app)",
+            ),
             ("/modo [nome]", "lista ou troca o modo (pesquisadora, trabalhadora, investidora, assistente)"),
             ("/bolsa <ticker>", "cotação rápida (ex.: PETR4, AAPL)"),
             ("/carteira [add|remover]", "lista/acompanha seus ativos"),

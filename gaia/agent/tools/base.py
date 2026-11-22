@@ -41,6 +41,8 @@ class ToolContext:
     audiobook: Any = None
     # Callback(task, job) do canal: entrega o MP3 quando a narracao termina.
     audiobook_watch: Any = None
+    # EstudosConfig | None: habilita as ferramentas de progresso de estudos.
+    estudos: Any = None
 
     def resolve(self, raw: str) -> Path:
         if not (raw or "").strip():

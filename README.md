@@ -231,6 +231,15 @@ E uma de leitura de planilhas, quando o SecondBrain está configurado:
 O `.xlsx` é lido com a biblioteca padrão (`zipfile` + XML), sem `openpyxl` e
 sem shell — funciona no canal do Telegram mesmo com `shell_access = false`.
 
+Com `estudos.env_file` válido (credenciais do Abin Suite), entram três de
+leitura do progresso dos simulados — também só leitura, sem shell:
+
+| Ferramenta | Para quê |
+|---|---|
+| `estudos_progresso` | simulados, minutos e nota média da semana, meta em dia ou atrasada |
+| `estudos_metas` | metas semanais (simulados, minutos, nota alvo) |
+| `estudos_pendentes` | itens do caderno de erros vencidos para revisar hoje |
+
 ```toml
 [agent]
 tools = true
@@ -454,6 +463,35 @@ watch_minutes = 0.0             # >0 = confere a inbox sozinho (ex.: 5)
 PDF escaneado (sem camada de texto) não é lido: a Gaia avisa e move o arquivo
 para `inbox/erros`. Passe por um OCR ou envie `.txt`.
 
+**Abin Suite (progresso de estudos)**
+
+O Abin Suite guarda tudo num Supabase próprio (separado da Agenda); a Gaia só
+**lê** a tabela `study_items` (collections `results`, `goals` e `review`) e
+nunca escreve no banco do app.
+
+```toml
+[estudos]
+enabled = true
+env_file = "~/abin-suite/.env"   # VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ESTUDOS_USER_ID
+poll_minutes = 60
+remind_when_late = true          # cobra quando nao estudou e a meta esta atrasada
+remind_at = "20:00"              # so a partir daqui, uma vez por dia
+study_days = [6, 2, 4, 5]        # 0=seg..6=dom
+```
+
+As credenciais ficam no `.env` do projeto do app:
+
+```bash
+VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...    # secret/service_role do projeto (nunca no cliente)
+ESTUDOS_USER_ID=...              # uuid da conta no Supabase (auth.users)
+```
+
+Sem os três, o cliente fica desabilitado (as ferramentas `estudos_*` não
+aparecem e a cobrança proativa não roda). A cobrança usa `claim_meta`
+(uma vez por dia), respeita as quiet hours e só dispara se você ainda não fez
+nenhum simulado hoje com a meta atrasada.
+
 **WhatsApp** (Cloud API da Meta)
 
 ```bash
@@ -500,8 +538,8 @@ gaia browser screenshot https://exemplo.com captura.png
 
 Arquivo: `~/.config/gaia/config.toml` (segredos só no `.env`).
 Seções: `agent`, `stt`, `tts`, `audiobook`, `audio`, `secondbrain`, `interface`,
-`memory`, `briefing`, `career`, `proactive`, `focus`, `agenda`, `browser`,
-`telegram`, `whatsapp`, `serve`.
+`memory`, `briefing`, `career`, `proactive`, `focus`, `agenda`, `estudos`,
+`browser`, `telegram`, `whatsapp`, `serve`.
 
 ```bash
 gaia config          # mostra a configuração (segredos redigidos)

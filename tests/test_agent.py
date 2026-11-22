@@ -447,7 +447,7 @@ def test_config_exige_chave_para_provedor_remoto(tmp_path, isolated_env, monkeyp
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     cfg = Config.load(
         config_path=isolated_env / "missing.toml",
-        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
+        env={"GAIA_DATA_DIR": str(tmp_path / "data"), "GAIA_AGENT_PROVIDER": "deepseek"},
     )
     client = AgentClient(cfg, tmp_path / "proj")
     with pytest.raises(AgentError, match="chave de API"):

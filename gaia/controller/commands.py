@@ -267,12 +267,28 @@ class CommandsMixin(OrchestratorContract):
         O terminal imprime cada par com ``ui.info``/``success``/``warning``; o
         Telegram junta o texto, porque a UI de lá é ``quiet``.
         """
+        from gaia.agent.providers import SHORTCUTS, resolve_shortcut
         from gaia.agent.types import ModelRef
 
         value = (argument or "").strip()
         if not value:
             messages, _options = await self.show_model_options()
             return messages
+        # Atalho (cc, ds, glm, turbo, zen): vem de tabela, sem consultar provedor.
+        shortcut = resolve_shortcut(value, self._last_models())
+        if shortcut is not None:
+            provider, model = shortcut
+            return await self._model_switch_messages(ModelRef(provider, model))
+        if value.lower() in SHORTCUTS:
+            # Atalho conhecido sem destino: o provedor nao tem padrao nem uso
+            # anterior. Dizer isso e melhor do que tentar ``zen`` como modelo.
+            return [
+                (
+                    "warning",
+                    f"atalho '{value}' sem modelo definido; "
+                    "use /modelo provider/model uma vez para memorizar",
+                )
+            ]
         if value.isdigit():
             messages, options = await self.show_model_options()
             index = int(value) - 1
@@ -298,12 +314,33 @@ class CommandsMixin(OrchestratorContract):
             )
         return await self._model_switch_messages(reference)
 
+    def _last_models(self) -> dict[str, str]:
+        """Ultimo modelo usado em cada provedor (memoria por canal, sem rede)."""
+        from gaia.agent.providers import PRESETS
+
+        current = normalize_provider(self.cfg.agent.provider)
+        last = {current: self.cfg.agent.model}
+        for provider in PRESETS:
+            remembered = self.store.get_meta(f"model:{provider}")
+            if remembered:
+                last.setdefault(provider, remembered)
+        return last
+
     async def show_model_options(self) -> tuple[list[tuple[str, str]], list]:
         """Lista numerada dos modelos e as opções cruas (para o seletor)."""
         from gaia.agent.catalog import MAX_CHOICES, collect_models, render_choices
+        from gaia.agent.providers import SHORTCUTS
 
         catalog = await collect_models(self.cfg, client=self.client)
         messages: list[tuple[str, str]] = []
+        messages.append(
+            (
+                "info",
+                "atalhos: "
+                + " · ".join(f"/modelo {nome}" for nome in SHORTCUTS)
+                + " (sem consultar a rede)",
+            )
+        )
         if catalog.options:
             messages.extend(("info", line) for line in render_choices(catalog.options))
             if len(catalog.options) > MAX_CHOICES:
@@ -332,29 +369,49 @@ class CommandsMixin(OrchestratorContract):
         provider = normalize_provider(reference.provider_id)
         slug = f"{provider}/{reference.model_id}"
         previous = f"{normalize_provider(self.cfg.agent.provider)}/{self.cfg.agent.model}"
+        previous_fast = self.cfg.agent.fast_model
         self.cfg.agent.apply_model(provider, reference.model_id)
+        # O modelo rapido pertence ao provedor anterior: sem isso o id da
+        # Command Code iria no request da DeepSeek (400 em pedido curto).
+        self.cfg.agent.fast_model = self._fast_model_for(provider)
         self.store.set_meta("model", slug)
+        self.store.set_meta(f"model:{provider}", reference.model_id)
         messages: list[tuple[str, str]] = [
             ("success", f"modelo da próxima mensagem: {slug}")
         ]
-        if previous == slug:
+        if previous == slug and previous_fast == self.cfg.agent.fast_model:
             return messages
         # O AgentClient guarda o provedor pronto; sem descartar, endpoint e
         # chave antigos continuariam valendo ate reiniciar.
         reset = getattr(self.client, "reset_provider", None)
         if callable(reset):
             await reset()
-        messages.extend(self._save_model_choice(provider, reference.model_id))
+        messages.extend(
+            self._save_model_choice(
+                provider, reference.model_id, fast_model=self.cfg.agent.fast_model
+            )
+        )
         return messages
 
-    def _save_model_choice(self, provider: str, model: str) -> list[tuple[str, str]]:
+    @staticmethod
+    def _fast_model_for(provider: str) -> str:
+        """Modelo rapido declarado no preset do provedor (vazio = nao roteia)."""
+        from gaia.agent.providers import PRESETS
+
+        preset = PRESETS.get(provider)
+        return preset.fast_model if preset else ""
+
+
+    def _save_model_choice(
+        self, provider: str, model: str, *, fast_model: str | None = None
+    ) -> list[tuple[str, str]]:
         """Persiste a escolha no config.toml (nunca segredo, nunca meta)."""
         from gaia.config import model_env_override, save_agent_model
 
         messages: list[tuple[str, str]] = []
         config_file = Path(self.cfg.config_file).expanduser() if self.cfg.config_file else None
         try:
-            path = save_agent_model(provider, model, config_file)
+            path = save_agent_model(provider, model, config_file, fast_model=fast_model)
         except (OSError, ValueError) as exc:
             messages.append(("warning", f"não consegui salvar em config.toml: {exc}"))
             return messages

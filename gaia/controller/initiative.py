@@ -14,6 +14,12 @@ from gaia.briefing.compose import has_text, strip_tags
 from gaia.controller.contract import OrchestratorContract
 from gaia.controller.proactive import ReminderSpec, greeting_for, in_quiet_hours
 from gaia.controller.prompt import humor_directive
+from gaia.estudos.client import EstudosError
+from gaia.estudos.progresso import (
+    Resumo,
+    formatar_resumo,
+    resumo_semana,
+)
 from gaia.focus import RITUALS, principal_phase_today
 
 
@@ -109,6 +115,7 @@ class InitiativeMixin(OrchestratorContract):
                 if cfg.reminders:
                     await self._fire_due_reminders()
                 await self._check_agenda(now)
+                await self._check_estudos(now)
                 await self._check_task_page(now)
                 await self._check_focus(now)
                 if cfg.idle_checkin:
@@ -163,6 +170,50 @@ class InitiativeMixin(OrchestratorContract):
             self.logger.debug("agenda: %s", message)
             return
         await self._say_proactive(message)
+
+    async def _check_estudos(self, now: datetime) -> None:
+        """Cobra o estudo quando a meta da semana esta atrasada e o dia passou.
+
+        Uma vez por dia, so a partir de ``remind_at`` e apenas se ainda nao houve
+        simulado hoje. Respeita quiet hours/limites porque usa ``_say_proactive``.
+        """
+        cfg = self.cfg.estudos
+        if not cfg.enabled or not self.estudos.enabled or not cfg.remind_when_late:
+            return
+        if time.monotonic() < self._estudos_next_check:
+            return
+        self._estudos_next_check = time.monotonic() + max(5.0, cfg.poll_minutes * 60.0)
+        # So cobra nos dias de estudo (0=seg..6=dom; padrao dom/qua/sex/sab).
+        if now.weekday() not in cfg.study_days:
+            return
+        if now.strftime("%H:%M") < cfg.remind_at:
+            return
+        try:
+            results = await self.estudos.results()
+            goals = await self.estudos.goals()
+        except EstudosError as exc:
+            self.logger.warning("estudos: %s", exc)
+            return
+        resumo = resumo_semana(results, goals, now=now)
+        if resumo.estudou_hoje or not resumo.atrasado:
+            return
+        key = f"estudos:{now.date().isoformat()}"
+        if not self.store.claim_meta(key, "sending"):
+            return
+        message = self._estudos_reminder(resumo)
+        try:
+            await self._say_proactive(message)
+        except Exception:
+            self.store.delete_meta(key)
+            raise
+        self.store.set_meta(key, now.isoformat(timespec="seconds"))
+
+    def _estudos_reminder(self, resumo: Resumo) -> str:
+        if resumo.sessoes == 0:
+            base = "Hoje é dia de estudo e você ainda não fez nenhum simulado nesta semana."
+        else:
+            base = f"Hoje é dia de estudo e sua meta está atrasada: {formatar_resumo(resumo)}."
+        return base + " Bora treinar um pouco?"
 
     async def _check_task_page(self, now: datetime) -> None:
         cfg = self.cfg.agenda
