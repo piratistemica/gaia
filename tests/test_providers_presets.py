@@ -87,3 +87,94 @@ def _with_auth(preset, path):
     from dataclasses import replace
 
     return replace(preset, auth_file=(str(path),))
+
+
+# ------------------------------------------------------------------ atalhos
+def test_atalhos_nao_repetem_destino():
+    from gaia.agent.providers import SHORTCUTS
+
+    destinos = list(SHORTCUTS.values())
+    assert len(set(destinos)) == len(destinos)
+
+
+def test_atalho_cc_usa_o_ultimo_modelo_da_commandcode():
+    from gaia.agent.providers import resolve_shortcut
+
+    assert resolve_shortcut("cc", {"commandcode": "z-ai/glm-5.3-flash"}) == (
+        "commandcode",
+        "z-ai/glm-5.3-flash",
+    )
+
+
+def test_atalho_cc_sem_historico_cai_no_padrao_do_provedor():
+    from gaia.agent.providers import resolve_shortcut
+
+    assert resolve_shortcut("cc", {}) == ("commandcode", PRESETS["commandcode"].default_model)
+
+
+def test_atalho_ds_aponta_para_a_deepseek_direta():
+    from gaia.agent.providers import resolve_shortcut
+
+    assert resolve_shortcut("ds", {"commandcode": "qualquer"}) == ("deepseek", "deepseek-flash")
+
+
+def test_atalho_de_modelo_vence_o_provedor():
+    from gaia.agent.providers import resolve_shortcut
+
+    assert resolve_shortcut("glm", {"commandcode": "deepseek/deepseek-v4.1-flash"}) == (
+        "commandcode",
+        "z-ai/glm-5.3-flash",
+    )
+    assert resolve_shortcut("turbo", {}) == (
+        "commandcode",
+        "deepseek/deepseek-v4.1-flash-fast",
+    )
+
+
+def test_atalho_desconhecido_nao_resolve():
+    from gaia.agent.providers import resolve_shortcut
+
+    assert resolve_shortcut("nada", {}) is None
+    assert resolve_shortcut("  ", {}) is None
+
+
+# ------------------------------------------------- modelo rapido por provedor
+def test_cada_preset_declara_seu_modelo_rapido():
+    assert PRESETS["commandcode"].fast_model == "deepseek/deepseek-v4.1-flash-fast"
+    # A API direta da DeepSeek so tem deepseek-flash (V4.1 Flash) e v4-pro:
+    # nao ha variante "fast" la, entao o rapido e o proprio V4.1 Flash.
+    assert PRESETS["deepseek"].fast_model == "deepseek-flash"
+
+
+def test_modelo_rapido_de_outro_provedor_e_ignorado():
+    from gaia.agent.providers import fast_model_ref
+
+    # Estale do provedor anterior: volta o rapido do proprio preset, nunca o id
+    # de outro provedor (a API direta da DeepSeek nao conhece esse nome).
+    assert (
+        fast_model_ref("deepseek", "commandcode/deepseek/deepseek-v4.1-flash-fast").model_id
+        == "deepseek-flash"
+    )
+    assert (
+        fast_model_ref("commandcode", "deepseek/deepseek-flash").model_id
+        == "deepseek/deepseek-v4.1-flash-fast"
+    )
+
+
+def test_modelo_rapido_do_provedor_atual_vale():
+    from gaia.agent.providers import fast_model_ref
+
+    assert fast_model_ref("deepseek", "deepseek-flash").model_id == "deepseek-flash"
+    assert (
+        fast_model_ref("commandcode", "deepseek/deepseek-v4.1-flash-fast").model_id
+        == "deepseek/deepseek-v4.1-flash-fast"
+    )
+    # O prefixo do proprio provedor e removido: o request leva so o id do modelo.
+    assert fast_model_ref("deepseek", "deepseek/deepseek-flash").model_id == "deepseek-flash"
+    # Gateway aceita o id inteiro do modelo vendido por ele.
+    assert (
+        fast_model_ref("commandcode", "commandcode/z-ai/glm-5.3-flash").model_id
+        == "z-ai/glm-5.3-flash"
+    )
+    # Sem valor explicito, vale o rapido do preset (V4.1 Flash da direta).
+    assert fast_model_ref("deepseek", "").model_id == "deepseek-flash"

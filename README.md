@@ -77,8 +77,9 @@ gaia                 # abre a interface
 Chaves de API vão em `~/.config/gaia/.env` (ou no ambiente), nunca no TOML:
 
 ```bash
-GAIA_AGENT_API_KEY=...          # vale para qualquer provedor
-# ou as nativas: DEEPSEEK_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY
+GAIA_AGENT_API_KEY=...          # vale para o provedor configurado
+# ou a nativa do provedor: COMMAND_CODE_API_KEY, DEEPSEEK_API_KEY,
+# OPENAI_API_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY
 ```
 
 As variáveis conhecidas estão em `.env.example`, comentadas uma a uma.
@@ -87,23 +88,38 @@ As variáveis conhecidas estão em `.env.example`, comentadas uma a uma.
 
 ```toml
 [agent]
-# Presets: deepseek | openai | openrouter | ollama | anthropic |
-# commandcode | commandcode-anthropic | opencode | groq | mistral | xai | custom
-provider = "deepseek"
-model = "deepseek-flash"
+# Presets: commandcode | deepseek | openai | openrouter | ollama | anthropic |
+# opencode | groq | mistral | xai | custom
+provider = "commandcode"
+model = "deepseek/deepseek-v4.1-flash"
 base_url = ""             # obrigatório apenas em "custom"
 ```
 
-A Command Code funciona como um provedor a mais: `provider = "commandcode"`
-usa a Provider API dela (modelos DeepSeek/GPT/GLM…) e reaproveita a chave do
-`cmd` CLI em `~/.commandcode/auth.json` — normalmente nem precisa colar chave.
-Para os modelos Claude dela, use `provider = "commandcode-anthropic"` (mesma
-chave, wire Anthropic). Requer plano com acesso à Provider API.
+O padrão é a **Command Code**, que é um gateway e por isso é o jeito fácil de
+alternar: um provedor, todos os modelos. A chave vem do `cmd` CLI
+(`~/.commandcode/auth.json`) ou de `COMMAND_CODE_API_KEY` — normalmente nem
+precisa colar nada. Para os modelos Claude dela, use
+`provider = "commandcode-anthropic"` (mesma chave, wire Anthropic). Requer
+plano com acesso à Provider API.
 
-Para trocar sem editar nada: `/modelo` lista os modelos dos provedores que têm
-chave, `/modelo 3` ou `/modelo openai/gpt-4o` troca na hora, `F6` abre o
-seletor. A escolha é salva no `config.toml` (com `.bak`) e vale no turno
-seguinte. `GAIA_AGENT_PROVIDER` e `GAIA_AGENT_MODEL` no ambiente têm prioridade.
+| Atalho | Vai para | Consulta a rede? |
+|---|---|---|
+| `/modelo cc` | Command Code, com o último modelo usado lá | não |
+| `/modelo ds` | DeepSeek direta (`deepseek-flash`, o V4.1 Flash deles) | não |
+| `/modelo glm` | `commandcode/z-ai/glm-5.3-flash` | não |
+| `/modelo turbo` | `commandcode/deepseek/deepseek-v4.1-flash-fast` | não |
+| `/modelo zen` | OpenCode Zen, com o último modelo usado lá | não |
+
+Os atalhos saem de uma tabela local: trocam na hora, sem `GET /models`. Cada
+provedor lembra o último modelo usado nele, então `cc → ds → cc` volta para
+onde você estava. `/modelo` sem argumento mostra os atalhos e a lista ao vivo;
+`/modelo 3` e `/modelo openai/gpt-4o` também funcionam, e `F6` abre o seletor.
+A escolha é salva no `config.toml` (com `.bak`) e vale no turno seguinte.
+`GAIA_AGENT_PROVIDER` e `GAIA_AGENT_MODEL` no ambiente têm prioridade.
+
+O `fast_model` (pedidos curtos) acompanha a troca: cada preset declara o seu.
+Um `fast_model` de outro provedor é descartado em vez de ir no request (era 400
+na DeepSeek direta).
 
 ## Interface
 

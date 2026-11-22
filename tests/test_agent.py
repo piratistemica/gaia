@@ -291,7 +291,7 @@ async def test_runtime_executa_ferramenta_e_responde(tmp_path, isolated_env):
             if type(event).__name__ in {"TurnCompleted", "TurnFailed"}:
                 break
 
-        assert provider.requests[0].model == "deepseek-flash"
+        assert provider.requests[0].model == "deepseek/deepseek-v4.1-flash"
         assert provider.requests[1].messages[-1].role == "tool"
         completed = events[-1]
         assert completed.text == "li o arquivo"
@@ -472,8 +472,8 @@ def test_health_usa_ping_do_provider(tmp_path, isolated_env):
         return await client.health()
 
     assert asyncio.run(run()) == {
-        "provider": "deepseek",
-        "model": "deepseek-flash",
+        "provider": "commandcode",
+        "model": "deepseek/deepseek-v4.1-flash",
         "models": None,
     }
 

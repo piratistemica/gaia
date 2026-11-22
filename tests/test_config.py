@@ -18,9 +18,9 @@ def test_defaults(isolated_env):
     cfg = Config.load(
         config_path=isolated_env / "missing.toml", env={"GAIA_DATA_DIR": str(isolated_env / "data")}
     )
-    assert cfg.agent.provider == "deepseek"
-    assert cfg.agent.model == "deepseek-flash"
-    assert cfg.agent.model_slug() == "deepseek/deepseek-flash"
+    assert cfg.agent.provider == "commandcode"
+    assert cfg.agent.model == "deepseek/deepseek-v4.1-flash"
+    assert cfg.agent.model_slug() == "commandcode/deepseek/deepseek-v4.1-flash"
     assert cfg.stt.language == "pt"
     assert cfg.stt.confirm_transcript is False
     assert cfg.audio.continuous is True
@@ -81,8 +81,8 @@ directory = "/tmp/proj"
         encoding="utf-8",
     )
     cfg = Config.load(config_path=config_path, env={"GAIA_DATA_DIR": str(isolated_env / "data")})
-    assert cfg.agent.provider == "deepseek"
-    assert cfg.agent.model == "deepseek-flash"
+    assert cfg.agent.provider == "commandcode"
+    assert cfg.agent.model == "deepseek/deepseek-v4.1-flash"
     assert cfg.agent.auto_approve is True
     assert cfg.agent.directory == "/tmp/proj"
 
@@ -92,6 +92,7 @@ def test_chave_do_ambiente_chega_ao_agente(isolated_env):
         config_path=isolated_env / "missing.toml",
         env={
             "GAIA_DATA_DIR": str(isolated_env / "data"),
+            "GAIA_AGENT_PROVIDER": "deepseek",
             "DEEPSEEK_API_KEY": "sk-teste",
         },
     )
@@ -148,13 +149,13 @@ def test_write_default_config(tmp_path):
     assert written == target
     text = written.read_text(encoding="utf-8")
     assert "[agent]" in text
-    assert "deepseek-flash" in text
+    assert "deepseek-v4.1-flash" in text
 
     written.write_text("# alterado\n", encoding="utf-8")
     write_default_config(target)
     assert written.read_text(encoding="utf-8") == "# alterado\n"
     write_default_config(target, force=True)
-    assert "deepseek-flash" in written.read_text(encoding="utf-8")
+    assert "deepseek-v4.1-flash" in written.read_text(encoding="utf-8")
 
 
 def test_save_agent_model_preserva_comentarios_e_faz_backup(tmp_path):
@@ -204,7 +205,8 @@ def test_save_agent_model_adiciona_secao_quando_falta(tmp_path):
     assert data["tts"]["provider"] == "say"
 
     cfg = Config.load(config_path=target, env={"GAIA_DATA_DIR": str(tmp_path / "data")})
-    assert cfg.agent.model_slug() == "deepseek/deepseek-flash"
+    # Ao carregar, o par antigo (API direta) migra para a Command Code.
+    assert cfg.agent.model_slug() == "commandcode/deepseek/deepseek-v4.1-flash"
 
 
 def test_save_agent_model_exige_provider_e_model(tmp_path):
@@ -282,3 +284,97 @@ def test_template_padrao_traz_a_secao_serve(tmp_path):
     assert cfg.serve.host == "127.0.0.1"
     assert cfg.serve.port == 8787
     assert "enabled = false" in target.read_text(encoding="utf-8")
+
+
+def test_padrao_e_a_commandcode(isolated_env):
+    cfg = Config.load(
+        config_path=isolated_env / "missing.toml", env={"GAIA_DATA_DIR": str(isolated_env / "data")}
+    )
+    assert cfg.agent.provider == "commandcode"
+    assert cfg.agent.model == "deepseek/deepseek-v4.1-flash"
+    assert cfg.agent.fast_model == "deepseek/deepseek-v4.1-flash-fast"
+    assert cfg.agent.model_slug() == "commandcode/deepseek/deepseek-v4.1-flash"
+
+
+def test_chave_de_outro_provedor_nao_vai_para_o_agente(isolated_env):
+    cfg = Config.load(
+        config_path=isolated_env / "missing.toml",
+        env={
+            "GAIA_DATA_DIR": str(isolated_env / "data"),
+            "GAIA_AGENT_PROVIDER": "commandcode",
+            "DEEPSEEK_API_KEY": "sk-da-deepseek",
+        },
+    )
+    # Mandar a chave da DeepSeek no header da Command Code dava 401.
+    assert cfg.agent.api_key == ""
+
+
+def test_chave_do_provedor_configurado_chega_ao_agente(isolated_env):
+    cfg = Config.load(
+        config_path=isolated_env / "missing.toml",
+        env={
+            "GAIA_DATA_DIR": str(isolated_env / "data"),
+            "GAIA_AGENT_PROVIDER": "commandcode",
+            "COMMAND_CODE_API_KEY": "sk-da-commandcode",
+            "DEEPSEEK_API_KEY": "sk-da-deepseek",
+        },
+    )
+    assert cfg.agent.api_key == "sk-da-commandcode"
+
+
+def test_escolha_da_deepseek_direta_sobrevive_ao_reload(isolated_env):
+    """`/modelo ds` grava provider=deepseek; a migracao nao pode desfazer."""
+    config_path = isolated_env / "config.toml"
+    save_agent_model("deepseek", "deepseek-flash", config_path, fast_model="deepseek-flash")
+
+    cfg = Config.load(
+        config_path=config_path, env={"GAIA_DATA_DIR": str(isolated_env / "data")}
+    )
+
+    assert cfg.agent.provider == "deepseek"
+    assert cfg.agent.model == "deepseek-flash"
+
+
+def test_migracao_de_config_antiga_acontece_uma_vez(isolated_env):
+    config_path = isolated_env / "config.toml"
+    config_path.write_text('[agent]\nprovider = "deepseek"\nmodel = "deepseek-flash"\n')
+
+    primeira = Config.load(
+        config_path=config_path, env={"GAIA_DATA_DIR": str(isolated_env / "data")}
+    )
+    assert primeira.agent.provider == "commandcode"
+
+    # Depois de escolher a direta, a config volta a valer como escrita.
+    save_agent_model("deepseek", "deepseek-flash", config_path, fast_model="deepseek-flash")
+    segunda = Config.load(
+        config_path=config_path, env={"GAIA_DATA_DIR": str(isolated_env / "data")}
+    )
+    assert segunda.agent.provider == "deepseek"
+
+
+def test_config_legada_aponta_para_a_commandcode(isolated_env):
+    config_path = isolated_env / "legacy.toml"
+    config_path.write_text(
+        '[agent]\nmodel = "deepseek/deepseek-flash"\n',
+        encoding="utf-8",
+    )
+    cfg = Config.load(
+        config_path=config_path, env={"GAIA_DATA_DIR": str(isolated_env / "data")}
+    )
+    assert cfg.agent.provider == "commandcode"
+    assert cfg.agent.model == "deepseek/deepseek-v4.1-flash"
+
+
+def test_save_agent_model_grava_o_modelo_rapido(tmp_path):
+    target = tmp_path / "config.toml"
+    target.write_text(
+        '[agent]\nprovider = "commandcode"\nmodel = "m"\nfast_model = "f"\n',
+        encoding="utf-8",
+    )
+
+    saved = save_agent_model("deepseek", "deepseek-flash", target, fast_model="deepseek-flash")
+
+    text = saved.read_text(encoding="utf-8")
+    assert 'provider = "deepseek"' in text
+    assert 'model = "deepseek-flash"' in text
+    assert 'fast_model = "deepseek-flash"' in text

@@ -26,6 +26,11 @@ class Preset:
     # Presets que aparecem sempre no catalogo, mesmo sem chave propria, porque
     # a credencial pode estar num arquivo (e nao no ambiente).
     ambient: bool = False
+    # Modelo usado ao entrar no preset pelo atalho (ex.: `/modelo cc`).
+    default_model: str = ""
+    # Modelo pequeno do preset, para pedidos curtos. Fica vazio nos presets
+    # que nao tem um id mais barato: repetir o principal nao economiza nada.
+    fast_model: str = ""
 
 
 PRESETS: dict[str, Preset] = {
@@ -33,6 +38,10 @@ PRESETS: dict[str, Preset] = {
         api="openai",
         base_url="https://api.deepseek.com/v1",
         env_keys=("DEEPSEEK_API_KEY",),
+        # A direta so expoe deepseek-flash (DeepSeek-V4.1-Flash) e v4-pro. Nao
+        # ha variante "fast": o rapido e o proprio V4.1 Flash.
+        default_model="deepseek-flash",
+        fast_model="deepseek-flash",
     ),
     "openai": Preset(
         api="openai",
@@ -62,6 +71,8 @@ PRESETS: dict[str, Preset] = {
         auth_file=("~/.commandcode/auth.json",),
         auth_key_path=("apiKey",),
         ambient=True,
+        default_model="deepseek/deepseek-v4.1-flash",
+        fast_model="deepseek/deepseek-v4.1-flash-fast",
     ),
     # Command Code no wire Anthropic (modelos Claude).
     "commandcode-anthropic": Preset(
@@ -71,6 +82,7 @@ PRESETS: dict[str, Preset] = {
         auth_file=("~/.commandcode/auth.json",),
         auth_key_path=("apiKey",),
         ambient=True,
+        default_model="claude-haiku-4-5-20251001",
     ),
     # OpenCode Zen (gateway compativel com OpenAI).
     "opencode": Preset(
@@ -117,6 +129,66 @@ PUBLIC_PROVIDERS = tuple(PRESETS)
 def normalize_provider(value: str) -> str:
     name = (value or "").strip().lower()
     return ALIASES.get(name, name)
+
+
+# Atalhos do `/modelo`: um destino por apelido, sem consultar a rede. O valor
+# e `("provedor", "modelo")`; modelo vazio = o ultimo usado naquele provedor
+# (ou o padrao do preset). `tests/test_providers_presets.py` falha se dois
+# atalhos apontarem para o mesmo destino.
+SHORTCUTS: dict[str, tuple[str, str]] = {
+    "cc": ("commandcode", ""),
+    "ds": ("deepseek", "deepseek-flash"),
+    "zen": ("opencode", ""),
+    "glm": ("commandcode", "z-ai/glm-5.3-flash"),
+    "turbo": ("commandcode", "deepseek/deepseek-v4.1-flash-fast"),
+}
+
+
+def resolve_shortcut(
+    value: str, last_models: dict[str, str] | None = None
+) -> tuple[str, str] | None:
+    """Traduz o atalho (`cc`, `ds`, `glm`...) em (provedor, modelo).
+
+    `last_models` guarda o ultimo modelo usado por provedor: voltar para a
+    Command Code recoloca o modelo que estava ativo la, nao o padrao. Sem
+    historico nem padrao no preset, devolve None (nada a sugerir).
+    """
+    name = (value or "").strip().lower()
+    target = SHORTCUTS.get(name)
+    if target is None:
+        return None
+    provider, model = target
+    if model:
+        return provider, model
+    remembered = (last_models or {}).get(provider, "").strip()
+    if remembered:
+        return provider, remembered
+    preset = PRESETS.get(provider)
+    default = preset.default_model.strip() if preset else ""
+    return (provider, default) if default else None
+
+
+def fast_model_ref(provider: str, value: str = ""):
+    """Modelo rapido da config, mas so se ele pertencer ao provedor atual.
+
+    `fast_model` fica gravado no config e sobrevive a troca de provedor. Mandar
+    o id da Command Code para a API direta da DeepSeek dava 400, entao um valor
+    de OUTRO provedor e descartado e vale o rapido declarado no preset. Sem
+    valor, tambem vale o preset (vazio = pedido curto no modelo principal).
+    """
+    from gaia.agent.types import ModelRef
+
+    name = normalize_provider(provider)
+    raw = (value or "").strip()
+    owner, separador, rest = raw.partition("/")
+    if separador and normalize_provider(owner) == name:
+        raw = rest
+    elif separador:
+        raw = ""
+    if not raw:
+        preset = PRESETS.get(name)
+        raw = preset.fast_model.strip() if preset else ""
+    return ModelRef(provider_id=name, model_id=raw) if raw else None
 
 
 def _key_from_auth_file(preset: Preset) -> str:

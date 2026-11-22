@@ -13,16 +13,20 @@ from gaia.agent.providers.base import (
 from gaia.agent.providers.factory import (
     PRESETS,
     PUBLIC_PROVIDERS,
+    SHORTCUTS,
     build_provider,
     describe_provider,
+    fast_model_ref,
     normalize_provider,
     preset_api_key,
     resolve_api_key,
+    resolve_shortcut,
 )
 
 __all__ = [
     "PRESETS",
     "PUBLIC_PROVIDERS",
+    "SHORTCUTS",
     "ChatRequest",
     "Delta",
     "Finish",
@@ -35,7 +39,9 @@ __all__ = [
     "UsageDelta",
     "build_provider",
     "describe_provider",
+    "fast_model_ref",
     "normalize_provider",
     "preset_api_key",
     "resolve_api_key",
+    "resolve_shortcut",
 ]

@@ -1018,7 +1018,7 @@ async def test_modelo_por_numero_fora_da_lista_avisa(orch, monkeypatch):
 
     assert responses[0][0] == "warning"
     assert "fora da lista" in responses[0][1]
-    assert orch.cfg.agent.model == "deepseek-flash"
+    assert orch.cfg.agent.model == "deepseek/deepseek-v4.1-flash"
 
 
 @pytest.mark.asyncio
@@ -1066,7 +1066,7 @@ async def test_modelo_id_desconhecido_cai_no_provedor_atual(orch, monkeypatch):
 
     await orch.model_messages("modelo-novo")
 
-    assert orch.cfg.agent.provider == "deepseek"
+    assert orch.cfg.agent.provider == "commandcode"
     assert orch.cfg.agent.model == "modelo-novo"
 
 
@@ -1075,7 +1075,7 @@ async def test_modelo_slug_invalido_vira_erro(orch):
     responses = await orch.model_messages("sem-modelo/")
 
     assert responses[0][0] == "error"
-    assert orch.cfg.agent.model == "deepseek-flash"
+    assert orch.cfg.agent.model == "deepseek/deepseek-v4.1-flash"
 
 
 @pytest.mark.asyncio

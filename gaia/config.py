@@ -32,9 +32,11 @@ class AgentConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    # deepseek | openai | openrouter | ollama | anthropic | custom
-    provider: str = "deepseek"
-    model: str = "deepseek-flash"
+    # Presets: commandcode | deepseek | openai | openrouter | ollama | anthropic
+    # | opencode | groq | mistral | xai | custom. `/modelo cc` = Command Code,
+    # `/modelo ds` = DeepSeek direta (V4.1 Flash).
+    provider: str = "commandcode"
+    model: str = "deepseek/deepseek-v4.1-flash"
     # Vazio => usa o endpoint padrao do provider.
     base_url: str = ""
     # Segredo: prefira GAIA_AGENT_API_KEY no ambiente/.env.
@@ -53,7 +55,8 @@ class AgentConfig(BaseModel):
     tools: bool = True
     allow_outside_project: bool = True
     # Modelo pequeno para pedidos curtos (vazio = sempre o modelo principal).
-    fast_model: str = ""
+    # Vale so dentro do provedor atual: id de outro provedor e descartado.
+    fast_model: str = "deepseek/deepseek-v4.1-flash-fast"
     # Marca o prefixo estavel do prompt para cache (Anthropic).
     cache_prompt: bool = True
     # Depois desse numero de mensagens, o historico antigo vira um resumo.
@@ -801,24 +804,83 @@ _LEGACY_ENV_MAP: dict[str, str] = {
 }
 
 # Modelos do catalogo antigo que nao existem na API direta da DeepSeek.
-_PROVIDER_API_KEYS: dict[str, str] = {
-    "deepseek": "DEEPSEEK_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "claude": "ANTHROPIC_API_KEY",
-    "commandcode": "COMMAND_CODE_API_KEY",
-    "commandcode-anthropic": "COMMAND_CODE_API_KEY",
-    "opencode": "OPENCODE_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "xai": "XAI_API_KEY",
+# Chaves de API de cada provedor, na ordem em que sao procuradas no ambiente.
+# A chave so serve ao SEU provedor: usar a lista inteira mandava o token da
+# DeepSeek no header da Command Code (401 em todo turno).
+_PROVIDER_API_KEYS: dict[str, tuple[str, ...]] = {
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "claude": ("ANTHROPIC_API_KEY",),
+    "commandcode": ("COMMAND_CODE_API_KEY", "COMMANDCODE_API_KEY"),
+    "commandcode-anthropic": ("COMMAND_CODE_API_KEY", "COMMANDCODE_API_KEY"),
+    "opencode": ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"),
+    "groq": ("GROQ_API_KEY",),
+    "mistral": ("MISTRAL_API_KEY",),
+    "xai": ("XAI_API_KEY",),
 }
 
+
+def _preset_fast_model(provider: str) -> str:
+    """Modelo rapido declarado no preset (import tardio: ciclo config/agent)."""
+    from gaia.agent.providers import PRESETS, normalize_provider
+
+    preset = PRESETS.get(normalize_provider(provider))
+    return preset.fast_model if preset else ""
+
+
+def _provider_env_keys(provider: str) -> tuple[str, ...]:
+    """Nomes de variavel de ambiente que pertencem ao provedor.
+
+    Import tardio de proposito: ``gaia.agent`` importa este modulo, entao um
+    import no topo fecharia o ciclo config -> agent -> config.
+    """
+    from gaia.agent.providers import normalize_provider
+
+    name = normalize_provider(provider)
+    return _PROVIDER_API_KEYS.get(name, _PROVIDER_API_KEYS.get(provider, ()))
+
 _LEGACY_MODEL_ALIASES: dict[str, tuple[str, str]] = {
-    "deepseek/deepseek-flash": ("deepseek", "deepseek-flash"),
-    "deepseek/deepseek-v4.1-flash": ("deepseek", "deepseek-flash"),
+    "deepseek/deepseek-flash": ("commandcode", "deepseek/deepseek-v4.1-flash"),
+    "deepseek/deepseek-v4.1-flash": ("commandcode", "deepseek/deepseek-v4.1-flash"),
 }
+
+
+def _migrate_legacy_model(raw: dict[str, Any]) -> None:
+    """Traduz ``agent.provider``/``agent.model`` antigos para o padrao atual.
+
+    Config escrita antes da Command Code guarda ``provider = "deepseek"`` e um
+    id que a API direta batiza de outra forma (``deepseek-flash`` = V4.1
+    Flash). Sem a traducao, quem atualiza o codigo continua preso na API
+    quebrada por saldo mesmo com a Command Code configurada.
+    """
+    agent = raw.get("agent")
+    if not isinstance(agent, dict):
+        return
+    # `fast_model` preenchido = config ja passou por um `/modelo`; ali a
+    # escolha e do usuario e nao se mexe (senao `/modelo ds` voltaria para a
+    # Command Code no proximo boot).
+    if str(agent.get("fast_model") or "").strip():
+        return
+    provider = str(agent.get("provider") or "").strip()
+    model = str(agent.get("model") or "").strip()
+    if not provider and not model:
+        return
+    slug = f"{provider}/{model}" if provider and model else model
+    alias = _LEGACY_MODEL_ALIASES.get(slug)
+    if alias is None and provider == "deepseek" and model:
+        # Id da API direta: o V4.1 Flash dela se chama ``deepseek-flash``.
+        alias = ("commandcode", "deepseek/deepseek-v4.1-flash")
+    if alias is None:
+        return
+    agent["provider"] = alias[0]
+    agent["model"] = alias[1]
+    # Marca a migracao: sem isso um config que continua sem `fast_model` seria
+    # traduzido de novo a cada boot.
+    preset = _preset_fast_model(alias[0])
+    if preset:
+        agent["fast_model"] = preset
 
 
 def _migrate_legacy_config(raw: dict[str, Any]) -> None:
@@ -881,25 +943,12 @@ def _apply_env(raw: dict[str, Any], env: dict[str, str]) -> None:
                     agent[field] = value
 
     # A chave lida do .env precisa chegar ao agente: `resolve_api_key` consulta
-    # o ambiente do processo, mas o .env e carregado numa copia local.
+    # o ambiente do processo, mas o .env e carregado numa copia local. A chave
+    # e escolhida PELO PROVEDOR CONFIGURADO: varrer todos os nomes mandava a
+    # DEEPSEEK_API_KEY no header da Command Code e o turno morria em 401.
     if isinstance(agent, dict) and not str(agent.get("api_key") or "").strip():
-        provider = str(agent.get("provider") or "deepseek").strip().lower()
-        provider_key = _PROVIDER_API_KEYS.get(provider, "")
-        for key in (
-            "GAIA_AGENT_API_KEY",
-            provider_key,
-            "DEEPSEEK_API_KEY",
-            "OPENAI_API_KEY",
-            "OPENROUTER_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "COMMAND_CODE_API_KEY",
-            "COMMANDCODE_API_KEY",
-            "OPENCODE_API_KEY",
-            "OPENCODE_ZEN_API_KEY",
-            "GROQ_API_KEY",
-            "MISTRAL_API_KEY",
-            "XAI_API_KEY",
-        ):
+        provider = str(agent.get("provider") or "commandcode")
+        for key in ("GAIA_AGENT_API_KEY", *_provider_env_keys(provider)):
             if key and env.get(key):
                 agent["api_key"] = env[key]
                 break
@@ -913,11 +962,11 @@ _DEFAULT_CONFIG_TEMPLATE = """\
 
 [agent]
 # Trocar de provedor: rode /modelo (lista ao vivo + escolha numerada).
-# Presets: deepseek | openai | openrouter | ollama | anthropic |
-#          commandcode | commandcode-anthropic | opencode | groq | mistral |
-#          xai | custom (qualquer um com base_url proprio)
-provider = "deepseek"
-model = "deepseek-flash"
+# Presets: commandcode | deepseek | openai | openrouter | ollama | anthropic |
+#          opencode | groq | mistral | xai | custom (qualquer um com base_url)
+# Atalhos do /modelo: cc = Command Code, ds = DeepSeek direta, glm, turbo.
+provider = "commandcode"
+model = "deepseek/deepseek-v4.1-flash"
 # Vazio = endpoint padrao do provider.
 base_url = ""
 # Diretorio de trabalho (vazio = diretorio atual).
@@ -932,7 +981,8 @@ auto_approve = false
 tools = true
 allow_outside_project = true
 # Modelo pequeno para pedidos curtos (vazio = sempre o principal).
-fast_model = ""
+# Vale so dentro do provedor atual: id de outro provedor e descartado.
+fast_model = "deepseek/deepseek-v4.1-flash-fast"
 # Cacheia o prefixo estavel do prompt (persona + preferencias).
 cache_prompt = true
 # Depois disso o historico antigo vira um resumo compacto.
@@ -1183,15 +1233,21 @@ def save_agent_model(
     provider: str,
     model: str,
     path: Path | None = None,
+    *,
+    fast_model: str | None = None,
 ) -> Path:
     """Grava ``agent.provider``/``agent.model`` no TOML preservando o resto.
 
     Edicao linha a linha de proposito: o arquivo tem comentarios explicativos
-    que um dump de TOML destruiria. Uma copia ``.bak`` fica ao lado.
+    que um dump de TOML destruiria. Uma copia ``.bak`` fica ao lado. Com
+    ``fast_model`` explicito, ``agent.fast_model`` acompanha a troca de
+    provedor (o valor antigo pertence ao provedor anterior); ``None`` deixa
+    como esta.
     """
     target = Path(path or Config.default_config_path()).expanduser()
     provider = (provider or "").strip()
     model = (model or "").strip()
+    fast = None if fast_model is None else (fast_model or "").strip()
     if not provider or not model:
         raise ValueError("provider e model são obrigatórios")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -1208,10 +1264,15 @@ def save_agent_model(
         if lines and lines[-1].strip():
             lines.append("")
         lines.extend(["[agent]", f'provider = "{provider}"', f'model = "{model}"'])
+        if fast is not None:
+            lines.append(f'fast_model = "{fast}"')
     else:
         start, end = bounds
+        alvo: list[tuple[str, str]] = [("provider", provider), ("model", model)]
+        if fast is not None:
+            alvo.append(("fast_model", fast))
         missing: list[tuple[str, str]] = []
-        for key, value in (("provider", provider), ("model", model)):
+        for key, value in alvo:
             if not _replace_agent_key(lines, key, value, start, end):
                 missing.append((key, value))
         if missing:

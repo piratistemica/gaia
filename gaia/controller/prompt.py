@@ -193,16 +193,19 @@ def compose_system(
 
 
 def route_model(text: str, fast_model: str, provider: str) -> ModelRef | None:
-    """Escolhe o modelo pequeno apenas para pedidos curtos e simples."""
-    value = (fast_model or "").strip()
-    if not value:
-        return None
+    """Escolhe o modelo pequeno apenas para pedidos curtos e simples.
+
+    O ``fast_model`` vem da config e pode pertencer a outro provedor (o valor
+    sobrevive a troca); ``fast_model_ref`` descarta esse caso e usa o rapido
+    do preset atual, em vez de mandar o id errado para o endpoint. Sem
+    ``fast_model`` nem rapido no preset, devolve ``None`` (modelo principal).
+    """
+    from gaia.agent.providers import fast_model_ref
+
     if len((text or "").split()) > 14:
         return None
     if HEAVY_TASK_HINTS.search(text or ""):
         return None
     if not FAST_TASK_HINTS.search(text or ""):
         return None
-    if "/" in value:
-        return ModelRef.parse(value)
-    return ModelRef(provider_id=provider, model_id=value)
+    return fast_model_ref(provider, fast_model)
