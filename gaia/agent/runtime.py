@@ -19,6 +19,7 @@ from typing import Any
 from gaia.agent.errors import AgentCancelled, AgentError, ToolError
 from gaia.agent.events import (
     Event,
+    ModelFallback,
     PermissionAsked,
     ToolFinished,
     ToolStarted,
@@ -119,6 +120,84 @@ class AgentClient:
             )
         self._provider = build_provider(self.cfg.agent)
         return self._provider
+
+    # ------------------------------------------------------------- fallback
+    @staticmethod
+    def _fallback_allowed(exc: BaseException) -> bool:
+        """So credencial recusada troca de modelo (401/402/403).
+
+        Erro de rede, 429 e 5xx nao: insistir noutro provedor so multiplica a
+        falha e esconde o problema real.
+        """
+        codigo = getattr(exc, "status_code", None)
+        return codigo in {401, 402, 403}
+
+    def _fallback_provider(self, slug: str) -> tuple[Provider, ModelRef] | None:
+        alvo = ModelRef.parse(slug)
+        if not alvo or not alvo.provider_id or not alvo.model_id:
+            return None
+        parcial = self.cfg.agent.model_copy(
+            update={
+                "provider": alvo.provider_id,
+                "model": alvo.model_id,
+                # A chave generica pertence ao provedor do config; o
+                # alternativo usa a propria (preset/env) ou o arquivo do CLI.
+                "api_key": "",
+                "base_url": "",
+            }
+        )
+        try:
+            return build_provider(parcial), alvo
+        except Exception as exc:  # pragma: no cover - alternativo mal configurado
+            self._logger.warning("fallback %s indisponivel: %s", slug, exc)
+            return None
+
+    async def _stream_with_fallback(
+        self,
+        request: ChatRequest,
+        emit: Callable[[Event], None],
+        *,
+        offered: list[str] | None = None,
+    ):
+        """Stream do provedor atual; em 401/402/403 tenta o alternativo UMA vez.
+
+        Emite ``ModelFallback`` para o painel saber que aquele turno nao usou o
+        modelo configurado. O config nao muda: o fallback vale so este turno.
+        """
+        provider = self._ensure_provider()
+        try:
+            async for delta in provider.stream(request):
+                yield delta
+            return
+        except ProviderError as exc:
+            if not self._fallback_allowed(exc):
+                raise
+            for slug in offered or list(self.cfg.agent.fallback_models):
+                escolhido = self._fallback_provider(slug)
+                if escolhido is None:
+                    continue
+                alternativo, alvo = escolhido
+                emit(
+                    ModelFallback(
+                        from_slug=self.cfg.agent.model_slug(),
+                        to_slug=slug,
+                        reason=str(exc),
+                        status_code=int(exc.status_code or 0),
+                    )
+                )
+                request.model = alvo.model_id
+                try:
+                    async for delta in alternativo.stream(request):
+                        yield delta
+                finally:
+                    fechar = getattr(alternativo, "aclose", None)
+                    if callable(fechar):
+                        try:
+                            await fechar()
+                        except Exception:  # pragma: no cover
+                            pass
+                return
+            raise
 
     async def ensure_ready(self) -> None:
         """Valida a configuracao e prepara o provedor (sem chamada de rede)."""
@@ -503,10 +582,12 @@ class AgentClient:
             temperature=0.2,
             max_tokens=900,
         )
-        provider = self._ensure_provider()
+        self._ensure_provider()
         text_parts: list[str] = []
         usage = Usage()
-        async for delta in provider.stream(request):
+        async for delta in self._stream_with_fallback(
+            request, lambda _event: None
+        ):
             if isinstance(delta, TextDelta):
                 text_parts.append(delta.text)
             elif isinstance(delta, UsageDelta):
@@ -558,7 +639,7 @@ class AgentClient:
                 allowed = set(tool_names)
                 specs = [spec for spec in specs if spec.get("name") in allowed]
             reasoning_all: list[str] = []
-            provider = self._ensure_provider()
+            self._ensure_provider()
             for step in range(self.cfg.agent.max_steps + 1):
                 if session.cancel.is_set():
                     raise AgentCancelled("turno interrompido")
@@ -582,7 +663,7 @@ class AgentClient:
                 text_parts: list[str] = []
                 reasoning_parts: list[str] = []
                 pending: dict[int, dict[str, str]] = {}
-                async for delta in provider.stream(request):
+                async for delta in self._stream_with_fallback(request, emit):
                     if session.cancel.is_set():
                         raise AgentCancelled("turno interrompido")
                     if isinstance(delta, TextDelta):

@@ -12,6 +12,7 @@ from typing import Any
 
 from gaia.agent.errors import AgentError
 from gaia.agent.events import (
+    ModelFallback,
     PermissionAsked,
     ReasoningDelta,
     TextDelta,
@@ -477,6 +478,20 @@ class TurnMixin(OrchestratorContract):
                     raise AgentError(event.message)
                 elif isinstance(event, TurnCancelled):
                     break
+                elif isinstance(event, ModelFallback):
+                    # O turno seguiu noutro modelo por credencial recusada. A
+                    # pessoa precisa saber: a resposta nao veio do modelo que
+                    # ela configurou, e o problema (saldo/chave) continua la.
+                    self.logger.warning(
+                        "fallback de modelo: %s -> %s (%s)",
+                        event.from_slug,
+                        event.to_slug,
+                        event.reason,
+                    )
+                    self.ui.warning(
+                        f"modelo {event.from_slug} recusou a credencial "
+                        f"({event.status_code}); seguindo com {event.to_slug}"
+                    )
         finally:
             for chunk in self._flush_display():
                 if not wrote_stream:

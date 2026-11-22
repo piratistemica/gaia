@@ -74,6 +74,20 @@ class TurnCancelled(AgentEvent):
     pass
 
 
+@dataclass
+class ModelFallback(AgentEvent):
+    """O provedor recusou a credencial e o turno seguiu no alternativo.
+
+    Emitido uma vez por troca; a UI mostra que aquele turno nao usou o modelo
+    configurado. O modelo ativo no config NAO muda (o fallback e por turno).
+    """
+
+    from_slug: str = ""
+    to_slug: str = ""
+    reason: str = ""
+    status_code: int = 0
+
+
 Event = (
     TurnStarted
     | TextDelta
@@ -84,4 +98,5 @@ Event = (
     | TurnCompleted
     | TurnFailed
     | TurnCancelled
+    | ModelFallback
 )
