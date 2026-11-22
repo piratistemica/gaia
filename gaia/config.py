@@ -74,6 +74,10 @@ class AgentConfig(BaseModel):
     history_summary: str = "local"
     # Modelo do resumo (vazio = modelo principal).
     history_summary_model: str = ""
+    # Cadeia curta de fallback: usada SO quando o provedor recusa a credencial
+    # (401/402/403, ex.: sem saldo). Nao e retry de rede. Cada item e
+    # ``provider/model``; o modelo ativo no config nao muda.
+    fallback_models: list[str] = Field(default_factory=list)
 
     def model_slug(self) -> str:
         return f"{self.provider}/{self.model}"
