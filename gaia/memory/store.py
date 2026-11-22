@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 # Versao atual do schema. Incremente ao adicionar novas migracoes em _migrate.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # v5: conversas separadas por canal (cli, telegram, whatsapp).
 DEFAULT_CHANNEL = "cli"
@@ -97,6 +97,31 @@ class MemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_reminders_due
                     ON reminders(spoken, cancelled, due_at);
+
+                -- v6: historico de execucao das rotinas/skills (Control Center).
+                -- O agendador continua sendo o dos workers; esta tabela so
+                -- registra o que de fato executou ("iniciou" nao e sucesso).
+                CREATE TABLE IF NOT EXISTS runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT NOT NULL,
+                    automation TEXT NOT NULL DEFAULT '',
+                    trigger TEXT NOT NULL DEFAULT 'schedule',
+                    status TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    duration_ms INTEGER,
+                    delivery TEXT NOT NULL DEFAULT '',
+                    detail TEXT NOT NULL DEFAULT '',
+                    error TEXT NOT NULL DEFAULT '',
+                    error_kind TEXT NOT NULL DEFAULT '',
+                    attempt INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE INDEX IF NOT EXISTS idx_runs_started
+                    ON runs(started_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_runs_kind
+                    ON runs(kind, started_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_runs_status
+                    ON runs(status, started_at DESC);
                 """
             )
             self._migrate()
@@ -524,6 +549,148 @@ class MemoryStore:
             row = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
 
+    # ------------------------------------------------------------------ runs
+    def begin_run(
+        self,
+        *,
+        kind: str,
+        automation: str = "",
+        trigger: str = "schedule",
+        delivery: str = "",
+        attempt: int = 1,
+    ) -> int:
+        """Abre uma execucao e devolve o id. Chamar so quando de fato executa."""
+        started = _now()
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO runs
+                    (kind, automation, trigger, status, started_at,
+                     delivery, attempt)
+                VALUES (?, ?, ?, 'running', ?, ?, ?)
+                """,
+                (kind, automation, trigger, started, delivery, int(attempt)),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def finish_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        detail: str = "",
+        error: str = "",
+        error_kind: str = "",
+    ) -> None:
+        """Fecha a execucao, calculando a duracao pelo started_at gravado."""
+        if not run_id:
+            return
+        finished = _now()
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT started_at FROM runs WHERE id = ?", (int(run_id),)
+            ).fetchone()
+            duration: int | None = None
+            if row is not None:
+                try:
+                    inicio = datetime.fromisoformat(str(row["started_at"]))
+                    duration = max(
+                        0, int((datetime.now().astimezone() - inicio).total_seconds() * 1000)
+                    )
+                except (TypeError, ValueError):
+                    duration = None
+            self._conn.execute(
+                """
+                UPDATE runs
+                SET status = ?, finished_at = ?, duration_ms = ?,
+                    detail = ?, error = ?, error_kind = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    finished,
+                    duration,
+                    detail[:4000],
+                    error[:4000],
+                    error_kind,
+                    int(run_id),
+                ),
+            )
+
+    def list_runs(
+        self, limit: int = 50, kind: str = "", status: str = ""
+    ) -> list[dict[str, Any]]:
+        """Execucoes mais recentes primeiro, com filtro opcional."""
+        clausulas: list[str] = []
+        valores: list[Any] = []
+        if kind:
+            clausulas.append("kind = ?")
+            valores.append(kind)
+        if status:
+            clausulas.append("status = ?")
+            valores.append(status)
+        where = f"WHERE {' AND '.join(clausulas)}" if clausulas else ""
+        valores.append(max(1, min(int(limit), 500)))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM runs {where} ORDER BY id DESC LIMIT ?",
+                valores,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def last_run(self, kind: str, automation: str = "") -> dict[str, Any] | None:
+        with self._lock:
+            if automation:
+                row = self._conn.execute(
+                    "SELECT * FROM runs WHERE kind = ? AND automation = ? "
+                    "ORDER BY id DESC LIMIT 1",
+                    (kind, automation),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT * FROM runs WHERE kind = ? ORDER BY id DESC LIMIT 1",
+                    (kind,),
+                ).fetchone()
+        return dict(row) if row else None
+
+    def runs_summary(self, since_iso: str) -> dict[str, Any]:
+        """Contagem por status e por skill desde um instante ISO."""
+        with self._lock:
+            por_status = self._conn.execute(
+                "SELECT status, COUNT(*) AS total FROM runs "
+                "WHERE started_at >= ? GROUP BY status",
+                (since_iso,),
+            ).fetchall()
+            por_kind = self._conn.execute(
+                "SELECT kind, COUNT(*) AS total, "
+                "SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS falhas "
+                "FROM runs WHERE started_at >= ? GROUP BY kind",
+                (since_iso,),
+            ).fetchall()
+            total = self._conn.execute(
+                "SELECT COUNT(*) FROM runs WHERE started_at >= ?", (since_iso,)
+            ).fetchone()[0]
+        return {
+            "since": since_iso,
+            "total": int(total),
+            "by_status": {row["status"]: int(row["total"]) for row in por_status},
+            "by_kind": {
+                row["kind"]: {
+                    "total": int(row["total"]),
+                    "failed": int(row["falhas"] or 0),
+                }
+                for row in por_kind
+            },
+        }
+
+    def prune_runs(self, before_iso: str) -> int:
+        """Remove execucoes antigas; devolve quantas sairam."""
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM runs WHERE started_at < ?", (before_iso,)
+            )
+            return int(cursor.rowcount or 0)
+
     def stats(self) -> dict[str, Any]:
         with self._lock:
             conversations = self._conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
@@ -534,7 +701,6 @@ class MemoryStore:
             "turns": int(turns),
             "records": int(records),
         }
-
     def close(self) -> None:
         with self._lock:
             if self._closed:

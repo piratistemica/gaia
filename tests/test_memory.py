@@ -337,3 +337,46 @@ def test_channel_migration_defaults_existing_conversations_to_cli(tmp_path):
         assert tg is None
     finally:
         store.close()
+
+
+def test_schema_v6_cria_tabela_runs(tmp_path):
+    store = MemoryStore(tmp_path / "gaia.db")
+    try:
+        assert store.schema_version() == 6
+        cols = {
+            row["name"]
+            for row in store._conn.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        assert {
+            "kind",
+            "automation",
+            "trigger",
+            "status",
+            "started_at",
+            "finished_at",
+            "duration_ms",
+            "delivery",
+            "error",
+            "error_kind",
+            "attempt",
+        } <= cols
+    finally:
+        store.close()
+
+
+def test_migracao_v5_para_v6_preserva_dados(tmp_path):
+    path = tmp_path / "gaia.db"
+    store = MemoryStore(path)
+    store.add_reminder("beber agua", "2026-11-23T10:00:00")
+    store.set_meta("schema_version", "5")
+    with store._conn:
+        store._conn.execute("DROP TABLE runs")
+    store.close()
+
+    store = MemoryStore(path)
+    try:
+        assert store.schema_version() == 6
+        assert len(store.pending_reminders()) == 1
+        store._conn.execute("SELECT COUNT(*) FROM runs").fetchone()
+    finally:
+        store.close()
