@@ -21,6 +21,7 @@ from gaia.briefing.compose import (
     weekday_label,
 )
 from gaia.briefing.market import MarketRow, market_due, market_message
+from gaia.control.runs import record_run
 from gaia.controller.contract import OrchestratorContract
 from gaia.controller.prompt import humor_directive
 from gaia.finance.quotes import fetch_quote
@@ -110,26 +111,39 @@ class BriefingMixin(OrchestratorContract):
             return False
         self._briefing_last_attempt = time.monotonic()
 
+        async with record_run(
+            self.store,
+            kind="briefing",
+            automation="briefing:evening",
+            delivery="telegram",
+        ) as run:
+            return await self._send_evening_body(day, key, run)
+
+    async def _send_evening_body(self, day: date, key: str, run) -> bool:
         try:
             text = await self._compose_evening(day)
         except AgendaError as exc:
             self.logger.warning("fecho da noite: Agenda indisponível: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "network")
             return False
         except Exception:
             self.store.delete_meta(key)
             raise
         if not text:
             self.store.delete_meta(key)
+            run.detail = "sem conteudo para o fecho"
             return False
         try:
             await self.telegram.send_message(text)
         except Exception as exc:
             self.logger.warning("fecho da noite: falha ao enviar no Telegram: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "network")
             return False
 
         self.store.set_meta(key, datetime.now().astimezone().isoformat(timespec="seconds"))
+        run.detail = "fecho da noite enviado"
         self.logger.info("fecho da noite de %s enviado", day.isoformat())
         return True
 
@@ -147,23 +161,36 @@ class BriefingMixin(OrchestratorContract):
             return False
         self._briefing_last_attempt = time.monotonic()
 
+        async with record_run(
+            self.store,
+            kind="briefing",
+            automation=f"briefing:{slot}",
+            delivery="telegram",
+        ) as run:
+            return await self._send_briefing_body(slot, day, key, run)
+
+    async def _send_briefing_body(self, slot: str, day: date, key: str, run) -> bool:
         try:
             text = await self._compose_briefing(slot, day)
         except AgendaError as exc:
             self.logger.warning("briefing: Agenda indisponível: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "network")
             return False
         if not text:
             self.store.delete_meta(key)
+            run.detail = "sem conteudo"
             return False
         try:
             await self.telegram.send_message(text)
         except Exception as exc:
             self.logger.warning("briefing: falha ao enviar no Telegram: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "network")
             return False
 
         self.store.set_meta(key, datetime.now().astimezone().isoformat(timespec="seconds"))
+        run.detail = f"briefing {slot} enviado"
         self.logger.info("briefing %s de %s enviado", slot, day.isoformat())
         return True
 
@@ -183,6 +210,15 @@ class BriefingMixin(OrchestratorContract):
             return False
         self._market_last_attempt = time.monotonic()
 
+        async with record_run(
+            self.store,
+            kind="market",
+            automation="market:watchlist",
+            delivery="telegram",
+        ) as run:
+            return await self._send_market_body(day, key, items, run)
+
+    async def _send_market_body(self, day: date, key: str, items, run) -> bool:
         results = await asyncio.gather(
             *(fetch_quote(item.ticker) for item in items), return_exceptions=True
         )
@@ -200,9 +236,15 @@ class BriefingMixin(OrchestratorContract):
         except Exception as exc:
             self.logger.warning("briefing: falha ao enviar a bolsa: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "network")
             return False
 
         self.store.set_meta(key, datetime.now().astimezone().isoformat(timespec="seconds"))
+        indisponiveis = sum(1 for row in rows if row.quote is None)
+        run.detail = (
+            f"{len(rows)} ativo(s)"
+            + (f", {indisponiveis} sem cotacao" if indisponiveis else "")
+        )
         self.logger.info("resumo da bolsa de %s enviado", day.isoformat())
         return True
 

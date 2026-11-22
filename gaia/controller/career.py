@@ -22,6 +22,7 @@ from gaia.career.service import (
     save_state,
     state_path,
 )
+from gaia.control.runs import record_run
 from gaia.controller.contract import OrchestratorContract
 
 
@@ -73,11 +74,23 @@ class CareerMixin(OrchestratorContract):
         self._career_last_attempt = time.monotonic()
 
         path = self._career_state_path()
+        async with record_run(
+            self.store,
+            kind="career",
+            automation="career:weekly",
+            delivery="telegram",
+        ) as run:
+            return await self._send_career_body(day, key, path, run)
+
+    async def _send_career_body(self, day: date, key: str, path, run) -> bool:
+        """Corpo real da rotina, separado para o registro de execucao.**"""
+        cfg = self.cfg.career
         try:
             state = load_state(path)
         except ValueError as exc:
             self.logger.warning("rotina de vagas: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "config")
             return False
 
         result = await collect(state)
@@ -89,12 +102,14 @@ class CareerMixin(OrchestratorContract):
         except OSError as exc:
             self.logger.warning("rotina de vagas: falha ao gravar o estado: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "unknown")
             return False
 
         pendentes = pending_jobs(state)
         if not pendentes and not result.bruto:
             # Nada a entregar e nenhuma fonte respondeu: tenta de novo depois.
             self.store.delete_meta(key)
+            run.detail = "sem vagas novas; fontes nao responderam"
             return False
 
         text = compose_message(state, result=result, day=day, limit=cfg.max_items)
@@ -104,6 +119,7 @@ class CareerMixin(OrchestratorContract):
         except Exception as exc:
             self.logger.warning("rotina de vagas: falha ao enviar no Telegram: %s", exc)
             self.store.delete_meta(key)
+            run.fail(str(exc), "network")
             return False
 
         if ensinar:
@@ -114,6 +130,11 @@ class CareerMixin(OrchestratorContract):
                 self.logger.warning("rotina de vagas: entrega nao registrada: %s", exc)
 
         self.store.set_meta(key, datetime.now().astimezone().isoformat(timespec="seconds"))
+        run.detail = (
+            f"{len(ensinar)} entregues de {result.bruto} lidas"
+            if ensinar
+            else f"{result.bruto} lidas, nada novo"
+        )
         self.logger.info(
             "vagas de %s enviadas: %d entregues de %d lidas",
             day.isoformat(),

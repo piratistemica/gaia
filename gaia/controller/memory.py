@@ -7,6 +7,7 @@ import re
 import time
 from datetime import date, datetime, timedelta
 
+from gaia.control.runs import record_run
 from gaia.controller.contract import OrchestratorContract
 from gaia.controller.proactive import in_quiet_hours
 from gaia.memory.consolidation import DailyMemory, parse_day
@@ -73,7 +74,12 @@ class MemoryMixin(OrchestratorContract):
             return
         if now.strftime("%H:%M") < cfg.at:
             return
-        await self.consolidate_day(now.date())
+        day = now.date()
+        async with record_run(
+            self.store, kind="memory", automation="memory:daily", delivery="local"
+        ) as run:
+            path = await self.consolidate_day(day)
+            run.detail = "memoria do dia consolidada" if path else "nada a consolidar"
 
     async def _maybe_dream(self, now: datetime) -> None:
         """Sonha de madrugada, depois da consolidacao e quando ociosa.
@@ -91,7 +97,11 @@ class MemoryMixin(OrchestratorContract):
         day = dream_target_day(now)
         # O sonho costura o dia com o passado; garante a memoria do dia antes.
         await self.consolidate_day(day)
-        await self.dream_day(day)
+        async with record_run(
+            self.store, kind="dream", automation="memory:dream", delivery="local"
+        ) as run:
+            path = await self.dream_day(day)
+            run.detail = "sonho escrito" if path else "nada a sonhar"
 
     async def _maybe_dream_report(self, now: datetime) -> None:
         """Avisa sobre o sonho da noite passada, uma vez, no dia seguinte.
