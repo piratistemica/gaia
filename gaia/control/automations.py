@@ -237,19 +237,24 @@ def status(
         return "disabled"
     if not item.days:
         return "disabled"
-    if store is not None:
-        ultima = store.last_run(item.skill, item.id)
-        if ultima is not None and str(ultima.get("status")) == "running":
-            return "running"
+
+    ultima = store.last_run(item.skill, item.id) if store is not None else None
+    if ultima is not None and str(ultima.get("status")) == "running":
+        return "running"
+
+    # Ja rodou hoje? Entao o estado e o resultado dela, nao "aguardando".
+    # Sem isso, uma rotina concluida as 09:02 continuaria aparecendo como
+    # "agendada" ate o fim da janela — o painel mentiria para quem olha.
+    if store is not None and _ran_today(item, store, momento):
+        if ultima is not None:
+            return str(ultima.get("status") or "completed")
+        return "completed"
+
     if item.matches_day(momento) and item.in_window(momento):
         return "scheduled"
     if item.opportunistic:
         # Janela opcional: nao existiu "deveria ter rodado".
-        if store is not None:
-            ultima = store.last_run(item.skill, item.id)
-            if ultima is not None:
-                return str(ultima.get("status") or "scheduled")
-        return "scheduled"
+        return str(ultima.get("status")) if ultima is not None else "scheduled"
     if item.matches_day(momento):
         hora_atual = momento.strftime("%H:%M")
         if hora_atual >= item.until:
@@ -257,12 +262,11 @@ def status(
             hora, minuto = _split(item.until)
             fim = fim.replace(hour=hora, minute=minuto)
             if momento - fim >= timedelta(minutes=MISSED_TOLERANCE_MINUTES):
-                if not _ran_today(item, store, momento):
-                    return "missed"
-    if store is not None:
-        ultima = store.last_run(item.skill, item.id)
-        if ultima is not None:
-            return str(ultima.get("status") or "scheduled")
+                return "missed"
+    # A janela de hoje ainda nao abriu: "agendada". O resultado anterior
+    # continua visivel em ``last_run``, mas nao e o estado de hoje (uma falha
+    # da semana passada nao pode parecer falha da execucao que ainda vai
+    # acontecer).
     return "scheduled"
 
 

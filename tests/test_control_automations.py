@@ -172,10 +172,16 @@ def test_status_running_tem_prioridade(cfg, store):
 
 def test_status_reflete_ultima_execucao(cfg, store):
     item = _item(cfg, "career:weekly")
-    run = store.begin_run(kind="career", automation="career:weekly")
+    run = store.begin_run(
+        kind="career",
+        automation="career:weekly",
+        started_at="2026-11-23T09:02:00-03:00",
+    )
     store.finish_run(run, status="completed")
-    depois = datetime(2026, 11, 25, 12, 0).astimezone()
-    assert status(item, cfg, store, depois) == "completed"
+    # segunda 10h: rodou hoje -> completed
+    assert status(item, cfg, store, datetime(2026, 11, 23, 10, 0).astimezone()) == "completed"
+    # terca: dia sem rotina e sem janela -> agendada para a proxima segunda
+    assert status(item, cfg, store, datetime(2026, 11, 24, 12, 0).astimezone()) == "scheduled"
 
 
 def test_describe_automations_achata_tudo(cfg, store):
@@ -248,3 +254,53 @@ def test_sonho_com_memoria_dreamed_gravada_nao_e_missed(cfg, store):
     item = _item(cfg, "memory:dream")
     depois = datetime(2026, 11, 23, 12, 0).astimezone()
     assert status(item, cfg, store, depois) != "missed"
+
+
+def test_status_completed_dentro_da_janela_nao_mente(cfg, store):
+    """Rodou 09:02 com sucesso; as 10:00 o status e completed, nao 'scheduled'."""
+    cfg.career.days = [0]
+    cfg.career.at = "09:00"
+    cfg.career.until = "18:00"
+    item = _item(cfg, "career:weekly")
+    run = store.begin_run(
+        kind="career",
+        automation="career:weekly",
+        started_at="2026-11-23T09:02:00-03:00",
+    )
+    store.finish_run(run, status="completed", detail="3 vagas")
+    agora = datetime(2026, 11, 23, 10, 0).astimezone()
+    assert status(item, cfg, store, agora) == "completed"
+
+
+def test_status_failed_dentro_da_janela(cfg, store):
+    cfg.career.days = [0]
+    cfg.career.at = "09:00"
+    cfg.career.until = "18:00"
+    item = _item(cfg, "career:weekly")
+    run = store.begin_run(
+        kind="career",
+        automation="career:weekly",
+        started_at="2026-11-23T09:02:00-03:00",
+    )
+    store.finish_run(run, status="failed", error="502", error_kind="network")
+    agora = datetime(2026, 11, 23, 10, 0).astimezone()
+    assert status(item, cfg, store, agora) == "failed"
+
+
+def test_falha_de_ontem_nao_marca_hoje_como_failed(cfg, store):
+    cfg.career.days = [0]
+    cfg.career.at = "09:00"
+    cfg.career.until = "18:00"
+    item = _item(cfg, "career:weekly")
+    run = store.begin_run(
+        kind="career",
+        automation="career:weekly",
+        started_at="2026-11-16T09:02:00-03:00",
+    )
+    store.finish_run(run, status="failed", error="502")
+    # segunda seguinte, antes da janela: nao rodou hoje -> agendada, mesmo com
+    # a falha antiga em last_run (que a tela mostra em separado)
+    agora = datetime(2026, 11, 23, 8, 0).astimezone()
+    assert status(item, cfg, store, agora) == "scheduled"
+    itens = {i["id"]: i for i in describe_automations(cfg, store, agora)}
+    assert itens["career:weekly"]["last_run"]["status"] == "failed"
