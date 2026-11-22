@@ -45,6 +45,9 @@ class Automation:
     # Slot extra para rotinas com mais de uma janela por dia (briefing).
     slot: str = ""
     enabled_path: str = ""
+    # Rotina oportunista: so roda se o motor estiver ocioso na janela. Nao
+    # existe "perdeu a hora" quando a condicao e opcional (sonho, por ex.).
+    opportunistic: bool = False
 
     def claim_key(self, day: datetime) -> str:
         """Chave de ``claim_meta`` equivalente a usada pela rotina real."""
@@ -165,6 +168,7 @@ def describe(cfg: Config) -> list[Automation]:
             delivery="local",
             claim_prefix="dream:{day}",
             enabled_path="memory.dream_enabled",
+            opportunistic=True,
         ),
     ]
     return itens
@@ -225,6 +229,13 @@ def status(
         if ultima is not None and str(ultima.get("status")) == "running":
             return "running"
     if item.matches_day(momento) and item.in_window(momento):
+        return "scheduled"
+    if item.opportunistic:
+        # Janela opcional: nao existiu "deveria ter rodado".
+        if store is not None:
+            ultima = store.last_run(item.skill, item.id)
+            if ultima is not None:
+                return str(ultima.get("status") or "scheduled")
         return "scheduled"
     if item.matches_day(momento):
         hora_atual = momento.strftime("%H:%M")
