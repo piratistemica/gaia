@@ -558,9 +558,14 @@ class MemoryStore:
         trigger: str = "schedule",
         delivery: str = "",
         attempt: int = 1,
+        started_at: str = "",
     ) -> int:
-        """Abre uma execucao e devolve o id. Chamar so quando de fato executa."""
-        started = _now()
+        """Abre uma execucao e devolve o id. Chamar so quando de fato executa.
+
+        ``started_at`` permite registrar uma execucao ja ocorrida (importacao
+        de historico); vazio usa o instante atual.
+        """
+        started = started_at or _now()
         with self._lock, self._conn:
             cursor = self._conn.execute(
                 """
