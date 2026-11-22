@@ -808,21 +808,25 @@ async def test_career_nao_roda_sem_telegram(orch):
 
 
 @pytest.mark.asyncio
-async def test_start_career_liga_a_rotina_sem_bootstrap(orch):
-    """O `telegram serve` so chama start_briefing/start_career no boot."""
+async def test_start_career_liga_o_agendador_sem_bootstrap(orch):
+    """O `telegram serve` chama start_career/start_briefing no boot.
+
+    Desde a fase C a hora nao e decidida em cada worker: start_career liga o
+    agendador unico, que le a tabela ``automations``.
+    """
     orch.telegram = FakeTelegram()
 
     orch.start_career()
 
-    assert orch._career_task is not None
+    assert orch._scheduler_task is not None
     # Idempotente: chamar de novo nao duplica a tarefa.
-    task = orch._career_task
+    task = orch._scheduler_task
     orch.start_career()
-    assert orch._career_task is task
-    orch._career_task.cancel()
+    assert orch._scheduler_task is task
+    orch._scheduler_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
-        await orch._career_task
-    orch._career_task = None
+        await orch._scheduler_task
+    orch._scheduler_task = None
 
 
 @pytest.mark.asyncio

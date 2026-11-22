@@ -1,18 +1,18 @@
 """Rotina semanal de vagas no Telegram, sem LLM.
 
-Segue o mesmo padrao do ``BriefingMixin``: checa o horario num worker proprio,
-reserva o dia com ``claim_meta`` para TUI e servico do Telegram nao enviarem
-duas vezes, e busca as fontes so quando o dia ainda nao foi entregue.
+A hora vem do agendador unico (``controller/scheduler.py``): a automacao
+``career:weekly`` vive na tabela ``automations`` e chama ``_automation_career``.
+Aqui fica so o corpo: reserva o dia com ``claim_meta`` para TUI e servico do
+Telegram nao enviarem duas vezes, e busca as fontes so quando o dia ainda nao
+foi entregue.
 """
 
 from __future__ import annotations
 
-import asyncio
 import time
 from datetime import date, datetime
 
 from gaia.career.service import (
-    career_due,
     collect,
     compose_message,
     load_state,
@@ -22,6 +22,7 @@ from gaia.career.service import (
     save_state,
     state_path,
 )
+from gaia.control.automations import Automation
 from gaia.control.runs import record_run
 from gaia.controller.contract import OrchestratorContract
 
@@ -34,33 +35,32 @@ class CareerMixin(OrchestratorContract):
         )
 
     def _start_career_worker(self) -> None:
+        """Mantido por compatibilidade: a hora vem do agendador unico.
+
+        O gate de horario saiu daqui (fase C): a automacao ``career:weekly``
+        vive na tabela ``automations`` e o ``_scheduler_loop`` chama
+        ``_automation_career``. ``career.enabled``/``telegram.enabled``
+        continuam valendo (segunda camada, sem excecao).
+        """
         cfg = self.cfg.career
         if not cfg.enabled or not self.telegram.enabled:
             return
-        if self._career_task is not None and not self._career_task.done():
-            return
-        self._career_task = asyncio.create_task(self._career_loop())
+        self.start_scheduler()
 
-    async def _career_loop(self) -> None:
-        cfg = self.cfg.career
-        await asyncio.sleep(3.0)
-        while True:
-            await asyncio.sleep(max(5.0, cfg.check_interval_seconds))
-            if not cfg.enabled:
-                continue
-            now = datetime.now().astimezone()
-            if not career_due(
-                now.strftime("%H:%M"), cfg.at, cfg.until, now.date().weekday(), cfg.days
-            ):
-                continue
-            try:
-                await self._send_career(now.date())
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # pragma: no cover - depende da rede
-                self.logger.warning("falha na rotina de vagas: %s", exc, exc_info=True)
+    # ------------------------------------------------------- handler (fase C)
+    async def _automation_career(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        if not self.cfg.career.enabled or not self.telegram.enabled:
+            return False
+        return await self._send_career(now.date(), trigger=trigger)
 
-    async def _send_career(self, day: date) -> bool:
+    async def _send_career(self, day: date, *, trigger: str = "schedule") -> bool:
         """Busca, registra e entrega o que estiver pendente; devolve se enviou."""
         cfg = self.cfg.career
         key = f"career:{day.isoformat()}"
@@ -78,6 +78,7 @@ class CareerMixin(OrchestratorContract):
             self.store,
             kind="career",
             automation="career:weekly",
+            trigger=trigger,
             delivery="telegram",
         ) as run:
             return await self._send_career_body(day, key, path, run)

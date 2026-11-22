@@ -29,6 +29,7 @@ from gaia.controller.initiative import InitiativeMixin
 from gaia.controller.memory import MemoryMixin
 from gaia.controller.modes import PERSONAS, Persona, get_persona, resolve_mode
 from gaia.controller.registration import RegistrationMixin
+from gaia.controller.scheduler import SchedulerMixin
 from gaia.controller.speech import SpeechMixin
 from gaia.controller.turns import TurnMixin
 from gaia.controller.voice import VoiceMixin
@@ -55,6 +56,7 @@ class Orchestrator(
     CareerMixin,
     RegistrationMixin,
     InitiativeMixin,
+    SchedulerMixin,
 ):
 
     def __init__(
@@ -87,6 +89,10 @@ class Orchestrator(
         # historico proprios: mesma pasta + mesmo modo nao basta para dividir
         # o fio, senao o terminal e o Telegram conversam entre si.
         self.channel = channel
+        # Quem e dono do poller do Telegram entrega a proatividade no chat.
+        # Sem isso, o `gaia serve` (channel="serve") mandava lembrete para o
+        # TTS de uma maquina headless e ninguem recebia nada.
+        self.owns_telegram = channel == "telegram"
         self._adopt_legacy_history()
         self.persona = resolve_mode(
             store.get_meta(self._mode_meta_key()) or cfg.interface.default_mode
@@ -124,6 +130,8 @@ class Orchestrator(
         self._dream_report_last_attempt = 0.0
         self._career_task: asyncio.Task[None] | None = None
         self._career_last_attempt = 0.0
+        self._scheduler_task: asyncio.Task[None] | None = None
+        self._retry_plan: dict[str, tuple[float, int]] = {}
         self._proactive_count = 0
         self._proactive_day = datetime.now().astimezone().date()
         self._last_proactive = 0.0
@@ -211,8 +219,9 @@ class Orchestrator(
 
     def _start_background_workers(self) -> None:
         self._start_memory_worker()
-        self._start_briefing_worker()
-        self._start_career_worker()
+        # Briefing, carteira, vagas, memoria e sonho obedecem a agenda da
+        # tabela `automations`; quem dispara e o agendador unico.
+        self.start_scheduler()
 
     def start_briefing(self) -> None:
         """Liga o briefing sem depender do bootstrap do agente."""
@@ -230,6 +239,10 @@ class Orchestrator(
     def start_career(self) -> None:
         """Liga a rotina de vagas sem depender do bootstrap do agente."""
         self._start_career_worker()
+
+    def start_automations(self) -> None:
+        """Liga o agendador unico (briefing, carteira, vagas, memoria, sonho)."""
+        self.start_scheduler()
 
     def start_proactive(self) -> None:
         """Liga lembretes, agenda e foco sem a TUI (servico do Telegram).
@@ -267,6 +280,11 @@ class Orchestrator(
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._briefing_task
             self._briefing_task = None
+        if self._scheduler_task is not None:
+            self._scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._scheduler_task
+            self._scheduler_task = None
         if self._career_task is not None:
             self._career_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):

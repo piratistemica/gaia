@@ -304,3 +304,137 @@ def test_falha_de_ontem_nao_marca_hoje_como_failed(cfg, store):
     assert status(item, cfg, store, agora) == "scheduled"
     itens = {i["id"]: i for i in describe_automations(cfg, store, agora)}
     assert itens["career:weekly"]["last_run"]["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Fase C: a tabela e a fonte de verdade (seed -> load -> update)
+# ---------------------------------------------------------------------------
+def test_seed_copia_o_config_para_a_tabela(cfg, store):
+    from gaia.control.automations import load, seed
+
+    assert seed(cfg, store) == 7
+    linhas = {linha["id"]: linha for linha in store.list_automations()}
+    assert linhas["career:weekly"]["at"] == cfg.career.at
+    assert linhas["career:weekly"]["days"] == ",".join(
+        str(dia) for dia in cfg.career.days
+    )
+    assert linhas["briefing:morning"]["until"] == cfg.briefing.noon_at
+    assert linhas["memory:dream"]["until"] == cfg.memory.dream_until
+    # Seed e idempotente: rodar de novo nao duplica nem reescreve.
+    assert seed(cfg, store) == 0
+    assert len(load(cfg, store)) == 7
+
+
+def test_seed_nao_desfaz_pausa_do_painel(cfg, store):
+    """Um boot novo nao pode religar o que a pessoa pausou."""
+    from gaia.control.automations import load, seed
+
+    seed(cfg, store)
+    store.update_automation("career:weekly", enabled=False)
+    assert seed(cfg, store) == 0
+    carreira = next(item for item in load(cfg, store) if item.id == "career:weekly")
+    assert carreira.enabled is False
+
+
+def test_load_sem_tabela_usa_o_config(cfg, store):
+    from gaia.control.automations import load
+
+    # Nada semeado: a agenda derivada continua valendo (comportamento anterior).
+    itens = load(cfg, store)
+    assert [item.id for item in itens] == [item.id for item in describe(cfg)]
+
+
+def test_load_traz_horario_editado_na_tabela(cfg, store):
+    from gaia.control.automations import load, seed
+
+    seed(cfg, store)
+    store.update_automation("career:weekly", at="07:30", days="1,3")
+    carreira = next(item for item in load(cfg, store) if item.id == "career:weekly")
+    assert carreira.at == "07:30"
+    assert carreira.days == (1, 3)
+
+
+def test_pausar_muda_o_status_para_paused(cfg, store):
+    from gaia.control.automations import load, seed
+
+    seed(cfg, store)
+    store.update_automation("career:weekly", enabled=False)
+    carreira = next(item for item in load(cfg, store) if item.id == "career:weekly")
+    assert status(carreira, cfg, store, SEGUNDA) == "paused"
+
+
+def test_validate_payload_recusa_horario_invalido():
+    from gaia.control.automations import validate_payload
+
+    with pytest.raises(ValueError, match="at invalido"):
+        validate_payload({"at": "09:99"})
+    with pytest.raises(ValueError, match="until invalido"):
+        validate_payload({"until": "24:00"})
+    with pytest.raises(ValueError, match=r"0\.\.6"):
+        validate_payload({"days": [7]})
+    with pytest.raises(ValueError, match="days"):
+        validate_payload({"days": "0,2"})
+    with pytest.raises(ValueError, match="retry_max"):
+        validate_payload({"retry_max": 99})
+    with pytest.raises(ValueError, match="delivery"):
+        validate_payload({"delivery": "pombo"})
+    with pytest.raises(ValueError, match="nada para alterar"):
+        validate_payload({})
+
+
+def test_validate_payload_normaliza_dias():
+    from gaia.control.automations import validate_payload
+
+    assert validate_payload({"days": [4, 0, 0]}) == {"days": "0,4"}
+    assert validate_payload({"at": "7:05"}) == {"at": "07:05"}
+    assert validate_payload({"enabled": False}) == {"enabled": False}
+
+
+def test_update_grava_e_devolve_o_painel(cfg, store):
+    from gaia.control.automations import seed, update
+
+    seed(cfg, store)
+    item = update(store, cfg, "briefing:evening", {"at": "19:00", "enabled": False})
+    assert item["at"] == "19:00"
+    assert item["paused"] is True
+    assert item["status"] in {"paused", "disabled"}
+
+
+def test_update_recusa_id_desconhecido(cfg, store):
+    from gaia.control.automations import update
+
+    with pytest.raises(KeyError):
+        update(store, cfg, "nao:existe", {"at": "10:00"})
+
+
+def test_due_e_claim_por_janela(cfg, store, monkeypatch):
+    from gaia.control.automations import claim, due, load, release, seed
+
+    seed(cfg, store)
+    cfg.career.days = [0]
+    cfg.career.at = "08:00"
+    cfg.career.until = "18:00"
+    store.update_automation("career:weekly", at="08:00", until="18:00", days="0")
+    carreira = next(item for item in load(cfg, store) if item.id == "career:weekly")
+
+    assert due(carreira, cfg, SEGUNDA, store) is True
+    assert claim(carreira, store, SEGUNDA) is True
+    # Reservada: o scheduler nao dispara duas vezes na mesma janela.
+    assert due(carreira, cfg, SEGUNDA, store) is False
+    release(carreira, store, SEGUNDA)
+    assert due(carreira, cfg, SEGUNDA, store) is True
+
+
+def test_retry_so_para_rede_e_desconhecido(cfg):
+    from gaia.control.automations import backoff_seconds, retry_allowed
+
+    item = _item(cfg, "career:weekly")
+    item.retry_max = 2
+    assert retry_allowed("network", 1, item) is True
+    assert retry_allowed("unknown", 2, item) is True
+    assert retry_allowed("network", 3, item) is False
+    assert retry_allowed("auth", 1, item) is False
+    assert retry_allowed("config", 1, item) is False
+    item.retry_backoff_minutes = 5.0
+    assert backoff_seconds(item, 1) == 300.0
+    assert backoff_seconds(item, 2) == 600.0

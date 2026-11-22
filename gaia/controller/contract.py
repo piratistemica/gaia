@@ -23,6 +23,7 @@ from gaia.agenda.client import AgendaClient
 from gaia.agent import AgentClient
 from gaia.audio.recorder import ContinuousListener, Recorder
 from gaia.config import Config
+from gaia.control.automations import Automation
 from gaia.controller.goals import GoalTracker
 from gaia.controller.intents import RegisterIntent
 from gaia.controller.modes import Persona
@@ -71,6 +72,9 @@ class OrchestratorContract(ABC):
     session_id: str
     # Canal de origem (cli, telegram, ...): separa historico e modo por canal.
     channel: str
+    # Este processo e o dono do poller do Telegram? Muda o destino da
+    # proatividade: dono entrega no chat, os demais nao falam (nem em audio).
+    owns_telegram: bool
 
     goals: GoalTracker
     watchlist: Watchlist
@@ -111,6 +115,8 @@ class OrchestratorContract(ABC):
     _dream_report_last_attempt: float
     _career_task: asyncio.Task[None] | None
     _career_last_attempt: float
+    _scheduler_task: asyncio.Task[None] | None
+    _retry_plan: dict[str, tuple[float, int]]
     _proactive_count: int
     _proactive_day: date
     _last_proactive: float
@@ -316,4 +322,83 @@ class OrchestratorContract(ABC):
 
     @abstractmethod
     async def select_mode(self, key: str) -> None:
+        ...
+
+    # --- agendador (fase C) e handlers das automacoes ---
+    @abstractmethod
+    def start_scheduler(self) -> None:
+        ...
+
+    @abstractmethod
+    async def _scheduler_loop(self) -> None:
+        ...
+
+    @abstractmethod
+    async def _scheduler_tick(self, now: datetime) -> None:
+        ...
+
+    @abstractmethod
+    async def _automation_market(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        ...
+
+    @abstractmethod
+    async def _automation_briefing(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        ...
+
+    @abstractmethod
+    async def _automation_evening(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        ...
+
+    @abstractmethod
+    async def _automation_career(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        ...
+
+    @abstractmethod
+    async def _automation_memory(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        ...
+
+    @abstractmethod
+    async def _automation_dream(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
         ...

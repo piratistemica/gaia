@@ -7,6 +7,7 @@ import re
 import time
 from datetime import date, datetime, timedelta
 
+from gaia.control.automations import Automation
 from gaia.control.runs import record_run
 from gaia.controller.contract import OrchestratorContract
 from gaia.controller.proactive import in_quiet_hours
@@ -67,8 +68,8 @@ class MemoryMixin(OrchestratorContract):
             day, force=force, timeout_seconds=timeout_seconds
         )
 
-    async def _maybe_consolidate(self, now: datetime) -> None:
-        """Consolida o dia quando chega o horario configurado."""
+    async def _maybe_consolidate(self, now: datetime, *, trigger: str = "schedule") -> None:
+        """Consolida o dia (chamado pelo handler da automacao ``memory:daily``)."""
         cfg = self.cfg.memory
         if not cfg.enabled:
             return
@@ -76,12 +77,16 @@ class MemoryMixin(OrchestratorContract):
             return
         day = now.date()
         async with record_run(
-            self.store, kind="memory", automation="memory:daily", delivery="local"
+            self.store,
+            kind="memory",
+            automation="memory:daily",
+            trigger=trigger,
+            delivery="local",
         ) as run:
             path = await self.consolidate_day(day)
             run.detail = "memoria do dia consolidada" if path else "nada a consolidar"
 
-    async def _maybe_dream(self, now: datetime) -> None:
+    async def _maybe_dream(self, now: datetime, *, trigger: str = "schedule") -> None:
         """Sonha de madrugada, depois da consolidacao e quando ociosa.
 
         A janela e ``[dream_at, dream_until)`` e pode virar a meia-noite: o
@@ -98,7 +103,11 @@ class MemoryMixin(OrchestratorContract):
         # O sonho costura o dia com o passado; garante a memoria do dia antes.
         await self.consolidate_day(day)
         async with record_run(
-            self.store, kind="dream", automation="memory:dream", delivery="local"
+            self.store,
+            kind="dream",
+            automation="memory:dream",
+            trigger=trigger,
+            delivery="local",
         ) as run:
             path = await self.dream_day(day)
             run.detail = "sonho escrito" if path else "nada a sonhar"
@@ -184,12 +193,47 @@ class MemoryMixin(OrchestratorContract):
         yesterday = datetime.now().astimezone().date() - timedelta(days=1)
         await self.consolidate_day(yesterday)
 
-    def _start_memory_worker(self) -> None:
-        """Liga a rotina de memoria (catch-up + consolidacao diaria).
+    # ------------------------------------------------------- handlers (fase C)
+    async def _automation_memory(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        if not self.cfg.memory.enabled:
+            return False
+        antes = self.store.get_meta(f"memory_consolidated:{now.date().isoformat()}")
+        await self._maybe_consolidate(now, trigger=trigger)
+        depois = self.store.get_meta(f"memory_consolidated:{now.date().isoformat()}")
+        # Nada a consolidar nao e falha: a conclusao (ou a ausencia de turnos)
+        # ja foi registrada no run. O que importa e nao marcar retry.
+        return bool(depois) or bool(antes)
 
-        Independente do loop proativo e do tipo de interface: a TUI chama
-        ``prepare()``, o terminal chama ``start()`` e o Telegram cai em
-        ``answer_once(close=False)``.
+    async def _automation_dream(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        if not self.cfg.memory.enabled or not self.cfg.memory.dream_enabled:
+            return False
+        day = dream_target_day(now)
+        antes = self.store.get_meta(f"memory_dreamed:{day.isoformat()}")
+        await self._maybe_dream(now, trigger=trigger)
+        depois = self.store.get_meta(f"memory_dreamed:{day.isoformat()}")
+        return bool(depois) or bool(antes)
+
+    def _start_memory_worker(self) -> None:
+        """Liga a rotina de memoria (catch-up + aviso do sonho).
+
+        A consolidacao e o sonho sao automacoes governaveis (fase C): quem
+        decide a hora e o ``_scheduler_loop``. Este worker fica com o que nao
+        tem horario declarado: recuperar o dia anterior e o sonho perdido no
+        boot, e o aviso do sonho no dia seguinte.
         """
         if not self.cfg.memory.enabled or self._memory_task is not None:
             return
@@ -212,8 +256,8 @@ class MemoryMixin(OrchestratorContract):
                 continue
             try:
                 now = datetime.now().astimezone()
-                await self._maybe_consolidate(now)
-                await self._maybe_dream(now)
+                # Consolidacao, sonho e briefings saem pelo agendador unico;
+                # aqui so o aviso do sonho (sem horario declarado na tabela).
                 await self._maybe_dream_report(now)
             except asyncio.CancelledError:
                 raise

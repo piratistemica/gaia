@@ -1,4 +1,11 @@
-"""Briefings diarios: checa a Agenda e envia no Telegram, sem LLM."""
+"""Briefings diarios: checa a Agenda e envia no Telegram, sem LLM.
+
+A hora nao e decidida aqui (fase C): as automacoes ``briefing:morning``,
+``briefing:noon``, ``briefing:evening`` e ``market:watchlist`` vivem na tabela
+``automations`` e o ``_scheduler_loop`` chama os handlers ``_automation_*``.
+Cada ``_send_*`` continua com a reserva ``claim_meta`` (segunda barreira) e o
+``record_run`` so registra execucao real.
+"""
 
 from __future__ import annotations
 
@@ -11,8 +18,6 @@ from gaia.briefing.compose import (
     collect_habits,
     collect_tasks,
     day_recap,
-    due_slot,
-    evening_due,
     evening_message,
     habits_from_routines,
     morning_message,
@@ -20,7 +25,8 @@ from gaia.briefing.compose import (
     partition,
     weekday_label,
 )
-from gaia.briefing.market import MarketRow, market_due, market_message
+from gaia.briefing.market import MarketRow, market_message
+from gaia.control.automations import Automation
 from gaia.control.runs import record_run
 from gaia.controller.contract import OrchestratorContract
 from gaia.controller.prompt import humor_directive
@@ -50,56 +56,56 @@ _INSIGHT_PROMPT = (
 
 class BriefingMixin(OrchestratorContract):
     def _start_briefing_worker(self) -> None:
+        """Mantido por compatibilidade: quem decide a hora agora e o agendador.
+
+        A automacao ``briefing:*``/``market:watchlist`` vive na tabela
+        ``automations`` e o ``_scheduler_loop`` chama o handler. ``self.cfg``
+        desligado nao liga nada — e o gate continua existindo (duas camadas).
+        """
         cfg = self.cfg.briefing
         if not cfg.enabled or not self.telegram.enabled:
             return
-        if self._briefing_task is not None and not self._briefing_task.done():
-            return
-        self._briefing_task = asyncio.create_task(self._briefing_loop())
+        self.start_scheduler()
 
-    async def _briefing_loop(self) -> None:
-        cfg = self.cfg.briefing
-        await asyncio.sleep(2.0)
-        while True:
-            await asyncio.sleep(max(5.0, cfg.check_interval_seconds))
-            if not cfg.enabled:
-                continue
-            if self._busy or self._recording or self._listening:
-                continue
-            now = datetime.now().astimezone()
-            day = now.date()
-            slot = due_slot(now.strftime("%H:%M"), cfg.morning_at, cfg.noon_at, cfg.noon_until)
-            if slot is not None:
-                try:
-                    await self._send_briefing(slot, day)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # pragma: no cover - depende da rede
-                    self.logger.warning("falha no briefing %s: %s", slot, exc, exc_info=True)
-            if cfg.market_enabled and market_due(
-                now.strftime("%H:%M"),
-                cfg.market_at,
-                cfg.market_until,
-                day.weekday(),
-                cfg.market_days,
-            ):
-                try:
-                    await self._send_market_briefing(day)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # pragma: no cover - depende da rede
-                    self.logger.warning("falha no resumo da bolsa: %s", exc, exc_info=True)
-            if cfg.evening_enabled and evening_due(
-                now.strftime("%H:%M"), cfg.evening_at, cfg.evening_until
-            ):
-                try:
-                    await self._send_evening_report(day)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # pragma: no cover - depende da rede
-                    self.logger.warning("falha no fecho da noite: %s", exc, exc_info=True)
+    # ------------------------------------------------------- handlers (fase C)
+    async def _automation_briefing(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        """Briefing da manha ou do meio-dia, no slot declarado na automacao."""
+        if not self.cfg.briefing.enabled or not self.telegram.enabled:
+            return False
+        return await self._send_briefing(item.slot or "morning", now.date())
 
-    async def _send_evening_report(self, day: date) -> bool:
+    async def _automation_evening(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        if not self.cfg.briefing.evening_enabled or not self.telegram.enabled:
+            return False
+        return await self._send_evening_report(now.date())
+
+    async def _automation_market(
+        self,
+        item: Automation,
+        now: datetime,
+        *,
+        trigger: str = "schedule",
+        attempt: int = 1,
+    ) -> bool:
+        if not self.cfg.briefing.market_enabled or not self.telegram.enabled:
+            return False
+        return await self._send_market_briefing(now.date())
+
+    async def _send_evening_report(self, day: date, *, trigger: str = "schedule") -> bool:
         """Fecha o dia no Telegram uma vez por dia: feito, nao foi e insight."""
         cfg = self.cfg.briefing
         key = f"briefing:{day.isoformat()}:evening"
@@ -115,6 +121,7 @@ class BriefingMixin(OrchestratorContract):
             self.store,
             kind="briefing",
             automation="briefing:evening",
+            trigger=trigger,
             delivery="telegram",
         ) as run:
             return await self._send_evening_body(day, key, run)
@@ -194,7 +201,7 @@ class BriefingMixin(OrchestratorContract):
         self.logger.info("briefing %s de %s enviado", slot, day.isoformat())
         return True
 
-    async def _send_market_briefing(self, day: date) -> bool:
+    async def _send_market_briefing(self, day: date, *, trigger: str = "schedule") -> bool:
         """Envia uma vez por dia o resumo da carteira; devolve se enviou agora."""
         cfg = self.cfg.briefing
         items = self.watchlist.all()
@@ -214,6 +221,7 @@ class BriefingMixin(OrchestratorContract):
             self.store,
             kind="market",
             automation="market:watchlist",
+            trigger=trigger,
             delivery="telegram",
         ) as run:
             return await self._send_market_body(day, key, items, run)
