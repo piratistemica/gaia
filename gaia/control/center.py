@@ -186,7 +186,14 @@ class ControlCenter:
         mensagens = self._switcher(slug)
         return {"ok": True, "model": slug, "messages": mensagens}
 
-    async def list_models(self) -> dict[str, Any]:
+    def list_models(self) -> dict[str, Any]:
+        """Lista de modelos do catalogo.
+
+        **Sincrono de proposito.** ``self._models`` (o ``alvo.models``) ja
+        entra no loop do motor com ``run_coroutine_threadsafe().result()``;
+        chamar isso de dentro do proprio loop travaria o processo. Rodando na
+        thread do HTTP, o loop fica livre para responder.
+        """
         if self._models is None:
             return {"models": []}
         return {"models": self._models()}
