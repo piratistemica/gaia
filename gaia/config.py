@@ -1234,6 +1234,8 @@ port = 8787
 # Segredo: apenas no .env (GAIA_SERVE_TOKEN). Sem token nao escuta na rede.
 allow_remote = false
 telegram = true       # sobe o poller do Telegram junto (um processo so)
+# Control Center (/control) usa GAIA_CONTROL_TOKEN no .env, NAO este token:
+# o token do chat nao administra credenciais. Sem ele o painel fica off.
 """
 
 

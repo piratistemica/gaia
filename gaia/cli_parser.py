@@ -53,6 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--token", help="token de acesso (padrao: GAIA_SERVE_TOKEN)"
     )
     serve_parser.add_argument(
+        "--control-token",
+        dest="control_token",
+        help=(
+            "token do Control Center (padrao: GAIA_CONTROL_TOKEN); sem ele o "
+            "painel fica desativado"
+        ),
+    )
+    serve_parser.add_argument(
         "--no-telegram", action="store_true", help="nao sobe o poller do Telegram"
     )
 

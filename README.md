@@ -163,6 +163,43 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
   `deploy/gaia-serve-tailnet.service.example`; no mini, `gmin serve
   install|cutover|rollback|status|logs`.
 
+## Control Center
+
+Painel web para configurar, supervisionar e diagnosticar o agente, servido pelo
+próprio `gaia serve` em `http://<host>:<porta>/control`.
+
+```bash
+# gere o segredo do painel (separado do token do chat)
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# e grave em ~/.config/gaia/.env (nunca no TOML):
+# GAIA_CONTROL_TOKEN=<o valor gerado>
+```
+
+O token é pedido pela própria tela e fica no `localStorage` do navegador; vai no
+cabeçalho `Authorization`, nunca na URL. Sem `GAIA_CONTROL_TOKEN`, `/control`
+mostra a instrução e `/control/api/*` responde 503 — **o token do chat
+(`GAIA_SERVE_TOKEN`) não vale aqui**, de propósito: ele só conversa, não
+administra credenciais.
+
+| Aba | O que mostra |
+|---|---|
+| **Overview** | modelo ativo, saúde dos componentes, automações e últimas execuções |
+| **Models & Providers** | presets com estado da credencial (mascarada), teste de conexão real (401/402/timeout), troca de modelo |
+| **Skills** | catálogo derivado do núcleo: status, quando roda, última execução, módulo |
+| **Automations** | agenda declarada com `next_run` e o estado real de cada rotina |
+| **Activity** | histórico de execuções (`runs`) filtrável por skill e status |
+| **Error Center** | falhas com tipo de erro, tentativa e detalhes técnicos |
+| **System Settings** | config efetiva com **origem** (`toml`/`.env`/default); campo travado quando o `.env` vence, com botão para remover o override |
+
+Editar em System Settings grava **no `config.toml`** preservando comentários,
+com `.bak` ao lado e releitura de conferência: se a gravação não bater, o
+backup é restaurado e a tela mostra o erro. Segredos ficam no `.env`
+(`chmod 600`, backup `.env.bak`) e só aparecem mascarados (`sk-…1234`).
+
+O que ainda **não** existe (Fases C/D/E em `docs/plans/`): pausar/executar uma
+automação pelo painel, retry automático com backoff, notificação de falha no
+Telegram e níveis de autonomia da proatividade.
+
 **Voz:** `F` fala uma vez, `V` alterna a voz, `C` liga a escuta contínua
 (microfone aberto: fala → executa → responde → volta a ouvir), `M` silencia.
 A fala termina sozinha depois de `audio.silence_ms` de silêncio.
@@ -563,10 +600,11 @@ gaia/
   audiobook/      # PDF/texto -> MP3: extracao, limpeza, capitulos, ID3
   secondbrain/    # índice FTS5, frontmatter, notas, embeddings opcionais
   memory/         # conversas e turnos (SQLite), consolidação e sonho
+  control/        # Control Center: runs, skills, automations, health, secrets
   briefing/       # composição dos textos de manhã, meio-dia e noite
   controller/     # orquestrador, turnos, comandos, personas, iniciativa
   interface/      # TUI Textual, terminal Rich e RemoteUI
-  serve/          # HTTP+SSE do `gaia serve` e página web
+  serve/          # HTTP+SSE do `gaia serve`, página web e rotas /control
   client/         # cliente `gaia --remote`
   agenda/         # cliente da Agenda (Supabase)
   career/         # rotina de vagas

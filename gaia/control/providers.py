@@ -11,7 +11,9 @@ existente do ``/modelo`` (``Orchestrator.model_messages`` +
 
 from __future__ import annotations
 
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 from gaia.agent.errors import AgentError
@@ -21,6 +23,7 @@ from gaia.agent.providers import (
     ProviderError,
     build_provider,
     normalize_provider,
+    preset_api_key,
     resolve_api_key,
 )
 from gaia.config import Config
@@ -38,23 +41,33 @@ def _catalogo() -> list[str]:
 
 def _auth_source(provider: str, cfg: Config) -> str:
     """De onde a chave veio, sem revelar o valor."""
-    preset = PRESETS.get(normalize_provider(provider))
-    if getattr(cfg.agent, "api_key", "").strip() and (
-        normalize_provider(provider) == normalize_provider(cfg.agent.provider)
-    ):
+    nome = normalize_provider(provider)
+    atual = normalize_provider(cfg.agent.provider)
+    preset = PRESETS.get(nome)
+    if getattr(cfg.agent, "api_key", "").strip() and nome == atual:
         return "config"
+    if nome == atual and os.environ.get("GAIA_AGENT_API_KEY", "").strip():
+        return "GAIA_AGENT_API_KEY"
     if preset is not None:
-        import os
-
-        for nome in preset.env_keys:
-            if os.environ.get(nome, "").strip():
-                return nome
+        for chave in preset.env_keys:
+            if os.environ.get(chave, "").strip():
+                return chave
         for caminho in preset.auth_file:
-            from pathlib import Path
-
             if Path(caminho).expanduser().is_file():
                 return f"arquivo {caminho}"
     return ""
+
+
+def _chave_do_provider(nome: str, cfg: Config) -> str:
+    """Chave que o provider **deste** preset usaria, nunca a generica alheia.
+
+    ``resolve_api_key`` cai em ``GAIA_AGENT_API_KEY`` quando nao acha a chave
+    propria; para o painel isso mentiria (todo provider apareceria com
+    credencial). A generica so vale para o provider configurado.
+    """
+    if nome == normalize_provider(cfg.agent.provider):
+        return resolve_api_key(cfg.agent.provider, cfg.agent.api_key)
+    return preset_api_key(nome)
 
 
 def describe_providers(cfg: Config) -> list[dict[str, Any]]:
@@ -65,7 +78,7 @@ def describe_providers(cfg: Config) -> list[dict[str, Any]]:
         preset = PRESETS.get(nome)
         if preset is None:  # pragma: no cover - PUBLIC_PROVIDERS vem de PRESETS
             continue
-        chave = resolve_api_key(nome, cfg.agent.api_key if nome == atual else "")
+        chave = _chave_do_provider(nome, cfg)
         sem_chave_necessaria = not preset.env_keys and not preset.auth_file
         origem = _auth_source(nome, cfg)
         itens.append(

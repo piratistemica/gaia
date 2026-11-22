@@ -56,13 +56,14 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/controller/prompt.py` | prompt em camadas (prefixo estável + bloco dinâmico) |
 | `gaia/controller/initiative.py` | lembretes e check-in proativo; `briefing.py` | briefings |
 | `gaia/controller/memory.py` | consolidação diária e sonho |
-| `gaia/memory/store.py` | SQLite (`gaia.db`, schema v5: conversations/turns/records/meta/reminders) |
+| `gaia/memory/store.py` | SQLite (`gaia.db`, schema v6: conversations/turns/records/meta/reminders/**runs**) |
 | `gaia/memory/consolidation.py`, `dream.py` | memória do dia e sonho |
 | `gaia/secondbrain/` | índice FTS5, frontmatter, notas, embeddings opcionais |
 | `gaia/briefing/compose.py` | texto dos briefings (manhã, meio-dia, noite) |
 | `gaia/interface/terminal.py` | UI Rich; `textual_app.py` | TUI |
 | `gaia/interface/remote.py` | `RemoteUI`: serializa eventos para o serve (fan-out + histórico) |
-| `gaia/serve/server.py` | HTTP + SSE; `app.py` | ponte `OrchestratorTarget`; `web.py`/`static/` | web |
+| `gaia/serve/server.py` | HTTP + SSE + `/control`; `app.py` | ponte `OrchestratorTarget`; `control_api.py` | rotas do painel; `web.py`/`static/` | web |
+| `gaia/control/` | Control Center: `runs` (histórico), `skills`, `automations`, `health`, `secrets`, `settings`, `providers`, `center` |
 | `gaia/client/remote_client.py` | cliente `gaia --remote` |
 | `gaia/telegram/`, `whatsapp/`, `browser/` | canais e integrações |
 | `gaia/audiobook/` | PDF/texto → MP3: `extract.py` (PDF sem dependência), `normalize.py` (limpeza + capítulos), `jobs.py` (narração, ID3/CHAP), `service.py` (lote inbox→outbox) |
@@ -97,7 +98,13 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   `RemoteUI` (`POST /permission/{id}`).
 - **Segredos só no `.env`/ambiente**, nunca no TOML. A precedência é
   ambiente/`.env` > `config.toml`. `Config.public_dict()` redige os segredos
-  conhecidos (`agent.api_key`, WhatsApp, Telegram, embed e `serve.token`).
+  conhecidos (`agent.api_key`, WhatsApp, Telegram, embed, `serve.token` e
+  `serve.control_token`).
+- **O Control Center tem token próprio.** `/control/api/*` exige
+  `GAIA_CONTROL_TOKEN`, nunca `GAIA_SERVE_TOKEN` (o token do chat não
+  administra credenciais). Sem ele, a API responde 503 e não existe por
+  omissão: o painel não herda poder acidentalmente. Toda resposta mascara
+  segredo (`sk-…1234`) e nenhum valor completo aparece em JSON ou log.
 - **Dados ficam fora do repo por padrão:** `~/.local/share/gaia`
   (`GAIA_DATA_DIR`). O repo só usa `./data` quando o launcher seta
   `GAIA_DATA_DIR="$REPO/data"` (`Abrir Gaia.command`).
@@ -120,6 +127,18 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 - **Nova ferramenta:** crie o spec/handler em `gaia/agent/tools/`, registre em
   `build_tools()` e marque `requires_approval=True` se alterar algo. Adicione
   teste em `tests/test_agent.py` e, se for específica, no arquivo do domínio.
+- **Nova skill no Control Center:** adicione um `Skill(...)` em
+  `gaia/control/skills.py` (id, kind, `requires`, `provides`, `schedule_hint`,
+  `module`). O painel nao muda: ele le o registry. Se a skill tiver horario,
+  descreva a janela em `gaia/control/automations.py::describe`. Se ela executar
+  de verdade, envolva o corpo com `record_run(...)` **depois** do gate de
+  horario — iniciar nao e sucesso. Testes: `tests/test_control_skills.py`,
+  `tests/test_control_automations.py`, `tests/test_runs_instrumentation.py`.
+- **Nova rota do painel:** adicione no `get`/`post` de
+  `gaia/serve/control_api.py` e o metodo correspondente em
+  `gaia/control/center.py`. Toda rota `/control/api/*` exige
+  `GAIA_CONTROL_TOKEN` (separado de `GAIA_SERVE_TOKEN`) e teste em
+  `tests/test_control_api.py`.
 - **Novo comando de barra:** adicione o `elif` em
   `controller/commands.py:_handle_command`, atualize `TerminalUI.help()`
   (`interface/terminal.py`) e teste em `tests/test_cli.py`/`test_orchestrator.py`.
@@ -177,6 +196,11 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 
 - `docs/prompt-correcoes.md` é uma **spec ativa ainda não aplicada**: lembretes
   perdidos, `always` por sessão e truncamento do bash mantendo o fim.
+- Control Center: Fases A e B implementadas (`gaia/control/`, `/control`).
+  Fases C/D/E (**não** implementadas) em
+  `docs/plans/2026-11-22-control-center-fases-cde.md`: scheduler governavel
+  (pausar/executar), retry com backoff, notificacao de falha no Telegram e
+  niveis de autonomia. O painel hoje **observa**; nao **governa**.
 - Segurança pendente: sandbox/env do `bash`, lock no `POST /turn`, aprovação
   remota vs. callback do Telegram, redação de `serve.token`, timeout de
   permissão.
