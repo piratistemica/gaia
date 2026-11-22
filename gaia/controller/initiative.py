@@ -303,7 +303,10 @@ class InitiativeMixin(OrchestratorContract):
         if count:
             self._proactive_count += 1
             self._last_proactive = time.monotonic()
-        if self.channel == "telegram":
+        # O dono do poller entrega no chat, independente do nome do canal: no
+        # `gaia serve` o channel e "serve" mas quem fala com a Talita e o
+        # Telegram (o TTS do mini nao tem alto-falante para onde ir).
+        if self.channel == "telegram" or self.owns_telegram:
             await self._notify_telegram(text)
             return
         await self._speak(text)

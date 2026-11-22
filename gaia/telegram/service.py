@@ -144,6 +144,8 @@ class TelegramService:
         # Consolidacao das 23:00 e sonho das 02:00 tambem precisam subir sem
         # mensagem: headless, ninguem fala com ela de madrugada.
         self.orchestrator.start_memory()
+        # Este servico e o dono do poller: proatividade vai para o chat.
+        self.orchestrator.owns_telegram = True
         if self.cfg.audiobook.enabled and self.cfg.audiobook.watch_minutes > 0:
             watcher = asyncio.create_task(self._audiobook_watcher())
             self._background.add(watcher)

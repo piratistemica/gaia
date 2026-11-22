@@ -120,6 +120,8 @@ async def _serve_command(
             from gaia.telegram.service import telegram_permission
 
             ui.permission_callback = telegram_permission(cfg.telegram)
+            # Este processo e o dono do poller: a proatividade sai no chat.
+            orchestrator.owns_telegram = True
             servico_telegram = asyncio.create_task(_rodar_telegram(cfg, orchestrator, ui))
 
         await parar.wait()

@@ -1138,6 +1138,29 @@ async def test_proativo_no_canal_cli_continua_falando_local(orch):
 
 
 @pytest.mark.asyncio
+async def test_proativo_no_serve_dono_do_telegram_vai_para_o_chat(orch):
+    telegram = FakeTelegram()
+    orch.telegram = telegram
+    orch.channel = "serve"
+    orch.owns_telegram = True
+
+    await orch._say_proactive("Bom dia")
+
+    assert telegram.sent == ["Bom dia"]
+    assert orch.tts.spoken == []
+
+
+@pytest.mark.asyncio
+async def test_proativo_no_serve_sem_poller_nao_toca_audio(orch):
+    orch.channel = "serve"
+    orch.owns_telegram = False
+
+    await orch._say_proactive("Bom dia")
+
+    assert orch.tts.spoken == []
+
+
+@pytest.mark.asyncio
 async def test_proativo_nao_quebra_quando_o_telegram_falha(orch):
     orch.telegram = FakeTelegram(fail=True)
     orch.channel = "telegram"
@@ -1150,6 +1173,16 @@ async def test_proativo_nao_quebra_quando_o_telegram_falha(orch):
 @pytest.mark.asyncio
 async def test_speak_nao_toca_audio_local_no_canal_telegram(orch):
     orch.channel = "telegram"
+
+    await orch._speak("Combinado. Vou te lembrar.")
+
+    assert orch.tts.spoken == []
+
+
+@pytest.mark.asyncio
+async def test_speak_nao_toca_audio_local_no_serve(orch):
+    """O `serve` roda headless no mini: audio local ali e silencio."""
+    orch.channel = "serve"
 
     await orch._speak("Combinado. Vou te lembrar.")
 

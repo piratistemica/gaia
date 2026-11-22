@@ -198,8 +198,9 @@ class SpeechMixin(OrchestratorContract):
 
     async def _speak(self, text: str) -> None:
         # No canal Telegram a voz ja e feita pelo bot (voice_replies) e a maquina
-        # pode nao ter saida de audio: nao tentar tocar localmente.
-        if self.channel == "telegram":
+        # pode nao ter saida de audio. No `serve` (headless no mini) o TTS local
+        # tambem nao tem para onde ir; quem entrega no chat e owns_telegram.
+        if self.channel in {"telegram", "serve"}:
             return
         if not self.tts.enabled:
             return
