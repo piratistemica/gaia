@@ -161,6 +161,16 @@ def _validar(chave: str, valor: str) -> str:
     return limpo
 
 
+def _env_var_permitida(nome: str) -> bool:
+    """Variavel de configuracao da Gaia (nao segredo) que pode ser comentada.
+
+    Vale so para ``GAIA_*``/``ZAYA_*``: um campo de configuracao precisa poder
+    ter seu override removido, mas o allowlist de escrita de segredo continua
+    fechado.
+    """
+    return bool(re.fullmatch(r"(?:GAIA|ZAYA)_[A-Z0-9_]+", nome or ""))
+
+
 def _backup(caminho: Path) -> Path | None:
     if not caminho.is_file():
         return None
@@ -233,7 +243,7 @@ def remove_secret(env_path: Path, key: str) -> dict[str, Any]:
     """Comenta a linha do ``.env`` (nao apaga) para remover o override."""
     caminho = Path(env_path).expanduser()
     nome = (key or "").strip()
-    if nome not in allowed_keys():
+    if nome not in allowed_keys() and not _env_var_permitida(nome):
         raise ValueError(f"chave nao permitida pelo painel: {nome!r}")
     if not caminho.is_file():
         raise FileNotFoundError(f"{caminho} nao existe")
@@ -261,7 +271,6 @@ def remove_secret(env_path: Path, key: str) -> dict[str, Any]:
 
 
 def describe_secrets(env_path: Path) -> dict[str, Any]:
-    """Payload da rota: itens, caminho e allowlist (nunca valores)."""
     caminho = Path(env_path).expanduser()
     itens = list_secrets(caminho)
     return {
