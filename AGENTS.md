@@ -198,9 +198,12 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   perdidos, `always` por sessão e truncamento do bash mantendo o fim.
 - Control Center: Fases A e B implementadas (`gaia/control/`, `/control`).
   Fases C/D/E (**não** implementadas) em
-  `docs/plans/2026-11-22-control-center-fases-cde.md`: scheduler governavel
-  (pausar/executar), retry com backoff, notificacao de falha no Telegram e
-  niveis de autonomia. O painel hoje **observa**; nao **governa**.
+  `docs/plans/2026-11-22-control-center-fases-cde.md`, com prompt de retomada
+  pronto em `docs/plans/2026-11-22-control-center-continuar.md`: scheduler
+  governavel (pausar/executar), retry com backoff, notificacao de falha no
+  Telegram e niveis de autonomia. O painel hoje **observa**; nao **governa**.
+  Divida conhecida: `gaia/control/automations.py` descreve a agenda em
+  paralelo aos gates dos workers — a Fase C elimina os gates.
 - Segurança pendente: sandbox/env do `bash`, lock no `POST /turn`, aprovação
   remota vs. callback do Telegram, redação de `serve.token`, timeout de
   permissão.

@@ -31,6 +31,7 @@ estado atual. O status abaixo foi verificado no código.
 | [`plans/2026-11-22-agent-control-center-design.md`](plans/2026-11-22-agent-control-center-design.md) | implementado (fases A e B): Control Center em `/control`, `gaia/control/`, schema v6 (`runs`) |
 | [`plans/2026-11-22-control-center-ab.md`](plans/2026-11-22-control-center-ab.md) | implementado: plano tarefa por tarefa das fases A e B (histórico de execução da tarefa) |
 | [`plans/2026-11-22-control-center-fases-cde.md`](plans/2026-11-22-control-center-fases-cde.md) | **backlog, não aplicado**: Fases C/D/E (scheduler governável, autonomia, retry, notificação de falha) com prompt de retomada |
+| [`plans/2026-11-22-control-center-continuar.md`](plans/2026-11-22-control-center-continuar.md) | **prompt de retomada** das fases C/D/E, com o estado verificado das fases A/B (commit, rotas, testes) |
 
 ## Specs e análises
 
