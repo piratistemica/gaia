@@ -168,6 +168,10 @@ def _options(valor: Any) -> list[Any]:
     """Valores aceitos quando o campo e um enum disfarcado de str."""
     if isinstance(valor, str) and valor in {"off", "leve", "medio", "alto"}:
         return ["off", "leve", "medio", "alto"]
+    # Fonte de audio do modo voz (`[serve] voice_source`): o painel desenha um
+    # <select> em vez de um campo livre para nao gravar valor invalido.
+    if isinstance(valor, str) and valor in {"browser", "server"}:
+        return ["browser", "server"]
     return []
 
 
@@ -309,6 +313,8 @@ def _validar_semantica(section: str, key: str, valor: Any, tipo: str) -> None:
     if tipo == "list" and key in {"days", "market_days", "study_days"}:
         if any(int(item) < 0 or int(item) > 6 for item in valor):
             raise ValueError(f"{section}.{key} usa 0=segunda ... 6=domingo")
+    if key == "voice_source" and valor not in {"browser", "server"}:
+        raise ValueError("serve.voice_source deve ser 'browser' ou 'server'")
 
 
 def _coerce(value: Any, tipo: str) -> Any:

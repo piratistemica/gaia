@@ -570,16 +570,35 @@
     );
   }
 
+  // Rotulo humano de valor de enum (o TOML guarda o identificador).
+  const ROTULOS_OPCAO = {
+    browser: "microfone do navegador",
+    server: "microfone do servidor",
+  };
+
+  function rotuloOpcao(chave, valor) {
+    return ROTULOS_OPCAO[valor] || String(valor);
+  }
+
   function campoSettings(secao, campo) {
     const aviso = campo.source === "env"
       ? el("span", { class: "origem env" }, `definido por ${campo.env_key} no .env`)
       : el("span", { class: "origem" }, `origem: ${campo.source}`);
 
+    // `options` vem do motor para enums disfarcados de str (ex.: fonte do audio
+    // do modo voz = browser|server): vira <select>, nunca texto livre.
+    const opcoes = Array.isArray(campo.options) ? campo.options : [];
     let entrada;
     if (campo.type === "bool") {
       entrada = el("select", { disabled: !campo.editable },
         el("option", { value: "true", selected: campo.value === true }, "ligado"),
         el("option", { value: "false", selected: campo.value === false }, "desligado"));
+    } else if (opcoes.length) {
+      entrada = el("select", { disabled: !campo.editable },
+        opcoes.map((valor) => el("option", {
+          value: valor,
+          selected: campo.value === valor,
+        }, rotuloOpcao(campo.key, valor))));
     } else if (campo.type === "list") {
       entrada = el("input", {
         value: (campo.value || []).join(", "),

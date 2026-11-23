@@ -18,7 +18,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from gaia.audiobook.config import AudiobookConfig
 
@@ -439,6 +439,19 @@ class ServeConfig(BaseModel):
     instance_id: str = ""
     # Sobe o poller do Telegram junto do servidor (um processo so).
     telegram: bool = True
+    # De onde vem o audio do modo voz do web: "browser" (o navegador grava e
+    # envia WAV para `POST /voice/upload`) ou "server" (o motor grava com o
+    # proprio microfone, `POST /voice/listen`). Padrao browser: o mini headless
+    # normalmente nao tem microfone util. Editavel no Control Center.
+    voice_source: str = "browser"
+
+    @field_validator("voice_source")
+    @classmethod
+    def _voice_source_valida(cls, valor: str) -> str:
+        escolha = str(valor or "").strip().lower()
+        if escolha not in {"browser", "server"}:
+            raise ValueError("voice_source deve ser 'browser' ou 'server'")
+        return escolha
 
     def remote_bind_without_token(self) -> bool:
         """True = escutaria na rede sem segredo; o servidor deve recusar."""
@@ -706,6 +719,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "GAIA_SERVE_ALLOW_REMOTE": ("serve", "allow_remote"),
     "GAIA_SERVE_INSTANCE_ID": ("serve", "instance_id"),
     "GAIA_SERVE_TELEGRAM": ("serve", "telegram"),
+    "GAIA_SERVE_VOICE_SOURCE": ("serve", "voice_source"),
     "GAIA_UI_SELECTION_MODE": ("interface", "selection_mode"),
     "GAIA_UI_MARKDOWN": ("interface", "markdown_render"),
     "GAIA_UI": ("interface", "ui"),
@@ -1241,6 +1255,9 @@ telegram = true       # sobe o poller do Telegram junto (um processo so)
 # Id desta maquina em <data_dir>/instances.json (ex.: "mini"). Vazio = casar
 # pelo endereco pelo qual a pagina foi aberta.
 instance_id = ""
+# De onde vem o audio do modo voz: "browser" (o navegador grava e envia WAV)
+# ou "server" (o microfone do proprio motor). Editavel em /control.
+voice_source = "browser"
 # Control Center (/control) usa GAIA_CONTROL_TOKEN no .env, NAO este token:
 # o token do chat nao administra credenciais. Sem ele o painel fica off.
 """

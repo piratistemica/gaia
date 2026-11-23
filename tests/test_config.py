@@ -241,6 +241,19 @@ def test_serve_defaults_sao_loopback_e_sem_token():
     assert cfg.serve.port == 8787
     assert cfg.serve.token == ""
     assert cfg.serve.telegram is True
+    assert cfg.serve.voice_source == "browser"
+
+
+def test_fonte_do_audio_do_modo_voz():
+    """`voice_source` decide quem grava: o navegador (padrao) ou o motor."""
+    assert ServeConfig().voice_source == "browser"
+    assert ServeConfig(voice_source="server").voice_source == "server"
+    assert ServeConfig(voice_source="SERVER").voice_source == "server"
+    with pytest.raises(ValueError):
+        ServeConfig(voice_source="microfone-do-vizinho")
+
+    cfg = Config.load(env={"GAIA_SERVE_VOICE_SOURCE": "server"})
+    assert cfg.serve.voice_source == "server"
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1", ""])
@@ -285,6 +298,7 @@ def test_template_padrao_traz_a_secao_serve(tmp_path):
     cfg = Config.load(config_path=target, env={"GAIA_DATA_DIR": str(tmp_path)})
     assert cfg.serve.host == "127.0.0.1"
     assert cfg.serve.port == 8787
+    assert cfg.serve.voice_source == "browser"
     assert "enabled = false" in target.read_text(encoding="utf-8")
 
 

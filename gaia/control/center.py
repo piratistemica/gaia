@@ -220,9 +220,14 @@ class ControlCenter:
         resultado = settings_mod.update(
             self.config_path, section, key, value, cfg=self.cfg
         )
-        # Reflete no processo sem reiniciar: os workers leem ``self.cfg``.
+        # Reflete no processo sem reiniciar: os workers leem ``self.cfg`` (o
+        # mesmo objeto do motor). Sem isso, mudar `serve.voice_source` so
+        # valeria no proximo `gaia serve` — e a tela ficaria mentindo.
+        secoes = [self.cfg]
         if self.orch is not None:
-            alvo = getattr(self.orch.cfg, section, None)
+            secoes.append(self.orch.cfg)
+        for cfg in secoes:
+            alvo = getattr(cfg, section, None)
             if alvo is not None and hasattr(alvo, key):
                 setattr(alvo, key, resultado["value"])
         return resultado

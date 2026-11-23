@@ -71,6 +71,29 @@ def test_effective_marca_tipos(cfg):
     assert campos[("career", "days")]["type"] == "list"
 
 
+def test_fonte_do_audio_vira_select_no_painel(cfg):
+    """`serve.voice_source` e enum: o painel desenha <select> com os 2 valores."""
+    campo = _campos(cfg, {}).get(("serve", "voice_source"))
+    assert campo is not None
+    assert campo["value"] == "browser"
+    assert campo["options"] == ["browser", "server"]
+    assert campo["editable"] is True
+
+
+def test_update_grava_a_fonte_do_audio(tmp_path):
+    toml = tmp_path / "config.toml"
+    resultado = update(toml, "serve", "voice_source", "server")
+    assert resultado["value"] == "server"
+    assert 'voice_source = "server"' in toml.read_text(encoding="utf-8")
+
+
+def test_update_recusa_fonte_de_audio_invalida(tmp_path):
+    toml = tmp_path / "config.toml"
+    with pytest.raises(ValueError):
+        update(toml, "serve", "voice_source", "microfone-do-vizinho")
+    assert not toml.is_file()
+
+
 def test_update_preserva_comentarios(tmp_path):
     toml = tmp_path / "config.toml"
     toml.write_text("# comentario do topo\n[proactive]\nidle_minutes = 45.0  # padrao\n")

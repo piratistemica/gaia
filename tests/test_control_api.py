@@ -236,6 +236,45 @@ def test_settings_traz_origem(setup):
     assert "api_key" not in json.dumps(corpo["sections"])
 
 
+def test_settings_expoe_a_fonte_do_audio_com_opcoes(setup):
+    """O seletor do painel sai do registry de settings, nao de codigo na tela."""
+    base, *_ = setup
+    _, corpo = pedir(base, "GET", "/control/api/settings", token="ctl-secreto")
+    secao = next(s for s in corpo["sections"] if s["section"] == "serve")
+    campo = next(c for c in secao["fields"] if c["key"] == "voice_source")
+    assert campo["value"] == "browser"
+    assert campo["options"] == ["browser", "server"]
+    assert campo["editable"] is True
+
+
+def test_patch_grava_a_fonte_do_audio_e_aplica_no_processo(setup):
+    base, centro, *_ = setup
+    status, corpo = pedir(
+        base,
+        "PATCH",
+        "/control/api/settings",
+        token="ctl-secreto",
+        corpo={"section": "serve", "key": "voice_source", "value": "server"},
+    )
+    assert status == 200
+    assert corpo["value"] == "server"
+    assert centro.cfg.serve.voice_source == "server"  # sem reiniciar o serve
+    assert 'voice_source = "server"' in Path(corpo["path"]).read_text()
+
+
+def test_patch_fonte_do_audio_invalida_422(setup):
+    base, *_ = setup
+    status, corpo = pedir(
+        base,
+        "PATCH",
+        "/control/api/settings",
+        token="ctl-secreto",
+        corpo={"section": "serve", "key": "voice_source", "value": "vizinho"},
+    )
+    assert status == 422
+    assert "voice_source" in corpo["message"]
+
+
 def test_patch_settings_grava_toml(setup):
     base, _, _, _ = setup
     status, corpo = pedir(
