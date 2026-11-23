@@ -112,6 +112,37 @@ def _audio(segundos: float = 1.0) -> np.ndarray:
     return np.zeros(int(16000 * segundos), dtype=np.float32)
 
 
+def _wav(
+    audio: np.ndarray | None = None,
+    *,
+    taxa: int = 16000,
+    canais: int = 1,
+    bits: int = 16,
+    com_lista: bool = False,
+) -> bytes:
+    """Monta um WAV de verdade (como o navegador envia) para os testes."""
+    import struct
+
+    if audio is None:
+        t = np.linspace(0, 0.5, int(taxa * 0.5), endpoint=False)
+        audio = np.sin(2 * np.pi * 440 * t).astype(np.float32) * 0.5
+    if bits == 16:
+        cru = (audio * 32767).astype("<i2").tobytes()
+        formato, alinhamento = 1, canais * 2
+    elif bits == 8:
+        cru = ((audio * 127) + 128).astype(np.uint8).tobytes()
+        formato, alinhamento = 1, canais
+    else:
+        cru = audio.astype("<f4").tobytes()
+        formato, alinhamento = 3, canais * 4
+    fmt = struct.pack("<HHIIHH", formato, canais, taxa, taxa * alinhamento, alinhamento, bits)
+    # Um chunk extra antes do `data` exercita a varredura (o Chrome grava LIST).
+    extra = b"LIST" + struct.pack("<I", 4) + b"INFO" if com_lista else b""
+    corpo = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + extra
+    corpo += b"data" + struct.pack("<I", len(cru)) + cru
+    return b"RIFF" + struct.pack("<I", len(corpo)) + corpo
+
+
 def test_clamp_window_normaliza_janela():
     assert clamp_window(15) == 15.0
     assert clamp_window(0) == LISTEN_WINDOW_SECONDS
@@ -202,6 +233,93 @@ def test_janela_em_curso_recusa_segunda_escuta():
     assert "andamento" in erro
 
 
+# ------------------------------------------------------- WAV do navegador ---
+
+
+def test_decode_wav_16k_mono_devolve_float32_no_tamanho_certo():
+    from gaia.serve.voice import decode_wav
+
+    audio = decode_wav(_wav())
+    assert audio.dtype == np.float32
+    assert len(audio) == 8000  # 0,5 s a 16 kHz
+    assert -1.0 <= float(audio.min()) and float(audio.max()) <= 1.0
+
+
+def test_decode_wav_reamostra_44k_para_16k():
+    from gaia.serve.voice import decode_wav
+
+    audio = decode_wav(_wav(taxa=44100))
+    assert abs(len(audio) - 8000) <= 2  # 0,5 s a 16 kHz
+
+
+def test_decode_wav_estereo_vira_mono():
+    from gaia.serve.voice import decode_wav
+
+    amostras = np.tile(np.array([0.5, -0.5], dtype=np.float32), 8000)
+    audio = decode_wav(_wav(amostras, canais=2))
+    assert len(audio) == 8000
+    assert float(np.abs(audio).max()) < 1e-3  # media de +0,5 e -0,5 = 0
+
+
+def test_decode_wav_pula_chunk_antes_do_data():
+    from gaia.serve.voice import decode_wav
+
+    assert len(decode_wav(_wav(com_lista=True))) == 8000
+
+
+def test_decode_wav_aceita_float32_e_8_bits():
+    from gaia.serve.voice import decode_wav
+
+    assert decode_wav(_wav(audio=np.full(8000, 0.5, dtype=np.float32), bits=32)).dtype == np.float32
+    assert len(decode_wav(_wav(audio=np.zeros(8000, dtype=np.float32), bits=8))) == 8000
+
+
+def test_decode_wav_recusa_o_que_nao_e_wav():
+    from gaia.serve.voice import decode_wav
+
+    with pytest.raises(ValueError):
+        decode_wav(b"OggS\x00\x02 nao e wav")
+    with pytest.raises(ValueError):
+        decode_wav(b"RIFF\x00\x00\x00\x00WAVE" + b"junk")  # sem fmt/data
+
+
+def test_upload_transcreve_o_wav_do_navegador():
+    voz = WebVoice(RecorderFake(), Transcriber("duas da tarde"), TTS())
+    dados = asyncio.run(voz.upload(_wav()))
+    assert dados == {"text": "duas da tarde", "heard": True}
+    assert voz.state == "idle"
+
+
+def test_upload_sem_fala_nao_e_erro():
+    voz = WebVoice(RecorderFake(), Transcriber(""), TTS())
+    assert asyncio.run(voz.upload(_wav(audio=np.zeros(8000, dtype=np.float32)))) == {
+        "text": "",
+        "heard": False,
+    }
+
+
+def test_upload_nao_precisa_de_microfone_no_motor():
+    """O mini headless transcreve: so o STT importa no caminho do navegador."""
+    voz = WebVoice(None, Transcriber("oi"), TTS())
+    assert voz.available()[0] is False
+    assert asyncio.run(voz.upload(_wav()))["text"] == "oi"
+
+
+def test_upload_sem_stt_levanta_unavailable():
+    voz = WebVoice(None, None, TTS())
+    with pytest.raises(VoiceUnavailable):
+        asyncio.run(voz.upload(_wav()))
+
+
+def test_upload_recusa_audio_longo_demais():
+    from gaia.serve.voice import MAX_UPLOAD_SECONDS, SAMPLE_RATE
+
+    longo = np.zeros(int((MAX_UPLOAD_SECONDS + 5) * SAMPLE_RATE), dtype=np.float32)
+    voz = WebVoice(RecorderFake(), Transcriber("oi"), TTS())
+    with pytest.raises(ValueError):
+        asyncio.run(voz.upload(_wav(longo)))
+
+
 # ------------------------------------------------------------- transporte ---
 
 
@@ -212,14 +330,25 @@ class MotorVoz:
         self.disponivel = disponivel
         self.fala = fala
         self.escutas: list[float] = []
+        self.uploads: list[int] = []
         self.paradas = 0
         self.falas: list[str] = []
 
     def voice_status(self) -> dict[str, Any]:
-        return {"available": self.disponivel, "reason": "" if self.disponivel else "sem mic", "tts": True}
+        return {
+            "available": self.disponivel,
+            "reason": "" if self.disponivel else "sem mic",
+            "tts": True,
+            "source": "browser",
+            "microphone": True,
+        }
 
     def listen(self, window: float = 15.0) -> dict[str, Any]:
         self.escutas.append(window)
+        return {"text": "que horas sao", "heard": True}
+
+    def upload_voice(self, wav_bytes: bytes) -> dict[str, Any]:
+        self.uploads.append(len(wav_bytes))
         return {"text": "que horas sao", "heard": True}
 
     def stop_listening(self) -> None:
@@ -259,16 +388,22 @@ class SemVoz(MotorVoz):
     listen = None  # type: ignore[assignment]
     stop_listening = None  # type: ignore[assignment]
     speak = None  # type: ignore[assignment]
+    upload_voice = None  # type: ignore[assignment]
 
 
-def _pedir(base: str, metodo: str, caminho: str, corpo: dict[str, Any] | None = None):
+def _pedir(base: str, metodo: str, caminho: str, corpo: Any = None, tipo: str = "application/json"):
     import http.client
     import json
 
     host, porta = base.removeprefix("http://").split(":")
     conexao = http.client.HTTPConnection(host, int(porta), timeout=20)
-    dados = json.dumps(corpo).encode() if corpo is not None else None
-    cabecalhos = {"Content-Type": "application/json"} if dados else {}
+    if corpo is None:
+        dados = None
+    elif isinstance(corpo, bytes):
+        dados = corpo
+    else:
+        dados = json.dumps(corpo).encode()
+    cabecalhos = {"Content-Type": tipo} if dados else {}
     conexao.request(metodo, caminho, body=dados, headers=cabecalhos)
     resposta = conexao.getresponse()
     bruto = resposta.read()
@@ -332,6 +467,83 @@ def test_voice_speak_sem_texto_e_400():
     srv, base = _servidor(MotorVoz())
     try:
         assert _pedir(base, "POST", "/voice/speak", {"text": "  "})[0] == 400
+    finally:
+        srv.shutdown()
+
+
+def test_voice_upload_recebe_wav_e_transcreve():
+    alvo = MotorVoz()
+    srv, base = _servidor(alvo)
+    try:
+        wav = _wav()
+        status, corpo = _pedir(
+            base, "POST", "/voice/upload", wav, tipo="audio/wav"
+        )
+        assert status == 200
+        assert corpo == {
+            "ok": True,
+            "text": "que horas sao",
+            "heard": True,
+            "window": 0,
+        }
+        assert alvo.uploads == [len(wav)]  # o body chegou inteiro
+    finally:
+        srv.shutdown()
+
+
+def test_voice_upload_sem_bytes_e_400():
+    srv, base = _servidor(MotorVoz())
+    try:
+        status, corpo = _pedir(base, "POST", "/voice/upload", b"", tipo="audio/wav")
+        assert status == 400 and corpo["error"] == "empty_audio"
+    finally:
+        srv.shutdown()
+
+
+def test_voice_upload_invalido_e_400_nao_500():
+    class Recusa(MotorVoz):
+        def upload_voice(self, wav_bytes: bytes) -> dict[str, Any]:
+            from gaia.serve.voice import decode_wav
+
+            decode_wav(wav_bytes)
+            return {"text": "", "heard": False}
+
+    srv, base = _servidor(Recusa())
+    try:
+        status, corpo = _pedir(base, "POST", "/voice/upload", b"nao sou wav", tipo="audio/wav")
+        assert status == 400 and corpo["error"] == "invalid_audio"
+    finally:
+        srv.shutdown()
+
+
+def test_voice_upload_sem_metodo_no_motor_e_503():
+    srv, base = _servidor(SemVoz())
+    try:
+        status, corpo = _pedir(base, "POST", "/voice/upload", _wav(), tipo="audio/wav")
+        assert status == 503 and corpo["error"] == "voice_unavailable"
+    finally:
+        srv.shutdown()
+
+
+def test_voice_upload_acima_do_limite_e_413():
+    from gaia.serve.server import UPLOAD_MAX_BYTES
+
+    srv, base = _servidor(MotorVoz())
+    try:
+        grande = b"RIFF" + b"\x00" * (UPLOAD_MAX_BYTES + 1)
+        status, corpo = _pedir(base, "POST", "/voice/upload", grande, tipo="audio/wav")
+        assert status == 413 and corpo["error"] == "audio_too_large"
+    finally:
+        srv.shutdown()
+
+
+def test_voice_status_publica_a_fonte_do_audio():
+    srv, base = _servidor(MotorVoz())
+    try:
+        status, corpo = _pedir(base, "GET", "/voice")
+        assert status == 200
+        assert corpo["source"] == "browser"
+        assert corpo["microphone"] is True
     finally:
         srv.shutdown()
 
@@ -431,7 +643,93 @@ def test_target_sem_recorder_fica_indisponivel():
         def __init__(self) -> None:
             super().__init__()
             self.recorder = None  # motor sem microfone
+            self.cfg.serve = type("S", (), {"voice_source": "server"})()
 
     alvo = OrchestratorTarget(SemAudio(), RemoteUI())
     dados = alvo.voice_status()
     assert dados["available"] is False and dados["reason"]
+    assert dados["source"] == "server"
+
+
+def test_target_sem_microfone_ainda_aceita_upload_do_navegador():
+    """O ponto do modo novo: mini headless (sem mic) transcreve o WAV do Mac."""
+
+    class SemAudio(_Orch):
+        def __init__(self) -> None:
+            super().__init__()
+            self.recorder = None
+
+    alvo = OrchestratorTarget(SemAudio(), RemoteUI())
+    dados = alvo.voice_status()
+    assert dados["available"] is True
+    assert dados["source"] == "browser"
+    assert dados["microphone"] is False
+
+
+def test_target_traduz_upload_para_o_motor():
+    loop, thread = _loop()
+    try:
+        orch = _Orch()
+        alvo = OrchestratorTarget(orch, RemoteUI())
+        alvo.attach_loop(loop)
+
+        dados = alvo.upload_voice(_wav())
+        assert dados == {"text": "duas da tarde", "heard": True}
+        assert orch.recorder.janelas == []  # nao tocou no microfone do motor
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=3)
+
+
+# ------------------------------------------------- fase da escuta (`GET /voice`)
+
+
+def test_voz_publica_a_fase_da_escuta():
+    """A tela sonda `GET /voice` para trocar de "ouvindo" para "transcrevendo".
+
+    Sem isso o botao fica em "ouvindo" ate o POST /voice/listen terminar (o
+    Whisper inteiro) e parece que a tecla nao fez nada.
+    """
+    from gaia.serve import voice as modulo
+
+    class Lento(RecorderFake):
+        def record_until_silence(self, wait_timeout: float | None = None) -> Any:
+            fases.append(voz.state)
+            time.sleep(0.1)  # janela em curso: e aqui que a tela sonda
+            return super().record_until_silence(wait_timeout)
+
+    class TranscriberLento(Transcriber):
+        def transcribe(self, audio: Any) -> str:
+            fases.append(voz.state)
+            return super().transcribe(audio)
+
+    fases: list[str] = []
+    voz = WebVoice(Lento(audio=_audio()), TranscriberLento("oi"), TTS())
+
+    async def corrida() -> dict[str, Any]:
+        tarefa = asyncio.create_task(voz.listen(5))
+        await asyncio.sleep(0.05)
+        durante = voz.state
+        dados = await tarefa
+        return {"inicio": durante, "fim": voz.state, "dados": dados}
+
+    saida = asyncio.run(corrida())
+    assert fases == [modulo.STATE_LISTENING, modulo.STATE_TRANSCRIBING]
+    assert saida["inicio"] == modulo.STATE_LISTENING
+    assert saida["fim"] == modulo.STATE_IDLE
+    assert saida["dados"]["text"] == "oi"
+
+
+def test_voice_status_traz_a_fase(monkeypatch):
+    monkeypatch.setattr(
+        "gaia.audio.recorder.Recorder.available", staticmethod(lambda: (True, "ok"))
+    )
+    alvo = OrchestratorTarget(_Orch(), RemoteUI())
+    assert alvo.voice_status()["state"] == "idle"
+
+    srv, base = _servidor(alvo)
+    try:
+        status, corpo = _pedir(base, "GET", "/voice")
+        assert status == 200 and corpo["state"] == "idle"
+    finally:
+        srv.shutdown()
