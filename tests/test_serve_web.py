@@ -113,6 +113,49 @@ def test_botao_de_voz_no_html():
     assert '/voice/listen' in texto and '/voice/speak' in texto and '/voice/stop' in texto
     # Ao terminar o turno falado, a resposta e falada e o mic volta.
     assert 'vozFalar(' in texto and 'vozSilenciar(' in texto
+    # `M` e o atalho de mudo (como na TUI), nao o Enter.
+    assert 'vozAlternarMudo()' in texto and 'teclaMudo(' in texto
+    assert '"m"' in texto and '"M"' in texto
+    # O estado "transcrevendo" aparece de verdade: a tela sonda `GET /voice`,
+    # que publica a fase da escuta — antes ela so existia no rotulo.
+    assert 'vozSondar(' in texto and 'dados.state === "transcrevendo"' in texto
+    assert 'state' in texto
+
+
+def test_modo_voz_grava_wav_no_navegador():
+    """Microfone do navegador: getUserMedia -> WAV 16-bit -> /voice/upload."""
+    texto, _ = _html()
+    assert "navigator.mediaDevices.getUserMedia" in texto
+    assert 'api("/voice/upload"' in texto
+    assert '"Content-Type": "audio/wav"' in texto
+    # WAV de verdade: cabecalho RIFF/WAVE e PCM 16-bit mono 16 kHz.
+    assert 'texto(0, "RIFF")' in texto and 'texto(8, "WAVE")' in texto
+    assert "VOZ_WAV_HZ = 16000" in texto and "new Int16Array" in texto
+    # A origem do audio vem do motor (`GET /voice` -> `source`).
+    assert 'dados.source === "server" ? "server" : "browser"' in texto
+    assert 'voz.fonte === "browser"' in texto
+    # A rota antiga continua existindo (microfone do servidor).
+    assert '/voice/listen' in texto
+
+
+def test_enter_solta_a_gravacao_do_navegador():
+    """No modo navegador o Enter fecha a gravacao local, sem abortar o upload."""
+    texto, _ = _html()
+    trecho = texto.split("function vozEnter()", 1)[1].split("function ", 1)[0]
+    assert 'voz.fonte === "browser"' in trecho
+    assert "voz.pararGravacao()" in trecho
+    assert 'vozEstado("transcrevendo")' in trecho
+
+
+def test_enter_do_modo_voz_nao_silencia():
+    """Enter envia; quem cala o microfone e o `M` (bug: Enter ficava mudo)."""
+    texto, _ = _html()
+    trecho = texto.split("function vozEnter()", 1)[1].split("function ", 1)[0]
+    # No estado silenciado o Enter so avisa do atalho, nunca religa nem cala.
+    assert "vozAlternarMudo(" not in trecho
+    assert 'aviso(' in trecho and "M" in trecho
+    # O unico caminho que pausa o microfone e o atalho/erro, nao o Enter.
+    assert "voz.manual = true" in trecho
 
 
 def test_paleta_de_comandos_no_html():

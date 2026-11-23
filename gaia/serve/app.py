@@ -280,12 +280,40 @@ class OrchestratorTarget:
     def voice_status(self) -> dict[str, Any]:
         """O modo voz do web existe nesta maquina? (microfone + STT + TTS)"""
         ok, motivo = self.voz.available()
+        # O upload do navegador so precisa do STT: o microfone do motor pode
+        # faltar (mini headless) e o modo voz continua util.
+        stt_ok, stt_motivo = self.voz.transcription_available()
+        fonte = self.voice_source()
+        disponivel = stt_ok if fonte == "browser" else ok
         tts = getattr(self.orch, "tts", None)
         return {
-            "available": ok,
-            "reason": motivo,
+            "available": disponivel,
+            "reason": "" if disponivel else (stt_motivo if fonte == "browser" else motivo),
             "tts": bool(tts is not None and getattr(tts, "enabled", False)),
+            # De onde a tela deve gravar: o microfone do navegador (WAV em
+            # POST /voice/upload) ou o do motor (POST /voice/listen).
+            "source": fonte,
+            "microphone": ok,
+            # Fase da escuta em curso: a tela sonda isto para sair de "ouvindo"
+            # para "transcrevendo" sem esperar o fim do POST /voice/listen.
+            "state": self.voz.state,
         }
+
+    def voice_source(self) -> str:
+        """Fonte de audio escolhida em `[serve] voice_source` (browser|server)."""
+        cfg = getattr(self.orch, "cfg", None)
+        serve = getattr(cfg, "serve", None)
+        escolha = str(getattr(serve, "voice_source", "browser") or "browser").lower()
+        return escolha if escolha in {"browser", "server"} else "browser"
+
+    def upload_voice(self, wav_bytes: bytes) -> dict[str, Any]:
+        """Transcreve um WAV do microfone do navegador (`POST /voice/upload`)."""
+        if self._loop is None:
+            raise RuntimeError("serve sem loop asyncio ligado")
+        futuro = asyncio.run_coroutine_threadsafe(
+            self.voz.upload(wav_bytes), self._loop
+        )
+        return futuro.result(timeout=90.0)
 
     def listen(self, window: float = 15.0) -> dict[str, Any]:
         """Grava uma fala no microfone do motor e devolve o texto transcrito."""

@@ -47,6 +47,10 @@ from gaia.serve.voice import VoiceUnavailable, clamp_window
 
 logger = logging.getLogger(__name__)
 
+# Teto do upload de voz (WAV de ate 3 minutos ~5,5 MB). Acima disso a rota
+# responde 413 sem entregar bytes ao STT.
+UPLOAD_MAX_BYTES = 8 * 1024 * 1024
+
 DECISIONS = {"once", "always", "reject"}
 HEARTBEAT_SECONDS = 15.0
 CONTROL_PREFIX = "/control"
@@ -274,6 +278,23 @@ class _Handler(BaseHTTPRequestHandler):
             return None
         return dados if isinstance(dados, dict) else None
 
+    def _corpo_bytes(self, limite: int) -> bytes | None:
+        """Corpo cru (audio do navegador). ``None`` = grande demais.
+
+        O body precisa ser sempre drenado: sem ler, o `Content-Length` fica
+        pendente no socket e a proxima requisicao da mesma conexao le lixo.
+        """
+        tamanho = int(self.headers.get("Content-Length") or 0)
+        if tamanho <= 0:
+            return b""
+        if tamanho > limite:
+            # Le so o comeco para nao travar o socket; o resto e descartado
+            # quando a conexao fecha (Connection: close na resposta de erro).
+            self.rfile.read(min(tamanho, limite))
+            self.close_connection = True
+            return None
+        return self.rfile.read(tamanho)
+
     def _host(self) -> str:
         return str(self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "")
 
@@ -416,6 +437,11 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if not self._autorizado():
             self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
+            return
+        if rota == "/voice/upload":
+            # Audio cru (audio/wav): o body NAO e JSON, entao a rota responde
+            # antes do `_corpo()` comum.
+            self._upload_voz()
             return
         corpo = self._corpo()
         if corpo is None:
@@ -815,15 +841,32 @@ class _Handler(BaseHTTPRequestHandler):
     def _voz_status(self) -> dict[str, Any]:
         funcao = _opcional(self.app.target, "voice_status")
         if funcao is None:
-            return {"available": False, "reason": "modo voz indisponivel neste motor", "tts": False}
+            return {
+                "available": False,
+                "reason": "modo voz indisponivel neste motor",
+                "tts": False,
+                "state": "idle",
+                "source": "browser",
+                "microphone": False,
+            }
         try:
             dados = dict(funcao() or {})
         except Exception as exc:  # microfone quebrado nao derruba o header
             logger.warning("voice_status falhou: %s", exc)
-            return {"available": False, "reason": str(exc), "tts": False}
+            return {
+                "available": False,
+                "reason": str(exc),
+                "tts": False,
+                "state": "idle",
+                "source": "browser",
+                "microphone": False,
+            }
         dados.setdefault("available", False)
         dados.setdefault("reason", "")
         dados.setdefault("tts", False)
+        dados.setdefault("state", "idle")
+        dados.setdefault("source", "browser")
+        dados.setdefault("microphone", False)
         return dados
 
     def _escutar(self, corpo: dict[str, Any]) -> None:
@@ -860,6 +903,55 @@ class _Handler(BaseHTTPRequestHandler):
                 "text": texto,
                 "heard": bool((dados or {}).get("heard", bool(texto))),
                 "window": janela,
+            },
+        )
+
+    def _upload_voz(self) -> None:
+        """POST /voice/upload: WAV do microfone do navegador -> texto.
+
+        Mesmo JSON de ``/voice/listen`` (a tela so troca a origem do audio).
+        WAV invalido/longo demais e 400, nunca 500: o erro e do pedido, nao do
+        motor. Nada e gravado em disco.
+        """
+        funcao = _opcional(self.app.target, "upload_voice")
+        if funcao is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "voice_unavailable",
+                "modo voz indisponivel neste motor",
+            )
+            return
+        corpo = self._corpo_bytes(UPLOAD_MAX_BYTES)
+        if corpo is None:
+            self._erro(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                "audio_too_large",
+                f"audio acima de {UPLOAD_MAX_BYTES // (1024 * 1024)} MB",
+            )
+            return
+        if not corpo:
+            self._erro(HTTPStatus.BAD_REQUEST, "empty_audio", "audio vazio")
+            return
+        try:
+            dados = funcao(corpo)
+        except VoiceUnavailable as exc:
+            self._erro(HTTPStatus.SERVICE_UNAVAILABLE, "voice_unavailable", str(exc))
+            return
+        except ValueError as exc:  # WAV invalido ou longo demais
+            self._erro(HTTPStatus.BAD_REQUEST, "invalid_audio", str(exc))
+            return
+        except Exception as exc:  # STT quebrado nao vira connection reset
+            logger.warning("upload de voz falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "voice_failed", str(exc))
+            return
+        texto = str((dados or {}).get("text") or "").strip()
+        self._json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "text": texto,
+                "heard": bool((dados or {}).get("heard", bool(texto))),
+                "window": 0,
             },
         )
 
