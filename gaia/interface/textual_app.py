@@ -23,6 +23,7 @@ from textual.message import Message
 from textual.widgets import Input, Static, TextArea
 
 from gaia.audio.recorder import ContinuousListener
+from gaia.config import ECHO_LABELS, ECHO_LANGUAGES, ECHO_NAMES
 from gaia.controller.modes import PERSONAS, get_persona
 from gaia.focus import moon_details, period_label, principal_phase_today
 from gaia.interface.textual_markdown import CODE_THEME, MARKDOWN_THEME, markdown_body
@@ -993,7 +994,7 @@ class GaiaTextualApp(App):
             ("Limpar conversa", "⌫", "limpar a tela"),
             ("Lua e metas on/off", "☾", "mostrar ou ocultar painéis"),
             ("Focar entrada", "▸", "ir para o campo de texto"),
-            ("Chinês on/off", "中", "eco em chinês"),
+            ("Eco de idiomas", "中", "tradução embaixo de cada mensagem"),
             ("Reiniciar Gaia", "⟳", "recarregar o código"),
             ("Sair", "✕", "fechar a Gaia"),
         ]
@@ -1025,7 +1026,7 @@ class GaiaTextualApp(App):
             field = self._input_widget()
             if field is not None:
                 field.focus()
-        elif label == "Chinês on/off":
+        elif label == "Eco de idiomas":
             self._toggle_chinese("")
         elif label == "Reiniciar Gaia":
             self.exit(42)
@@ -1190,7 +1191,6 @@ class GaiaTextualApp(App):
         self.call_after_refresh(self._scroll_chat)
         if answer and self._voice is not None and self._voice.cfg.interface.chinese_echo:
             self.run_worker(self._echo_zh(answer), exclusive=False)
-
     def write_diff(self, filename: str, patch: str) -> None:
         if not patch.strip():
             return
@@ -1226,27 +1226,46 @@ class GaiaTextualApp(App):
         self._mount(card("✦ Gaia", self._body(text), ACCENT, GAIA_BG), message=True)
 
     async def _echo_zh(self, text: str) -> None:
+        """Linha do eco embaixo da mensagem (chines, ingles ou frances)."""
         if self._voice is None:
             return
+        interface = self._voice.cfg.interface
+        idioma = str(getattr(interface, "echo_language", "zh") or "zh").lower()
+        traduzir = getattr(self._voice, "translate_echo", None)
         try:
-            translated = await self._voice.translate_zh(text)
+            if callable(traduzir):
+                translated = await traduzir(text, idioma)
+            else:  # motor antigo: so chines
+                if idioma != "zh":
+                    return
+                translated = await self._voice.translate_zh(text)
         except Exception:
             return
         if translated:
-            self._mount(Text(f"中文: {translated}", style=MUTED))
+            rotulo = ECHO_LABELS.get(idioma, "中文")
+            self._mount(Text(f"{rotulo}: {translated}", style=MUTED))
 
     def _toggle_chinese(self, argument: str) -> None:
         if self._voice is None:
-            self._set_status("chinês indisponível")
+            self._set_status("eco de idiomas indisponível")
             return
+        interface = self._voice.cfg.interface
         parts = argument.split(maxsplit=1)
-        current = self._voice.cfg.interface.chinese_echo
-        if len(parts) > 1 and parts[1].lower() in {"on", "off"}:
-            current = parts[1].lower() == "on"
+        escolha = parts[1].lower().strip() if len(parts) > 1 else ""
+        if escolha in ECHO_LANGUAGES:
+            interface.echo_language = escolha
+            interface.chinese_echo = True
+            self._set_status(f"eco em {ECHO_NAMES.get(escolha, escolha)} ligado")
+            return
+        current = interface.chinese_echo
+        if escolha in {"on", "off"}:
+            current = escolha == "on"
         else:
             current = not current
-        self._voice.cfg.interface.chinese_echo = current
-        self._set_status("chinês ligado" if current else "chinês desativado")
+        interface.chinese_echo = current
+        idioma = str(getattr(interface, "echo_language", "zh") or "zh").lower()
+        nome = ECHO_NAMES.get(idioma, "chinês")
+        self._set_status(f"eco em {nome} ligado" if current else f"eco em {nome} desativado")
 
     def _write_note(self, text: str) -> None:
         self._mount(Text(text, style=MUTED))

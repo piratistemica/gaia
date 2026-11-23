@@ -214,6 +214,16 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   `PUBLIC_PROVIDERS`, `preset_api_key`) e documente em `.env.example` e README.
 - **Novo campo de config:** adicione no modelo pydantic, em `_ENV_MAP`, no
   `_DEFAULT_CONFIG_TEMPLATE` e em `.env.example`; atualize README se for visível.
+- **Novo idioma do eco (tradução embaixo de cada mensagem):** é um item em
+  `ECHO_LANGUAGES`/`ECHO_LABELS`/`ECHO_NAMES` (`gaia/config.py`, os mesmos para
+  TUI e web) mais a tupla `(instrucao, system, titulo)` em `ECHO_PROMPTS`
+  (`controller/commands.py`). O caminho é um só: `Orchestrator.translate_echo`
+  (cache e sessão de modelo por idioma) — `translate_zh` fica como atalho do
+  chinês. No `serve`, `IDIOMAS_ECO` (`gaia/serve/app.py`) deriva a lista do
+  config e `POST /language` troca `interface.echo_language`; o evento continua
+  `zh` (por compatibilidade) mas agora leva `traducao` e `lang`. Testes:
+  `tests/test_serve_web.py` (rotas, evento por idioma), `test_orchestrator.py`
+  (prompt/cache) e `test_textual_app.py` (rótulo na TUI).
 - **Novo modo:** `controller/modes.py` (`PERSONAS`) e teste em `test_modes.py`.
 - **Nova automação:** `controller/briefing.py` (janelas `*_at`/`*_until`) ou
   `controller/initiative.py` (lembretes/check-in); use `claim_meta` para

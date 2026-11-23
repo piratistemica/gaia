@@ -134,7 +134,7 @@ _HELP = (
     "/modelo lista os modelos disponíveis e troca pelo número ou pelo slug "
     "provider/model; a escolha é salva no config.toml. "
     "/consolidar [hoje|ontem|AAAA-MM-DD] salva a memória do dia no Second Brain. "
-    "/chines on|off mostra 中文 + pinyin de cada mensagem. "
+    "/chines on|off|en|fr escolhe o eco (chinês com pinyin, inglês ou francês). "
     "/tokens mostra o consumo de tokens por turno e o total da sessão."
 )
 

@@ -123,8 +123,8 @@ class OrchestratorContract(ABC):
     _last_idle_message: str
     _initiative_session_id: str | None
     _task_session_id: str | None
-    _zh_session_id: str | None
-    _zh_cache: dict[str, str]
+    _echo_sessions: dict[str, str]
+    _echo_cache: dict[str, dict[str, str]]
     _tasks_next_check: float
     _task_page_updated_at: str | None
     _agenda_pending_names: list[str]

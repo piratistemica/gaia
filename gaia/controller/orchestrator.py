@@ -138,8 +138,8 @@ class Orchestrator(
         self._last_idle_message = ""
         self._initiative_session_id: str | None = None
         self._task_session_id: str | None = None
-        self._zh_session_id: str | None = None
-        self._zh_cache: dict[str, str] = {}
+        self._echo_sessions: dict[str, str] = {}
+        self._echo_cache: dict[str, dict[str, str]] = {}
         self._tasks_next_check = 0.0
         self._task_page_updated_at: str | None = None
         self._agenda_pending_names: list[str] = []

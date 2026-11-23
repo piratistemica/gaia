@@ -10,6 +10,7 @@ from pathlib import Path
 
 from gaia.agenda.client import AgendaError
 from gaia.agent.providers.factory import normalize_provider
+from gaia.config import ECHO_LANGUAGES, ECHO_NAMES
 from gaia.controller.contract import OrchestratorContract
 from gaia.controller.modes import PERSONAS, get_persona
 from gaia.controller.proactive import parse_reminder
@@ -22,6 +23,31 @@ def escape_user(text: str) -> str:
     from rich.markup import escape
 
     return escape(str(text))
+
+
+# Instrucao de traducao, system prompt e titulo da sessao por idioma do eco.
+# O chines mantem o formato antigo (``中文 | pinyin``); ingles e frances saem
+# so a traducao, que e o que cabe embaixo da bolha no web.
+ECHO_PROMPTS: dict[str, tuple[str, str, str]] = {
+    "zh": (
+        "Traduza o texto abaixo para chinês simplificado e escreva também "
+        "o pinyin. Responda APENAS no formato: 中文 | pinyin",
+        "Você é um tradutor português-chinês. Seja fiel e conciso.",
+        "Gaia — 中文",
+    ),
+    "en": (
+        "Translate the text below into natural English. Reply with ONLY the "
+        "translation, no quotes and no notes.",
+        "You are a Portuguese-to-English translator. Stay faithful and concise.",
+        "Gaia — English",
+    ),
+    "fr": (
+        "Traduisez le texte ci-dessous en français naturel. Répondez UNIQUEMENT "
+        "avec la traduction, sans guillemets ni commentaires.",
+        "Vous êtes un traducteur portugais-français. Soyez fidèle et concis.",
+        "Gaia — Français",
+    ),
+}
 
 
 class CommandsMixin(OrchestratorContract):
@@ -730,45 +756,72 @@ class CommandsMixin(OrchestratorContract):
 
     def _toggle_chinese(self, argument: str) -> None:
         arg = argument.lower().strip()
+        # `/chines en|fr` troca o idioma do eco sem sair do comando (o padrao
+        # continua sendo o chines).
+        if arg in ECHO_LANGUAGES:
+            self.cfg.interface.echo_language = arg
+            self.cfg.interface.chinese_echo = True
+            self.ui.success(f"eco em {self._echo_nome(arg)} ativado")
+            return
         if arg in {"on", "off"}:
             self.cfg.interface.chinese_echo = arg == "on"
         else:
             self.cfg.interface.chinese_echo = not self.cfg.interface.chinese_echo
         state = "ativado" if self.cfg.interface.chinese_echo else "desativado"
-        self.ui.success(f"eco em chinês {state}")
+        idioma = self._echo_nome(self.cfg.interface.echo_language)
+        self.ui.success(f"eco em {idioma} {state}")
+
+    @staticmethod
+    def _echo_nome(chave: str) -> str:
+        return ECHO_NAMES.get(str(chave or "zh").lower(), "chinês")
+
+    @property
+    def _echo_key(self) -> str:
+        """Idioma do eco escolhido (zh | en | fr)."""
+        chave = str(getattr(self.cfg.interface, "echo_language", "zh") or "zh").lower()
+        return chave if chave in ECHO_LANGUAGES else "zh"
 
     async def translate_zh(self, text: str) -> str:
-        """Traduz para chinês simplificado e devolve '中文 | pinyin'."""
+        """Traduz para o idioma do eco (padrao chines, com pinyin)."""
+        return await self.translate_echo(text, "zh")
+
+    async def translate_echo(self, text: str, lang: str | None = None) -> str:
+        """Traduz para o idioma do eco e devolve a linha pronta.
+
+        Chines sai ``中文 | pinyin`` (comportamento antigo); ingles e frances
+        saem so a traducao. O resultado fica em cache por idioma e a falha do
+        modelo (rede, timeout) devolve string vazia — o eco e opcional.
+        """
         source = (text or "").strip()
         if not source:
             return ""
-        cached = self._zh_cache.get(source)
+        codigo = str(lang or self._echo_key).lower()
+        if codigo not in ECHO_LANGUAGES:
+            codigo = "zh"
+        cache = self._echo_cache.setdefault(codigo, {})
+        cached = cache.get(source)
         if cached:
             return cached
-        prompt = (
-            "Traduza o texto abaixo para chinês simplificado e escreva também "
-            "o pinyin. Responda APENAS no formato: 中文 | pinyin\n\n"
-            f"Texto: {source}"
-        )
-        system = "Você é um tradutor português-chinês. Seja fiel e conciso."
+        instrucao, system, titulo = ECHO_PROMPTS[codigo]
+        prompt = f"{instrucao}\n\nTexto: {source}"
+        session_id = self._echo_sessions.get(codigo)
         try:
-            if not self._zh_session_id:
+            if not session_id:
                 session = await self.client.create_session(
-                    title="Gaia — 中文", model=self.client.model
+                    title=titulo, model=self.client.model
                 )
-                self._zh_session_id = session.id
+                session_id = session.id
+                self._echo_sessions[codigo] = session_id
             response = await asyncio.wait_for(
-                self.client.prompt_sync(
-                    self._zh_session_id, prompt, system=system
-                ),
+                self.client.prompt_sync(session_id, prompt, system=system),
                 timeout=20.0,
             )
             output = " ".join(response.text.split()).strip()
             if output:
-                self._zh_cache[source] = output
+                cache[source] = output
                 return output
         except Exception as exc:  # pragma: no cover - depende do modelo/rede
-            self.logger.warning("tradução zh falhou: %s", exc)
+            self.logger.warning("tradução %s falhou: %s", codigo, exc)
         return ""
 
     def _toggle_reasoning(self, argument: str) -> None:

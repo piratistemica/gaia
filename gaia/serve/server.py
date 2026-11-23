@@ -16,7 +16,7 @@ Leitura do que a TUI ja faz (paridade no web):
 * ``GET  /modes``, ``POST /mode``
 * ``GET  /history``, ``POST /session/open``, ``POST /session/new``
 * ``GET  /commands``, ``POST /chinese`` (eco 中文 do catalogo de comandos)
-* ``GET  /languages``, ``POST /language`` (dialog "idiomas" do web; hoje so zh)
+* ``GET  /languages``, ``POST /language`` (dialog "idiomas" do web: zh, en, fr)
 * ``GET  /automations``
 * ``GET  /instances`` (maquinas do ``instances.json``, com status)
 
@@ -53,6 +53,10 @@ logger = logging.getLogger(__name__)
 UPLOAD_MAX_BYTES = 8 * 1024 * 1024
 
 DECISIONS = {"once", "always", "reject"}
+# Idiomas do eco conhecidos pelo transporte. O motor real responde pela lista
+# completa (`Target.languages`); isto e o minimo para um alvo antigo/sem
+# `languages()` nao deixar o botao "idiomas" sem nada.
+IDIOMAS_BASICOS: dict[str, str] = {"zh": "中文", "en": "English", "fr": "Français"}
 HEARTBEAT_SECONDS = 15.0
 CONTROL_PREFIX = "/control"
 STATIC_PREFIX = "/static"
@@ -380,9 +384,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, {"modes": self._modes()})
             return
         if rota == "/languages":
-            # Idiomas de eco que a tela pode oferecer (hoje so o chines). A tela
-            # monta o dialog "idiomas" daqui em vez de ter um botao 中文 fixo.
-            self._json(HTTPStatus.OK, {"languages": self._idiomas()})
+            # Idiomas de eco que a tela pode oferecer (zh, en, fr). A tela monta
+            # o dialog "idiomas" daqui em vez de ter um botao 中文 fixo.
+            self._json(
+                HTTPStatus.OK,
+                {"languages": self._idiomas(), "language": self._idioma_atual()},
+            )
             return
         if rota == "/commands":
             # Catalogo unico (`controller/command_catalog.py`): a paleta do web
@@ -512,9 +519,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, {"ok": True, "chinese": ativo})
             return
         if rota == "/language":
-            # Dialog "idiomas": {key: "zh", enabled?: bool}. Sem `enabled` so
-            # escolhe o idioma (liga o eco). A resposta traz a lista para a tela
-            # repintar sem um segundo GET.
+            # Dialog "idiomas": {key: "zh"|"en"|"fr", enabled?: bool}. Sem
+            # `enabled` so escolhe o idioma (liga o eco). A resposta traz a
+            # lista para a tela repintar sem um segundo GET.
             chave = str(corpo.get("key") or corpo.get("language") or "").strip()
             if not chave:
                 self._erro(HTTPStatus.BAD_REQUEST, "empty_language", "idioma vazio")
@@ -535,6 +542,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "key": chave.lower(),
                     "chinese": bool(self._chines_ativo()),
+                    "language": self._idioma_atual(chave),
                     "languages": self._idiomas(),
                 },
             )
@@ -678,6 +686,7 @@ class _Handler(BaseHTTPRequestHandler):
             "mode": dados.get("mode", ""),
             "busy": bool(dados.get("busy")),
             "chinese": bool(dados.get("chinese")),
+            "language": self._idioma_atual(),
             # Lista dos idiomas do eco junto do resto do cabecalho: o botao
             # "idiomas" so pode aparecer se a tela souber que existe idioma
             # (buscar em `GET /languages` so ao clicar era ovo e galinha).
@@ -718,19 +727,28 @@ class _Handler(BaseHTTPRequestHandler):
         return bool(funcao(ligado))
 
     def _idiomas(self) -> list[dict[str, Any]]:
-        """Lista de idiomas do motor; motor antigo cai num item chines fixo."""
+        """Lista de idiomas do motor; motor antigo cai nos tres do basico."""
         funcao = getattr(self.app.target, "languages", None)
         if callable(funcao):
             return list(funcao())
+        atual = self._idioma_atual()
         return [
             {
-                "key": "zh",
-                "label": "中文",
-                "code": "zh",
-                "current": True,
+                "key": chave,
+                "label": rotulo,
+                "code": chave,
+                "current": chave == atual,
                 "enabled": bool(self._chines_ativo()),
             }
+            for chave, rotulo in IDIOMAS_BASICOS.items()
         ]
+
+    def _idioma_atual(self, chave: str | None = None) -> str:
+        """Idioma do eco em uso: o do alvo quando existe, senao o chines."""
+        ler = getattr(self.app.target, "echo_language", None)
+        escolhido = ler() if callable(ler) else None
+        codigo = str(chave or escolhido or "zh").strip().lower()
+        return codigo if codigo in IDIOMAS_BASICOS else "zh"
 
     def _idioma(self, chave: str, ligado: bool | None) -> bool:
         trocar = getattr(self.app.target, "set_language", None)

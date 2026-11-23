@@ -236,7 +236,7 @@
   <button id="btn-sessoes" class="pill" type="button" title="abrir uma conversa anterior">sessões</button>
   <button id="btn-nova" class="pill" type="button" title="comecar uma conversa nova">+ nova</button>
   <button id="btn-idiomas" class="pill" type="button"
-          title="idiomas do eco: escolher o idioma de cada mensagem" hidden>idiomas</button>
+          title="idiomas do eco: escolher o idioma da tradução de cada mensagem" hidden>idiomas</button>
   <button id="btn-voz" class="pill voz" type="button"
           title="modo voz: fala com a Gaia pelo microfone deste servidor" hidden>🎙 voz</button>
   <button id="abortar" class="perigo" title="encerra o turno atual" disabled>parar</button>
@@ -330,7 +330,7 @@
 <dialog id="idiomas">
   <form method="dialog">
     <h2>Idiomas</h2>
-    <p>O eco mostra a tradução embaixo de cada mensagem. Escolha o idioma.</p>
+    <p>O eco mostra a tradução embaixo de cada mensagem: chinês, inglês ou francês.</p>
     <ul id="idiomas-lista"><li>consultando…</li></ul>
     <div class="linha">
       <button id="idiomas-desligar" value="desligar" formnovalidate>desligar o eco</button>
@@ -358,9 +358,9 @@ const estado = {
   comandos: [],     // catalogo de `GET /commands` (paleta do "/")
   comandosFiltrados: [],
   comandosAtivo: -1,
-  chines: false,    // eco 中文 ligado no servidor
+  chines: false,    // eco ligado no servidor (qualquer idioma)
   idiomas: [],      // `GET /languages` (rotulo/chave do eco)
-  idioma: "zh",     // idioma de eco em uso
+  idioma: "zh",     // idioma de eco em uso (o escolhido, mesmo desligado)
   userLocal: null,  // bolha do usuário desenhada no envio (o evento `user` repete)
   ocupado: false,   // turno em andamento (run_started -> run_finished)
   textoFinal: "",   // última resposta da Gaia no turno (vira áudio no modo voz)
@@ -407,8 +407,8 @@ function rolar() { chat.scrollTop = chat.scrollHeight; }
 /* -------------------------------------------------------------- eco/idiomas */
 /**
  * Acrescenta a linha do eco (ex.: 中文) embaixo da bolha do texto original.
- * O rotulo vem do idioma ativo (`estado.idiomas`) para o dia em que houver
- * ingles/frances; as linhas ja desenhadas guardam o rotulo em `data-idioma`.
+ * O rotulo vem do idioma do evento (`lang`: zh, en ou fr); as linhas ja
+ * desenhadas guardam o codigo em `data-idioma`.
  */
 function ecoIdioma(tipo, original, traducao, chave) {
   const alvo = texto(original).trim();
@@ -447,13 +447,17 @@ function rotuloIdioma(chave) {
  * Estado do botao "idiomas" (o eco de cada idioma e um dialogo, nao um botao
  * fixo 中文): verde quando algum idioma esta ligado, com o rotulo no titulo.
  */
-function pintarIdiomas(idiomas, chines) {
+function pintarIdiomas(idiomas, chines, idioma) {
   if (Array.isArray(idiomas) && idiomas.length) estado.idiomas = idiomas;
   if (chines !== undefined) estado.chines = Boolean(chines);
+  if (idioma) estado.idioma = texto(idioma);
   // Sem lista do motor (motor antigo) o botao continua visivel: o dialog tenta
   // `GET /languages` ao abrir e mostra o erro, em vez de sumir sem explicacao.
   if (!estado.idiomas.length) estado.idiomas = [{ key: "zh", label: "中文", code: "zh", current: true }];
-  const atual = estado.idiomas.find((i) => i.current) || estado.idiomas[0] || null;
+  // O idioma escolhido vem de `language` (o alvo pode ser motor antigo, que so
+  // conhece `current`); sem isso a tela volta para o primeiro da lista.
+  const atual = estado.idiomas.find((i) => i.key === estado.idioma)
+    || estado.idiomas.find((i) => i.current) || estado.idiomas[0] || null;
   estado.idioma = atual ? texto(atual.key) : estado.idioma;
   const rotulo = atual ? texto(atual.label) : "";
   const botao = $("#btn-idiomas");
@@ -473,7 +477,7 @@ async function abrirIdiomas() {
   try {
     const dados = await api("/languages");
     const idiomas = Array.isArray(dados.languages) ? dados.languages : [];
-    pintarIdiomas(idiomas);
+    pintarIdiomas(idiomas, undefined, dados.language);
     preencherLista(lista, idiomas.map((item) => {
       // `current` e o idioma do motor; o "atual" da tela tambem depende do eco
       // estar ligado (idioma escolhido com o eco desligado nao esta em uso).
@@ -506,7 +510,7 @@ async function escolherIdioma(chave) {
   if (dialogo.open) dialogo.close();
   try {
     const dados = await api("/language", { method: "POST", body: JSON.stringify({ key: chave }) });
-    pintarIdiomas(dados.languages, dados.chinese);
+    pintarIdiomas(dados.languages, dados.chinese, dados.language);
     aviso("success", "eco em " + rotuloIdioma(dados.key) + " ativado.");
   } catch (erro) {
     if (erro.status === 401) return tratar401(erro);
@@ -519,7 +523,7 @@ async function desligarIdiomas() {
   if (dialogo.open) dialogo.close();
   try {
     const dados = await api("/language", { method: "POST", body: JSON.stringify({ key: estado.idioma || "zh", enabled: false }) });
-    pintarIdiomas(dados.languages, dados.chinese);
+    pintarIdiomas(dados.languages, dados.chinese, dados.language);
     aviso("success", "eco em " + rotuloIdioma(dados.key) + " desativado.");
   } catch (erro) {
     if (erro.status === 401) return tratar401(erro);
@@ -599,7 +603,7 @@ function pintarMotor(engine) {
                                     ["#chave", dados.has_key], ["#modo", dados.mode]]) {
     $(seletor).hidden = !mostrar;
   }
-  pintarIdiomas(dados.languages, dados.chinese);
+  pintarIdiomas(dados.languages, dados.chinese, dados.language);
 
   $("#modo").textContent = dados.mode ? "modo: " + dados.mode : "";
   $("#motor").replaceChildren(header.cartao(dados));
@@ -1118,8 +1122,9 @@ function tratarEvento(evento) {
       mostrarHits(evento.hits);
       break;
     case "zh":
-      // O evento traz `role`/`text`/`zh`; `lang` e opcional (idioma de eco).
-      ecoIdioma(evento.role, evento.text, evento.zh, evento.lang);
+      // O evento traz `role`/`text`/`traducao` (ou o antigo `zh`); `lang`
+      // diz o idioma para a tela rotular a linha do eco.
+      ecoIdioma(evento.role, evento.text, evento.traducao || evento.zh, evento.lang);
       break;
     case "help":
       catalogoNoChat();

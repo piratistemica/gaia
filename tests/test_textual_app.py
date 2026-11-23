@@ -646,6 +646,69 @@ async def test_resposta_e_falada_quando_modo_voz_esta_ligado():
 
 
 @pytest.mark.asyncio
+async def test_eco_de_idiomas_desenha_o_rotulo_escolhido():
+    """Com o eco ligado o rotulo e o do idioma escolhido (nao fixo "中文")."""
+    voice = _FakeVoice()
+    voice.cfg.interface.chinese_echo = True
+    traducoes: list[tuple[str, str]] = []
+
+    async def translate_echo(text: str, lang: str | None = None) -> str:
+        traducoes.append((text, lang or ""))
+        return f"({lang}) {text}"
+
+    voice.translate_echo = translate_echo  # type: ignore[attr-defined]
+    app = GaiaTextualApp(_answer, voice=voice)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        for idioma, rotulo in (("en", "English"), ("fr", "Français")):
+            voice.cfg.interface.echo_language = idioma
+            await app._echo_zh("bom dia")
+            await pilot.pause()
+            ultimo = app._chat_ref.children[-1].render()
+            assert rotulo in ultimo.plain
+
+    assert traducoes == [("bom dia", "en"), ("bom dia", "fr")]
+
+
+@pytest.mark.asyncio
+async def test_chines_liga_o_idioma_escolhido_na_tui():
+    voice = _FakeVoice()
+    app = GaiaTextualApp(_answer, voice=voice)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._toggle_chinese("/chines fr")
+        assert voice.cfg.interface.chinese_echo is True
+        assert voice.cfg.interface.echo_language == "fr"
+        app._toggle_chinese("/chines off")
+        assert voice.cfg.interface.chinese_echo is False
+        # O idioma escolhido sobrevive ao desligar.
+        assert voice.cfg.interface.echo_language == "fr"
+
+
+@pytest.mark.asyncio
+async def test_eco_desligado_nao_traduz():
+    voice = _FakeVoice()
+    voice.cfg.interface.chinese_echo = False
+    traducoes: list[str] = []
+
+    async def translate_echo(text: str, lang: str | None = None) -> str:
+        traducoes.append(text)
+        return text
+
+    voice.translate_echo = translate_echo  # type: ignore[attr-defined]
+    app = GaiaTextualApp(_answer, voice=voice)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.submit_text("oi")
+        await pilot.pause()
+
+    assert traducoes == []
+
+
+@pytest.mark.asyncio
 async def test_resposta_nao_e_falada_no_modo_texto():
     voice = _FakeVoice()
     app = GaiaTextualApp(_answer, voice=voice)

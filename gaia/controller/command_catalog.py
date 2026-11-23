@@ -89,8 +89,8 @@ COMMANDS: tuple[Command, ...] = (
         True,
     ),
     Command(
-        "/chines on|off",
-        "mostra chinês + pinyin de cada mensagem",
+        "/chines on|off|en|fr",
+        "eco de tradução embaixo de cada mensagem (chinês, inglês ou francês)",
         ("/chines", "/chinês", "/中文"),
         True,
     ),

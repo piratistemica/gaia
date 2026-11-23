@@ -274,6 +274,76 @@ async def test_dispatch_silent_answers_smalltalk_locally(orch):
 
 
 @pytest.mark.asyncio
+async def test_chines_troca_o_idioma_do_eco(orch):
+    """`/chines en|fr` escolhe o idioma e liga o eco; `on|off` liga/desliga."""
+    assert orch.cfg.interface.chinese_echo is False
+
+    await orch._handle_command("/chines en")
+    assert orch.cfg.interface.chinese_echo is True
+    assert orch.cfg.interface.echo_language == "en"
+
+    await orch._handle_command("/chines off")
+    assert orch.cfg.interface.chinese_echo is False
+    assert orch.cfg.interface.echo_language == "en"
+
+    await orch._handle_command("/chines")
+    assert orch.cfg.interface.chinese_echo is True
+
+    await orch._handle_command("/chines fr")
+    assert orch.cfg.interface.echo_language == "fr"
+    assert orch.ui.called("success")
+
+
+def test_eco_key_cai_no_chines_quando_a_config_e_estranha(orch):
+    orch.cfg.interface.echo_language = "klingon"
+    assert orch._echo_key == "zh"
+
+
+@pytest.mark.asyncio
+async def test_translate_echo_usa_prompt_e_cache_por_idioma(orch):
+    """Cada idioma tem o proprio prompt, a propria sessao e o proprio cache."""
+    pedidos: list[tuple[str, str]] = []
+
+    class _Client(FakeClient):
+        async def create_session(self, **kwargs):
+            return types.SimpleNamespace(id=f"ses-{kwargs.get('title', '')}")
+
+        async def prompt_sync(self, session_id, prompt, system=None, **kwargs):
+            pedidos.append((session_id, system or ""))
+            return types.SimpleNamespace(text=f"  traduzido:  {prompt}  ")
+
+    orch.client = _Client()
+
+    ingles = await orch.translate_echo("bom dia", "en")
+    assert ingles.startswith("traduzido: ") and ingles.endswith("bom dia")
+    assert "English" in pedidos[0][1]
+
+    # Cache: a segunda chamada nao vai ao modelo.
+    assert await orch.translate_echo("bom dia", "en") == ingles
+    assert len(pedidos) == 1
+
+    frances = await orch.translate_echo("bom dia", "fr")
+    assert frances != ingles
+    assert "français" in pedidos[1][1]
+    assert pedidos[0][0] != pedidos[1][0]
+
+    # Sem idioma, segue o escolhido na config.
+    orch.cfg.interface.echo_language = "zh"
+    await orch.translate_echo("bom dia")
+    assert "chinês" in pedidos[2][1]
+
+
+@pytest.mark.asyncio
+async def test_translate_echo_nao_derruba_o_turno(orch):
+    class _Quebrado(FakeClient):
+        async def prompt_sync(self, *args, **kwargs):
+            raise RuntimeError("sem rede")
+
+    orch.client = _Quebrado()
+    assert await orch.translate_echo("oi", "en") == ""
+
+
+@pytest.mark.asyncio
 async def test_toggle_commands_update_config(orch):
     assert await orch._handle_command("/sair") is True
 

@@ -168,12 +168,13 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
   da ajuda do terminal, filtrada enquanto se digita; Tab/Enter completam, Esc
   fecha) e `/ajuda` imprime a lista no chat. O header tem `+ nova` (sessão
   nova), `sessões` (conversas anteriores) e `idiomas` (abre o dialog com os
-  idiomas do eco; escolher um liga a tradução embaixo de cada mensagem e
-  `desligar o eco` desliga — hoje só 中文, o mesmo `/chines` da TUI, estado do
-  processo e não do TOML). `GET /languages` devolve a lista
+  idiomas do eco: 中文, English e Français; escolher um liga a tradução embaixo
+  de cada mensagem e `desligar o eco` desliga — o mesmo `/chines` da TUI,
+  estado do processo, não do TOML). `GET /languages` devolve a lista
   (`key`/`label`/`code`/`current`/`enabled`) e `POST /language` com
-  `{"key": "zh", "enabled": false}` escolhe/troca: acrescentar inglês ou
-  francês é um item novo em `IDIOMAS_ECO` (`gaia/serve/app.py`).
+  `{"key": "en"}` escolhe/liga (ou `"enabled": false` desliga). O idioma do
+  eco também fica em `[interface] echo_language` (`GAIA_ECHO_LANGUAGE`,
+  `zh`/`en`/`fr`); o tradutor é o mesmo do `/chines` (`translate_echo`).
 - **Tela de automações no web.** O botão `automações` do header leva a uma tela
   própria (a URL vira `#automacoes`; F5 e o voltar do navegador continuam nela)
   e o composer fica escondido ali. Cada rotina aparece como um cartão com
@@ -675,7 +676,7 @@ gaia browser screenshot https://exemplo.com captura.png
 | `/contexto` · `/historico` · `/sessao` | contexto, histórico, sessão |
 | `/preferencia <texto>` · `/preferencias` | ensina · mostra preferências |
 | `/confirmar` · `/autoaprovar` | confirmação de notas · ferramentas |
-| `/chines on\|off` · `/reiniciar` · `/sair` | eco em chinês · reinicia · encerra |
+| `/chines on\|off\|en\|fr` · `/reiniciar` · `/sair` | eco de tradução (chinês, inglês ou francês) · reinicia · encerra |
 
 `/ajuda` lista tudo com a descrição de cada um.
 

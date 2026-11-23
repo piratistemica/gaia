@@ -26,6 +26,14 @@ APP_NAME = "gaia"
 _LEGACY_PREFIX = "ZAYA_"
 _ENV_PREFIX = f"{APP_NAME.upper()}_"
 
+# Idiomas do eco (traducao embaixo de cada mensagem): chines, ingles e frances.
+# A chave e o codigo ISO usado na tela e no prompt do tradutor; o rotulo e o
+# que aparece no dialog "idiomas" do web e na linha do eco.
+ECHO_LANGUAGES: tuple[str, ...] = ("zh", "en", "fr")
+ECHO_LABELS: dict[str, str] = {"zh": "中文", "en": "English", "fr": "Français"}
+# Nome em portugues (avisos e status da TUI).
+ECHO_NAMES: dict[str, str] = {"zh": "chinês", "en": "inglês", "fr": "francês"}
+
 
 class AgentConfig(BaseModel):
     """Motor proprio da Gaia: provedor, modelo e ferramentas."""
@@ -208,10 +216,23 @@ class InterfaceConfig(BaseModel):
     fast_smalltalk: bool = True
     # Eco em chinês (caracteres + pinyin) para cada mensagem.
     chinese_echo: bool = False
+    # Idioma do eco: zh | en | fr (vazio herda o padrao do chines). A tela
+    # escolhe em `POST /language`; o TOML guarda a escolha.
+    echo_language: str = "zh"
     # Respostas renderizadas como Markdown (títulos, ênfase, código).
     markdown_render: bool = True
     # Modo inicial: pesquisadora | trabalhadora | investidora | assistente.
     default_mode: str = "assistente"
+
+    @field_validator("echo_language")
+    @classmethod
+    def _echo_language_valida(cls, valor: str) -> str:
+        escolha = str(valor or "").strip().lower()
+        if not escolha:
+            return "zh"
+        if escolha not in ECHO_LANGUAGES:
+            raise ValueError("echo_language deve ser zh, en ou fr")
+        return escolha
 
 
 class MemoryConfig(BaseModel):
@@ -704,6 +725,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "GAIA_FOCUS_PATH": ("focus", "path"),
     "GAIA_FOCUS_PROMPT_ON_MOON": ("focus", "prompt_on_moon"),
     "GAIA_CHINESE": ("interface", "chinese_echo"),
+    "GAIA_ECHO_LANGUAGE": ("interface", "echo_language"),
     "GAIA_FAST": ("interface", "fast"),
     "GAIA_FAST_SMALLTALK": ("interface", "fast_smalltalk"),
     "GAIA_UI_DASHBOARD_COLLAPSED": ("interface", "dashboard_collapsed"),
@@ -1133,6 +1155,7 @@ selection_mode = false     # true = seleção de texto ligada: arraste destaca e
 fast = false               # modo rápido: sem busca automática, respostas curtas
 fast_smalltalk = true      # saudações respondem na hora, sem chamar o modelo
 chinese_echo = false       # mostra chinês + pinyin de cada mensagem
+echo_language = "zh"       # idioma do eco: zh | en | fr
 markdown_render = true     # respostas em Markdown (títulos, ênfase, código)
 default_mode = "assistente"     # pesquisadora | trabalhadora | investidora | assistente
 

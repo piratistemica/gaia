@@ -1,4 +1,4 @@
-"""O web do `gaia serve`: paleta de comandos, sessoes e eco em chines.
+"""O web do `gaia serve`: paleta de comandos, sessoes e eco de idiomas.
 
 Tres contratos que a tela depende e que quebram em silencio:
 
@@ -6,9 +6,10 @@ Tres contratos que a tela depende e que quebram em silencio:
   elemento que nao existe (isso foi o bug do botao "sessoes", que pegava o
   ``<dialog>`` e chamava ``showModal`` num ``<button>``);
 * ``GET /commands`` serve o mesmo catalogo da ajuda do terminal;
-* ``POST /chinese`` liga o eco 中文 no motor, e o ``zh`` so e emitido com ele
-  ligado; ``GET /languages``/``POST /language`` sao o dialog "idiomas" (ela
-  oferece a lista e o botao 中文 unico nao existe mais).
+* ``POST /chinese`` liga o eco no motor (qualquer idioma) e o evento ``zh`` so
+  e emitido com ele ligado; ``GET /languages``/``POST /language`` sao o dialog
+  "idiomas", que oferece 中文, English e Français e manda o idioma escolhido
+  no `lang` do evento (o `zh` fixo do passado nao existe mais).
 """
 
 from __future__ import annotations
@@ -191,10 +192,11 @@ def test_icone_da_gaia_nas_duas_telas():
 
 
 class FakeTarget:
-    """Target minimo para as rotas novas (catalogo e chines)."""
+    """Target minimo para as rotas novas (catalogo, idiomas e chines)."""
 
     def __init__(self) -> None:
         self.chinese = False
+        self.language = "zh"
 
     def health(self) -> dict[str, Any]:
         return {"model": "deepseek/flash", "session": "s1", "chinese": self.chinese}
@@ -223,6 +225,16 @@ class FakeTarget:
     def set_chinese(self, enabled: bool) -> bool:
         self.chinese = bool(enabled)
         return self.chinese
+
+    def set_language(self, key: str, enabled: bool | None = None) -> bool:
+        chave = str(key or "").lower()
+        if chave not in {"zh", "en", "fr"}:
+            raise ValueError(f"idioma desconhecido: {key}")
+        self.language = chave
+        return self.set_chinese(True if enabled is None else bool(enabled))
+
+    def echo_language(self) -> str:
+        return self.language
 
 
 def _pedir(
@@ -282,15 +294,17 @@ def test_chinese_liga_e_desliga_no_motor(servidor):
     assert alvo.chinese is False
 
 
-def test_languages_lista_o_idioma_de_eco(servidor):
+def test_languages_lista_os_idiomas_de_eco(servidor):
     _alvo, base = servidor
     status, corpo = _pedir(base, "GET", "/languages")
     assert status == 200
     idiomas = corpo["languages"]
-    assert [item["key"] for item in idiomas] == ["zh"]
-    assert idiomas[0]["label"] == "中文"
+    assert [item["key"] for item in idiomas] == ["zh", "en", "fr"]
+    assert [item["label"] for item in idiomas] == ["中文", "English", "Français"]
     assert idiomas[0]["current"] is True
     assert idiomas[0]["enabled"] is False
+    # O idioma escolhido vem junto: a tela nao precisa cruzar `current`.
+    assert corpo["language"] == "zh"
 
 
 def test_engine_traz_a_lista_de_idiomas(servidor):
@@ -302,12 +316,13 @@ def test_engine_traz_a_lista_de_idiomas(servidor):
     _, base = servidor
     status, corpo = _pedir(base, "GET", "/engine")
     assert status == 200
-    assert [item["key"] for item in corpo["languages"]] == ["zh"]
+    assert [item["key"] for item in corpo["languages"]] == ["zh", "en", "fr"]
+    assert corpo["language"] == "zh"
     assert corpo["chinese"] is False
 
 
 def test_language_escolhe_o_idioma_e_liga_o_eco(servidor):
-    """Dialog "idiomas": `{key: "zh"}` escolhe e liga; `enabled: false` desliga."""
+    """Dialog "idiomas": `{key: "en"}` escolhe e liga; `enabled: false` desliga."""
     alvo, base = servidor
     status, corpo = _pedir(base, "POST", "/language", corpo={"key": "zh"})
     assert status == 200
@@ -315,14 +330,30 @@ def test_language_escolhe_o_idioma_e_liga_o_eco(servidor):
     assert alvo.chinese is True
     assert corpo["languages"][0]["enabled"] is True
 
-    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "zh", "enabled": False})
+    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "en"})
+    assert status == 200 and corpo["language"] == "en"
+    assert alvo.language == "en"
+    current = [item for item in corpo["languages"] if item["current"]]
+    assert [item["key"] for item in current] == ["en"]
+
+    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "en", "enabled": False})
     assert status == 200 and corpo["chinese"] is False
     assert alvo.chinese is False
+    assert corpo["language"] == "en"
+
+
+def test_language_frances_troca_o_idioma_do_eco(servidor):
+    """O dialog tambem oferece frances (nao e mais so o chines)."""
+    alvo, base = servidor
+    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "fr"})
+    assert status == 200
+    assert corpo["language"] == "fr" and corpo["chinese"] is True
+    assert alvo.language == "fr"
 
 
 def test_language_desconhecido_e_400(servidor):
     _, base = servidor
-    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "fr"})
+    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "de"})
     assert status == 400
     assert corpo["error"] == "bad_language"
 
@@ -342,6 +373,8 @@ def test_language_aceita_motor_antigo_sem_set_language(servidor):
     try:
         status, corpo = _pedir(base, "POST", "/language", corpo={"key": "zh"})
         assert status == 200 and corpo["chinese"] is True
+        # Motor antigo so conhece o chines: a lista cai nos tres do transporte,
+        # mas trocar para ingles/frances continua 400.
         status, corpo = _pedir(base, "POST", "/language", corpo={"key": "fr"})
         assert status == 400
     finally:
@@ -367,23 +400,30 @@ def test_chinese_sem_suporte_no_motor_e_400():
 
 class _Cfg:
     def __init__(self) -> None:
-        self.interface = type("I", (), {"chinese_echo": False})()
+        self.interface = type(
+            "I", (), {"chinese_echo": False, "echo_language": "zh"}
+        )()
         self.agent = type("A", (), {"model_slug": lambda self: "deepseek/flash"})()
 
 
 class _Orch:
-    """Orchestrator falso so com o que o eco 中文 precisa."""
+    """Orchestrator falso so com o que o eco de idiomas precisa."""
 
     def __init__(self, traducao: str = "你好 | nǐ hǎo") -> None:
         self.cfg = _Cfg()
         self.session_id = "s1"
         self.traducao = traducao
         self.chamadas: list[str] = []
+        self.pedidos: list[tuple[str, str]] = []
         self.mode_name = "assistente"
 
     async def translate_zh(self, text: str) -> str:
         self.chamadas.append(text)
         return self.traducao
+
+    async def translate_echo(self, text: str, lang: str | None = None) -> str:
+        self.pedidos.append((text, lang or ""))
+        return f"[{lang or 'zh'}] {text}"
 
     async def answer_once(self, text: str, **_: Any) -> str:
         return f"eco: {text}"
@@ -433,11 +473,11 @@ def test_eco_zh_so_com_o_interruptor_ligado():
         depois = _drenar(ui, limite=2.0)
         ecos = _de(depois, "zh")
         assert [eco["role"] for eco in ecos] == ["user", "gaia"]
-        assert ecos[0]["zh"] == "你好 | nǐ hǎo"
-        # `lang` rotula a linha do eco na tela (hoje "zh").
+        assert ecos[0]["traducao"] == "[zh] bom dia"
+        # `lang` rotula a linha do eco na tela.
         assert {eco["lang"] for eco in ecos} == {"zh"}
-        # A pergunta e a resposta passaram pelo tradutor.
-        assert orch.chamadas == ["bom dia", "eco: bom dia"]
+        # A pergunta e a resposta passaram pelo tradutor do idioma escolhido.
+        assert orch.pedidos == [("bom dia", "zh"), ("eco: bom dia", "zh")]
     finally:
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=3)
@@ -447,7 +487,7 @@ def test_eco_zh_nao_derruba_o_turno_quando_a_traducao_falha():
     loop, thread = _loop_em_thread()
 
     class Quebrado(_Orch):
-        async def translate_zh(self, text: str) -> str:
+        async def translate_echo(self, text: str, lang: str | None = None) -> str:
             raise RuntimeError("sem rede")
 
     try:
@@ -469,14 +509,71 @@ def test_languages_e_set_language_no_motor_de_verdade():
     orch = _Orch()
     alvo = OrchestratorTarget(orch, RemoteUI())
     idiomas = alvo.languages()
-    assert [item["key"] for item in idiomas] == ["zh"]
+    assert [item["key"] for item in idiomas] == ["zh", "en", "fr"]
     assert idiomas[0]["enabled"] is False
+    assert alvo.echo_language() == "zh"
     assert alvo.set_language("zh") is True
     assert orch.cfg.interface.chinese_echo is True
     assert alvo.languages()[0]["enabled"] is True
-    assert alvo.set_language("zh", False) is False
+    assert alvo.set_language("en") is True
+    assert orch.cfg.interface.echo_language == "en"
+    assert alvo.echo_language() == "en"
+    assert [item["key"] for item in alvo.languages() if item["current"]] == ["en"]
+    assert alvo.set_language("en", False) is False
     with pytest.raises(ValueError):
+        alvo.set_language("de")
+
+
+def test_motor_antigo_com_echo_language_invalido_cai_no_chines():
+    orch = _Orch()
+    orch.cfg.interface.echo_language = "klingon"
+    alvo = OrchestratorTarget(orch, RemoteUI())
+    assert alvo.echo_language() == "zh"
+
+
+def test_eco_em_ingles_usa_translate_echo():
+    """O idioma escolhido chega ao tradutor e volta no evento, nao fixo em zh."""
+    loop, thread = _loop_em_thread()
+    try:
+        orch = _Orch()
+        ui = RemoteUI()
+        alvo = OrchestratorTarget(orch, ui)
+        alvo.attach_loop(loop)
+        alvo.set_language("en")
+
+        alvo.turn("bom dia")
+        ecos = _de(_drenar(ui, limite=2.0), "zh")
+        assert [eco["lang"] for eco in ecos] == ["en", "en"]
+        assert [eco["traducao"] for eco in ecos] == ["[en] bom dia", "[en] eco: bom dia"]
+        # `zh` continua sendo enviado: telas antigas nao quebram.
+        assert all(eco["zh"] for eco in ecos)
+        assert orch.pedidos == [("bom dia", "en"), ("eco: bom dia", "en")]
+        assert orch.chamadas == []
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=3)
+
+
+def test_eco_em_frances_com_motor_antigo_nao_traduz():
+    """Motor que so tem `translate_zh` nao inventa ingles/frances."""
+
+    class SoChines(_Orch):
+        translate_echo = None  # type: ignore[assignment]
+
+    loop, thread = _loop_em_thread()
+    try:
+        orch = SoChines()
+        ui = RemoteUI()
+        alvo = OrchestratorTarget(orch, ui)
+        alvo.attach_loop(loop)
         alvo.set_language("fr")
+        alvo.turn("bom dia")
+        eventos = _drenar(ui, limite=1.5)
+        assert _de(eventos, "zh") == []
+        assert orch.chamadas == []
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=3)
 
 
 def test_set_chinese_le_a_configuracao_do_motor():

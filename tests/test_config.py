@@ -31,12 +31,35 @@ def test_defaults(isolated_env):
     assert cfg.secondbrain.confirm_create is False
     assert cfg.secondbrain.require_confirmation is True
     assert cfg.interface.concise is True
+    assert cfg.interface.echo_language == "zh"
     assert cfg.proactive.enabled is True
     assert cfg.proactive.quiet_hours == "23:00-08:00"
     assert cfg.secondbrain.path.endswith("SecondBrain")
     assert cfg.preferences_path().name == "preferences.md"
     assert cfg.preferences_path().parent == cfg.second_brain_path()
     assert cfg.resolved_data_dir() == (isolated_env / "data").resolve()
+
+
+def test_idioma_do_eco_vem_do_ambiente_e_do_toml(isolated_env):
+    """`echo_language` aceita zh/en/fr; qualquer outra coisa e erro de config."""
+    cfg = Config.load(
+        config_path=isolated_env / "missing.toml",
+        env={"GAIA_ECHO_LANGUAGE": "EN", "GAIA_DATA_DIR": str(isolated_env / "data")},
+    )
+    assert cfg.interface.echo_language == "en"
+
+    config_path = isolated_env / "config.toml"
+    config_path.write_text('[interface]\necho_language = "fr"\n', encoding="utf-8")
+    cfg = Config.load(
+        config_path=config_path, env={"GAIA_DATA_DIR": str(isolated_env / "data")}
+    )
+    assert cfg.interface.echo_language == "fr"
+
+    with pytest.raises(ValueError):
+        Config.load(
+            config_path=isolated_env / "missing.toml",
+            env={"GAIA_ECHO_LANGUAGE": "de", "GAIA_DATA_DIR": str(isolated_env / "data")},
+        )
 
 
 def test_toml_and_env_precedence(isolated_env):
