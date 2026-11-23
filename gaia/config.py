@@ -434,6 +434,9 @@ class ServeConfig(BaseModel):
     control_token: str = ""
     # Bind fora do loopback (ex.: IP do tailnet) exige token. Ver allow_remote.
     allow_remote: bool = False
+    # Id desta maquina em ``<data_dir>/instances.json``. Vazio = casa pelo Host
+    # header (quem abriu a pagina pelo endereco da instancia ve ela como atual).
+    instance_id: str = ""
     # Sobe o poller do Telegram junto do servidor (um processo so).
     telegram: bool = True
 
@@ -701,6 +704,7 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "GAIA_SERVE_TOKEN": ("serve", "token"),
     "GAIA_CONTROL_TOKEN": ("serve", "control_token"),
     "GAIA_SERVE_ALLOW_REMOTE": ("serve", "allow_remote"),
+    "GAIA_SERVE_INSTANCE_ID": ("serve", "instance_id"),
     "GAIA_SERVE_TELEGRAM": ("serve", "telegram"),
     "GAIA_UI_SELECTION_MODE": ("interface", "selection_mode"),
     "GAIA_UI_MARKDOWN": ("interface", "markdown_render"),
@@ -1234,6 +1238,9 @@ port = 8787
 # Segredo: apenas no .env (GAIA_SERVE_TOKEN). Sem token nao escuta na rede.
 allow_remote = false
 telegram = true       # sobe o poller do Telegram junto (um processo so)
+# Id desta maquina em <data_dir>/instances.json (ex.: "mini"). Vazio = casar
+# pelo endereco pelo qual a pagina foi aberta.
+instance_id = ""
 # Control Center (/control) usa GAIA_CONTROL_TOKEN no .env, NAO este token:
 # o token do chat nao administra credenciais. Sem ele o painel fica off.
 """

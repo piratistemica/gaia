@@ -28,6 +28,18 @@ def _texto(query: dict[str, list[str]], nome: str) -> str:
 
 def get(handler: Any, rota: str, query: dict[str, list[str]]) -> None:
     """GET do painel. ``handler`` e o ``_Handler`` do serve."""
+    if rota == "/control/api/session":
+        # Estado da sessao: a tela pergunta ao abrir para decidir entre carregar
+        # ou mostrar o modal. `authenticated` so diz se ja ha prova valida —
+        # nunca devolve token nem detalhe do segredo.
+        handler._json(
+            HTTPStatus.OK,
+            {
+                "authenticated": handler._autorizado_controle(),
+                "mode": "session" if handler.control_session else "bearer",
+            },
+        )
+        return
     if not handler._autorizado_controle():
         handler._erro(
             HTTPStatus.UNAUTHORIZED, "unauthorized", "token do painel invalido"
@@ -40,6 +52,12 @@ def get(handler: Any, rota: str, query: dict[str, list[str]]) -> None:
         )
         return
     try:
+        if rota == "/control/api/engine":
+            # Mesmo cabecalho do chat, mas por dentro do path do painel: o
+            # cookie `gaia_control` (Path=/control) cobre esta rota e nao cobre
+            # `/engine`.
+            handler._json(HTTPStatus.OK, handler._engine())
+            return
         if rota == "/control/api/overview":
             handler._json(HTTPStatus.OK, centro.overview())
             return
@@ -105,6 +123,12 @@ def post(handler: Any, rota: str, corpo: dict[str, Any]) -> None:
         return
 
     try:
+        if rota == "/control/api/session":
+            # Nunca chega aqui: o handler troca o Bearer por cookie antes.
+            handler._erro(
+                HTTPStatus.NOT_FOUND, "not_found", "rota desconhecida: " + rota
+            )
+            return
         if rota == "/control/api/model":
             slug = str(corpo.get("model") or "").strip()
             if not slug:
@@ -194,6 +218,10 @@ def post(handler: Any, rota: str, corpo: dict[str, Any]) -> None:
 
 def delete(handler: Any, rota: str) -> None:
     """DELETE do painel (remover credencial = comentar no .env)."""
+    if rota == "/control/api/session":
+        # Encerrar sessao nao exige sessao valida: esquecer e sempre permitido.
+        handler._sair_da_sessao()
+        return
     if not handler._autorizado_controle():
         handler._erro(
             HTTPStatus.UNAUTHORIZED, "unauthorized", "token do painel invalido"

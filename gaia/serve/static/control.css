@@ -124,3 +124,17 @@ details pre {
 .modal-actions button.primary { border-color: var(--accent); color: var(--accent); }
 
 .vazio { color: var(--dim); font-size: 13px; padding: 10px 2px; }
+
+/* Instancias e sessao: o mesmo componente do chat (shared.js). */
+a.pill { text-decoration: none; }
+select.pill { color: var(--fg); background: var(--panel2); font: inherit; font-size: 12px;
+              border-radius: 999px; padding: 2px 8px; }
+select.pill:hover { border-color: var(--accent); }
+.instancia { display: inline-flex; align-items: center; gap: 6px; }
+.instancia-status { color: var(--warn); font-size: 11.5px; }
+.instancia-status:empty { display: none; }
+#pill-key:empty, #pill-provider:empty { display: none; }
+
+.modal-box label.check { display: flex; gap: 8px; align-items: flex-start;
+  font-size: 12.5px; color: var(--dim); margin: 0 0 12px; cursor: pointer; }
+.modal-box label.check input { width: auto; margin: 3px 0 0; }

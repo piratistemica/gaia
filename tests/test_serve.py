@@ -366,7 +366,10 @@ def test_get_serve_a_pagina_web_sem_build():
         # contrato minimo com o servidor: os quatro caminhos que a tela usa
         for rota in ("/events", "/turn", "/permission/", "/search"):
             assert rota in corpo
-        assert "localStorage" in corpo  # token fica no navegador
+        # O token fica no navegador (opt-in, via modulo compartilhado); a
+        # pagina carrega esse modulo em vez de guardar segredo no HTML.
+        assert "/static/shared.js" in corpo
+        assert "lembrar" in corpo
     finally:
         srv.shutdown()
 

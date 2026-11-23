@@ -152,16 +152,52 @@ gaia --remote http://gaia:8787 # cliente interativo (TUI remota)
 gaia --remote http://gaia:8787 ask "resuma o dia"
 ```
 
-- Rotas: `GET /`, `/health`, `/sessions`, `/events` (SSE), `/search`; `POST
-  /turn`, `/permission/{id}`, `/abort`.
+- Rotas do chat: `GET /`, `/health`, `/session`, `/instances`, `/engine`,
+  `/modes`, `/sessions`, `/history`, `/automations`, `/providers`, `/models`,
+  `/search`,
+  `/events` (SSE); `POST /session`, `/turn`, `/permission/{id}`, `/abort`,
+  `/model`, `/mode`, `/session/open`, `/session/new`; `DELETE /session`.
 - Escutar fora do loopback **exige** `GAIA_SERVE_TOKEN`; a guarda recusa subir
   caso contrário.
-- A página web em `GET /` já é um cliente completo (streaming, ferramentas,
-  aprovação por botão, busca).
+- A página web em `GET /` é um cliente completo: streaming, ferramentas,
+  aprovação por botão, busca, troca de modelo e de modo, sessões anteriores e
+  as próximas automações.
+- **Sessão de cookie em vez de token a cada visita.** `POST /session` troca o
+  `Authorization: Bearer` por um nonce em cookie `HttpOnly` (`gaia_chat`,
+  `Path=/`, `SameSite=Strict`); o `Bearer` continua valendo para `gaia
+  --remote` e `curl`. O nonce vive em memória: reiniciar o `serve` derruba as
+  sessões. Guardar o token no `localStorage` é **opt-in** ("lembrar token
+  neste navegador") — desmarcado, nenhum segredo fica no navegador e a sessão
+  vale só até o cookie vencer (12 h).
 - O token vai no `.env`/ambiente, nunca no TOML.
 - Unidades systemd prontas em `deploy/gaia-serve.service` e
   `deploy/gaia-serve-tailnet.service.example`; no mini, `gmin serve
   install|cutover|rollback|status|logs`.
+
+### Várias instâncias (mini e Mac, por exemplo)
+
+O seletor de instância do header lê `instances.json` em `GAIA_DATA_DIR`
+(`~/.local/share/gaia/instances.json`), escrito à mão e com `chmod 600` porque
+contém segredos:
+
+```json
+[
+  {"id": "mini", "name": "Mini PC", "url": "http://mini.local:8787",
+   "serve_token": "...", "control_token": "..."},
+  {"id": "mac", "name": "Mac Studio", "url": "http://mac.local:8787",
+   "serve_token": "...", "control_token": "..."}
+]
+```
+
+- `GET /instances` é **público** e nunca devolve token (só `has_serve_token`/
+  `has_control_token`); o status online/offline é medido pelo servidor com
+  `GET <url>/health` em paralelo e timeout curto.
+- Trocar de instância no seletor **navega** para a URL escolhida: o cookie de
+  sessão é por origem (`SameSite=Strict`), então não há CORS com credenciais.
+  Cada origem tem a própria sessão (e o próprio "lembrar token").
+- `GAIA_SERVE_INSTANCE_ID` (ou `[serve] instance_id`) marca qual item do
+  arquivo é esta máquina; vazio, a marcação tenta casar pelo endereço aberto.
+- Arquivo ausente ou inválido = lista vazia: a tela funciona sem seletor.
 
 ## Control Center
 
@@ -175,8 +211,11 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 # GAIA_CONTROL_TOKEN=<o valor gerado>
 ```
 
-O token é pedido pela própria tela e fica no `localStorage` do navegador; vai no
-cabeçalho `Authorization`, nunca na URL. Sem `GAIA_CONTROL_TOKEN`, `/control`
+O token é pedido uma vez por navegador: a tela troca o `Bearer` por uma
+sessão (cookie `HttpOnly`, `Path=/control`, `SameSite=Strict`) via
+`POST /control/api/session` e as chamadas seguintes usam só o cookie. O token
+nunca vai na URL; `curl` e o cliente fino continuam podendo usar
+`Authorization: Bearer`. Sem `GAIA_CONTROL_TOKEN`, `/control`
 mostra a instrução e `/control/api/*` responde 503 — **o token do chat
 (`GAIA_SERVE_TOKEN`) não vale aqui**, de propósito: ele só conversa, não
 administra credenciais.

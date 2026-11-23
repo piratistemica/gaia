@@ -1,6 +1,6 @@
 """HTTP + SSE do `gaia serve`.
 
-Este modulo nao conhece o agente: fala com um `Target` (ver `protocolo`).
+Este modulo nao conhece o agente: fala com um `Target` (ver protocolo abaixo).
 O transporte e proposital e minimalista — stdlib, sem dependencia nova:
 
 * ``GET /events``  SSE com ``id:`` (seq) e ``event:`` (tipo); ``?since=`` ou
@@ -8,7 +8,19 @@ O transporte e proposital e minimalista — stdlib, sem dependencia nova:
 * ``POST /turn``            ``{"text": "..."}`` -> ``202 {"run": "..."}``
 * ``POST /permission/{id}`` ``{"decision": "once|always|reject"}``
 * ``POST /abort``
-* ``GET  /health``, ``GET /sessions``
+* ``GET  /health``, ``GET /sessions``, ``GET /models``, ``GET /search``
+
+Leitura do que a TUI ja faz (paridade no web):
+
+* ``GET  /engine``   modelo, provedor, chave mascarada, modo, ocupado
+* ``GET  /modes``, ``POST /mode``
+* ``GET  /history``, ``POST /session/open``, ``POST /session/new``
+* ``GET  /automations``
+* ``GET  /instances`` (maquinas do ``instances.json``, com status)
+
+Credencial: ``Authorization: Bearer <GAIA_SERVE_TOKEN>`` **ou** o nonce de
+sessao no cookie ``gaia_chat`` (``POST /session`` troca um pelo outro). O
+``Bearer`` continua valendo para `gaia --remote` e `curl`.
 
 O `RemoteUI` e a fonte dos eventos: cada assinante tem sua fila, e o handler
 apenas serializa. Sem estado compartilhado alem do `RemoteUI`.
@@ -18,23 +30,24 @@ from __future__ import annotations
 
 import json
 import logging
-import secrets
 import threading
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from gaia.interface.remote import RemoteUI
-from gaia.serve import control_api, web
+from gaia.serve import control_api, session, web
+from gaia.serve import instances as instances_mod
+from gaia.serve.session import ControlSessions, Sessions
 
 logger = logging.getLogger(__name__)
 
 DECISIONS = {"once", "always", "reject"}
 HEARTBEAT_SECONDS = 15.0
 CONTROL_PREFIX = "/control"
-
-
+STATIC_PREFIX = "/static"
 class Target(Protocol):
     """O que o transporte precisa saber do motor. `gaia/serve/app.py` liga nisso."""
 
@@ -58,7 +71,6 @@ class Target(Protocol):
 
     def abort(self) -> None: ...
 
-
 class ServeConfigError(ValueError):
     """Configuracao que exporia o servidor (bind na rede sem token)."""
 
@@ -79,26 +91,53 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:  # silencio no teste
         logger.debug("serve: " + fmt, *args)
 
-    def _json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
+    def _json(
+        self,
+        status: HTTPStatus,
+        payload: dict[str, Any],
+        cabecalhos: dict[str, str] | None = None,
+    ) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for nome, valor in (cabecalhos or {}).items():
+            self.send_header(nome, valor)
         self.end_headers()
         self.wfile.write(body)
 
     def _erro(self, status: HTTPStatus, code: str, message: str) -> None:
         self._json(status, {"error": code, "message": message})
 
+    def _bearer(self) -> str:
+        header = self.headers.get("Authorization", "")
+        prefixo = "Bearer "
+        return header[len(prefixo) :].strip() if header.startswith(prefixo) else ""
+
     def _autorizado(self) -> bool:
+        """Credencial do chat: ``Bearer`` ou cookie de sessao (``gaia_chat``).
+
+        Sem ``GAIA_SERVE_TOKEN`` configurado nao ha o que proteger (loopback):
+        tudo passa, como sempre foi.
+        """
         token = self.app.token
         if not token:
             return True
-        header = self.headers.get("Authorization", "")
-        prefixo = "Bearer "
-        if not header.startswith(prefixo):
-            return False
-        return header[len(prefixo) :].strip() == token
+        if session.segredo_igual(self._bearer(), token):
+            return True
+        return self.app.chat_sessions.valid(self.chat_session)
+
+    @property
+    def chat_session(self) -> str:
+        """Nonce do cookie do chat (vazio se nao veio cookie)."""
+        return session.cookie_value(
+            self.headers.get("Cookie", ""), session.CHAT_COOKIE_NAME
+        )
+
+    @property
+    def control_session(self) -> str:
+        """Nonce do cookie do painel (vazio se nao veio cookie)."""
+        return session.cookie_value(self.headers.get("Cookie", ""), session.COOKIE_NAME)
 
     def _autorizado_controle(self) -> bool:
         """Token do painel e SEPARADO do token do chat (separacao de poderes).
@@ -106,15 +145,95 @@ class _Handler(BaseHTTPRequestHandler):
         O token de chat nao da poder administrativo: ele so conversa. Se
         ``GAIA_CONTROL_TOKEN`` nao estiver definido, a API do painel nao existe
         (503) — nunca herda o ``serve.token`` por omissao.
+
+        Duas provas valem, ambas derivadas do MESMO segredo: o ``Bearer`` (que
+        o cliente fino e o ``curl`` usam) e o nonce de sessao emitido depois de
+        um ``Bearer`` correto (o cookie que o navegador guarda).
         """
         esperado = self.app.control_token
         if not esperado:
             return False
-        header = self.headers.get("Authorization", "")
-        prefixo = "Bearer "
-        if not header.startswith(prefixo):
+        if session.segredo_igual(self._bearer(), esperado):
+            return True
+        return self.app.control_sessions.valid(self.control_session)
+
+    def _trocar_token_por_sessao(self) -> bool:
+        """POST /session: ``Bearer`` do chat correto -> cookie HttpOnly.
+
+        So um ``Bearer`` valido cria sessao: o cookie nunca e emitido de graca
+        (senao qualquer site com ``SameSite=None`` ganharia acesso de leitura).
+        Sem ``GAIA_SERVE_TOKEN`` configurado, a sessao nao muda nada (o servidor
+        ja e aberto no loopback) e a rota responde ok sem cookie.
+        """
+        esperado = self.app.token
+        if not esperado:
+            self._json(
+                HTTPStatus.OK,
+                {"ok": True, "authenticated": True, "session": False},
+            )
+            return True
+        token = self._bearer()
+        if not session.segredo_igual(token, esperado):
+            self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
             return False
-        return secrets.compare_digest(header[len(prefixo) :].strip(), esperado)
+        nonce = self.app.chat_sessions.grant()
+        self._json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "authenticated": True,
+                "session": True,
+                "expires_in": session.SESSION_TTL_SECONDS,
+            },
+            {"Set-Cookie": session.chat_set_cookie(nonce)},
+        )
+        return True
+
+    def _sair_da_sessao_do_chat(self) -> None:
+        """DELETE /session: apaga o nonce do chat. Idempotente."""
+        self.app.chat_sessions.revoke(self.chat_session)
+        self._json(
+            HTTPStatus.OK,
+            {"ok": True},
+            {"Set-Cookie": session.chat_clear_cookie()},
+        )
+
+    def _trocar_token_do_painel(self) -> bool:
+        """POST /control/api/session: ``Bearer`` do painel -> cookie do painel."""
+        esperado = self.app.control_token
+        if not esperado:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "no_control_token",
+                "control center desativado: defina GAIA_CONTROL_TOKEN",
+            )
+            return False
+        token = self._bearer()
+        if not session.segredo_igual(token, esperado):
+            self._erro(
+                HTTPStatus.UNAUTHORIZED, "unauthorized", "token do painel invalido"
+            )
+            return False
+        nonce = self.app.control_sessions.grant()
+        self._json(
+            HTTPStatus.OK,
+            {"ok": True, "expires_in": session.SESSION_TTL_SECONDS},
+            {"Set-Cookie": session.set_cookie(nonce)},
+        )
+        return True
+
+    def _sair_da_sessao(self) -> None:
+        """DELETE /control/api/session: apaga o nonce e o cookie.
+
+        Funciona mesmo sem sessao valida (idempotente): o objetivo e esquecer.
+        """
+        nonce = self.control_session
+        self.app.control_sessions.revoke(nonce)
+        self._json(
+            HTTPStatus.OK,
+            {"ok": True},
+            {"Set-Cookie": session.clear_cookie()},
+        )
 
     def _corpo(self) -> dict[str, Any] | None:
         tamanho = int(self.headers.get("Content-Length") or 0)
@@ -127,6 +246,9 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError:
             return None
         return dados if isinstance(dados, dict) else None
+
+    def _host(self) -> str:
+        return str(self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "")
 
     # ------------------------------------------------------------------- rotas
     def do_GET(self) -> None:
@@ -146,6 +268,21 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self._json(HTTPStatus.OK, {"ok": True, **saude})
             return
+        if rota == "/session":
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "authenticated": self._autorizado(),
+                    "required": bool(self.app.token),
+                    "mode": "session" if self.chat_session else "bearer",
+                },
+            )
+            return
+        if rota == "/instances":
+            # Publica de proposito: a tela pergunta antes de autenticar, e a
+            # resposta nao tem token nenhum (nem mascarado).
+            self._instancias()
+            return
         if rota == "/events":
             if not self._autorizado():
                 self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
@@ -155,14 +292,10 @@ class _Handler(BaseHTTPRequestHandler):
         if rota == "/":
             # Pagina estatica: publica como /health. Sem token ela nao faz nada
             # (todo o resto exige Authorization) — quem pede o token e a tela.
-            corpo = web.page()
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", web.content_type())
-            self.send_header("Content-Length", str(len(corpo)))
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(corpo)
+            self._arquivo(web.page(), web.content_type())
+            return
+        if rota.startswith(f"{STATIC_PREFIX}/"):
+            self._asset(rota[len(STATIC_PREFIX) + 1 :])
             return
         if rota == CONTROL_PREFIX or rota == f"{CONTROL_PREFIX}/":
             self._pagina_controle()
@@ -173,10 +306,29 @@ class _Handler(BaseHTTPRequestHandler):
         if rota.startswith(f"{CONTROL_PREFIX}/api/"):
             control_api.get(self, rota, parse_qs(url.query))
             return
+        if not self._autorizado():
+            self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
+            return
+        if rota == "/engine":
+            self._json(HTTPStatus.OK, self._engine())
+            return
+        if rota == "/automations":
+            # Leitura da agenda (status/next_run), nao administracao: o painel
+            # continua dono de `/control/api/*` (credencial separada). Aqui a
+            # prova exigida e a do chat.
+            self._automacoes()
+            return
+        if rota == "/providers":
+            # Mesmo JSON de `/control/api/providers` (chaves sempre mascaradas).
+            self._provedores()
+            return
+        if rota == "/modes":
+            self._json(HTTPStatus.OK, {"modes": self._modes()})
+            return
+        if rota == "/history":
+            self._json(HTTPStatus.OK, {"history": self._history()})
+            return
         if rota == "/search":
-            if not self._autorizado():
-                self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
-                return
             query = (parse_qs(url.query).get("q") or [""])[0].strip()
             try:
                 limite = int((parse_qs(url.query).get("limit") or ["8"])[0])
@@ -187,15 +339,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, {"query": query, "hits": hits})
             return
         if rota == "/sessions":
-            if not self._autorizado():
-                self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
-                return
             self._json(HTTPStatus.OK, {"sessions": self.app.target.sessions()})
             return
         if rota == "/models":
-            if not self._autorizado():
-                self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
-                return
             try:
                 modelos = self.app.target.models()
             except Exception as exc:  # lista indisponivel nao derruba o servidor
@@ -211,12 +357,20 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         url = urlparse(self.path)
         rota = url.path.rstrip("/") or "/"
+        if rota == "/control/api/session":
+            self._corpo()  # drena o body (POST pode vir com {}) e mantem o socket vivo
+            self._trocar_token_do_painel()
+            return
         if rota.startswith(f"{CONTROL_PREFIX}/api/"):
             corpo = self._corpo()
             if corpo is None:
                 self._erro(HTTPStatus.BAD_REQUEST, "bad_json", "corpo JSON invalido")
                 return
             control_api.post(self, rota, corpo)
+            return
+        if rota == "/session":
+            self._corpo()
+            self._trocar_token_por_sessao()
             return
         if not self._autorizado():
             self._erro(HTTPStatus.UNAUTHORIZED, "unauthorized", "token invalido")
@@ -262,6 +416,63 @@ class _Handler(BaseHTTPRequestHandler):
                 {"ok": True, "model": slug, "messages": mensagens},
             )
             return
+        if rota == "/mode":
+            chave = str(corpo.get("mode") or "").strip()
+            if not chave:
+                self._erro(HTTPStatus.BAD_REQUEST, "empty_mode", "modo vazio")
+                return
+            try:
+                mensagens = self._selecionar_modo(chave)
+            except RuntimeError as exc:
+                self._erro(HTTPStatus.CONFLICT, "busy", str(exc))
+                return
+            except ValueError as exc:
+                self._erro(HTTPStatus.BAD_REQUEST, "mode_failed", str(exc))
+                return
+            except Exception as exc:
+                logger.warning("troca de modo falhou: %s", exc)
+                self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "mode_failed", str(exc))
+                return
+            self._json(
+                HTTPStatus.OK,
+                {"ok": True, "mode": chave, "messages": mensagens, "engine": self._engine()},
+            )
+            return
+        if rota in {"/session/open", "/session/new"}:
+            try:
+                if rota == "/session/new":
+                    mensagens = self._nova_sessao()
+                else:
+                    try:
+                        identificador = int(corpo.get("id") or 0)
+                    except (TypeError, ValueError):
+                        self._erro(
+                            HTTPStatus.BAD_REQUEST, "bad_id", "informe o id da sessao"
+                        )
+                        return
+                    if identificador <= 0:
+                        self._erro(
+                            HTTPStatus.BAD_REQUEST, "bad_id", "informe o id da sessao"
+                        )
+                        return
+                    mensagens = self._abrir_sessao(identificador)
+            except RuntimeError as exc:
+                self._erro(HTTPStatus.CONFLICT, "busy", str(exc))
+                return
+            except Exception as exc:
+                logger.warning("troca de sessao falhou: %s", exc)
+                self._erro(HTTPStatus.BAD_REQUEST, "session_failed", str(exc))
+                return
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "messages": mensagens,
+                    "engine": self._engine(),
+                    "history": self._history(),
+                },
+            )
+            return
         if rota.startswith("/permission/"):
             request_id = rota[len("/permission/") :]
             decisao = str(corpo.get("decision") or "")
@@ -284,13 +495,137 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._erro(HTTPStatus.NOT_FOUND, "not_found", f"rota desconhecida: {rota}")
 
-    # ------------------------------------------------------- paginas do painel
+    # --------------------------------------------------- dados do motor/estado
+    def _engine(self) -> dict[str, Any]:
+        """Cabeçalho do web: instancia, modelo, provedor, chave mascarada, modo."""
+        dados: dict[str, Any] = {}
+        try:
+            dados = dict(self.app.target.health() or {})
+        except Exception as exc:  # motor quebrado ainda responde algo
+            logger.warning("engine: health falhou: %s", exc)
+            dados = {"error": str(exc)}
+        centro = self.app.center
+        provedor: dict[str, Any] = {}
+        if centro is not None:
+            try:
+                info = centro.providers()
+                atual: dict[str, Any] = next(
+                    (p for p in info.get("providers", []) if p.get("current")), {}
+                )
+                provedor = {
+                    "provider": atual.get("name") or info.get("agent", {}).get("provider", ""),
+                    "masked": atual.get("masked", ""),
+                    "has_key": bool(atual.get("has_key")),
+                    "auth_source": atual.get("auth_source", ""),
+                    "local": bool(atual.get("local")),
+                }
+            except Exception as exc:
+                logger.warning("engine: providers falhou: %s", exc)
+        instancias = self.app.instances_current(host_header=self._host())
+        ativa = next((i for i in instancias if i.get("current")), None)
+        return {
+            "instance": ativa or self.app.instance_identity(),
+            "instances": instancias,
+            "model": dados.get("model", ""),
+            "provider": provedor.get("provider", ""),
+            "masked": provedor.get("masked", ""),
+            "has_key": provedor.get("has_key", False),
+            "auth_source": provedor.get("auth_source", ""),
+            "mode": dados.get("mode", ""),
+            "busy": bool(dados.get("busy")),
+            "session": dados.get("session", ""),
+            "version": dados.get("version", ""),
+            "control_enabled": bool(self.app.control_token),
+        }
+
+    def _modes(self) -> list[dict[str, Any]]:
+        funcao = getattr(self.app.target, "modes", None)
+        if not callable(funcao):
+            return []
+        return list(funcao())
+
+    def _selecionar_modo(self, chave: str) -> list[str]:
+        funcao = getattr(self.app.target, "select_mode", None)
+        if not callable(funcao):
+            raise RuntimeError("troca de modo indisponivel neste motor")
+        return list(funcao(chave))
+
+    def _abrir_sessao(self, identificador: int) -> list[str]:
+        funcao = getattr(self.app.target, "open_session", None)
+        if not callable(funcao):
+            raise RuntimeError("troca de sessao indisponivel neste motor")
+        return list(funcao(identificador))
+
+    def _nova_sessao(self) -> list[str]:
+        funcao = getattr(self.app.target, "new_session", None)
+        if not callable(funcao):
+            raise RuntimeError("nova sessao indisponivel neste motor")
+        return list(funcao())
+
+    def _history(self) -> list[dict[str, Any]]:
+        funcao = getattr(self.app.target, "history", None)
+        if not callable(funcao):
+            return []
+        return list(funcao())
+
+    def _automacoes(self) -> None:
+        centro = self.app.center
+        if centro is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "no_center",
+                "automações exigem GAIA_CONTROL_TOKEN configurado"
+                if not self.app.control_token
+                else "automações indisponíveis: este motor subiu sem Control Center",
+            )
+            return
+        try:
+            self._json(HTTPStatus.OK, centro.automations())
+        except Exception as exc:
+            logger.warning("automations falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "automations_failed", str(exc))
+
+    def _provedores(self) -> None:
+        centro = self.app.center
+        if centro is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "no_center",
+                "provedores exigem GAIA_CONTROL_TOKEN configurado",
+            )
+            return
+        try:
+            self._json(HTTPStatus.OK, centro.providers())
+        except Exception as exc:
+            logger.warning("providers falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "providers_failed", str(exc))
+
+    def _instancias(self) -> None:
+        """GET /instances: lista publica com status medido em paralelo."""
+        try:
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "instances": self.app.instances_current(
+                        probe=True, host_header=self._host()
+                    )
+                },
+            )
+        except Exception as exc:  # sonda nunca derruba a rota
+            logger.warning("instances falhou: %s", exc)
+            self._json(HTTPStatus.OK, {"instances": []})
+
+    # ------------------------------------------------------- paginas e assets
     def _pagina_controle(self) -> None:
         """HTML do painel. Se nao ha token configurado, a tela explica o porque.
 
         A pagina e publica de proposito (ela pede o token), mas sem
         ``GAIA_CONTROL_TOKEN`` ela nao passa de uma instrucao: nenhuma rota de
         API existe, entao nao ha o que administrar.
+
+        Com o painel ligado, a pagina ja emite a troca do token pela sessao: o
+        ``control.js`` nao guarda a credencial em ``localStorage`` e o modal de
+        token so aparece quando nao ha cookie valido.
         """
         if not self.app.control_token:
             corpo = (
@@ -312,7 +647,20 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(corpo)
             return
-        self._arquivo(web.control_page(), "text/html; charset=utf-8")
+        self._arquivo(
+            web.control_page(),
+            "text/html; charset=utf-8",
+            {"X-Content-Type-Options": "nosniff"},
+        )
+
+    def _asset(self, nome: str) -> None:
+        """Assets do chat (``/static/shared.js`` etc.). Allowlist explicita."""
+        achado = web.static_asset(nome)
+        if achado is None:
+            self._erro(HTTPStatus.NOT_FOUND, "not_found", f"asset: {nome}")
+            return
+        corpo, tipo = achado
+        self._arquivo(corpo, tipo)
 
     def _asset_controle(self, nome: str) -> None:
         achado = web.control_asset(nome)
@@ -322,12 +670,17 @@ class _Handler(BaseHTTPRequestHandler):
         corpo, tipo = achado
         self._arquivo(corpo, tipo)
 
-    def _arquivo(self, corpo: bytes, tipo: str) -> None:
+    def _arquivo(
+        self, corpo: bytes, tipo: str, cabecalhos: dict[str, str] | None = None
+    ) -> None:
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(corpo)))
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        if not cabecalhos or "X-Content-Type-Options" not in cabecalhos:
+            self.send_header("X-Content-Type-Options", "nosniff")
+        for nome, valor in (cabecalhos or {}).items():
+            self.send_header(nome, valor)
         self.end_headers()
         self.wfile.write(corpo)
 
@@ -350,6 +703,12 @@ class _Handler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         url = urlparse(self.path)
         rota = url.path.rstrip("/") or "/"
+        if rota == "/control/api/session":
+            self._sair_da_sessao()
+            return
+        if rota == "/session":
+            self._sair_da_sessao_do_chat()
+            return
         if not rota.startswith(f"{CONTROL_PREFIX}/api/"):
             self._erro(HTTPStatus.NOT_FOUND, "not_found", f"rota desconhecida: {rota}")
             return
@@ -417,6 +776,9 @@ class ServeServer:
         token: str = "",
         control_token: str = "",
         center: Any = None,
+        instance_id: str = "",
+        instances_path: Any = None,
+        probe: Callable[[Any, float], dict[str, Any]] | None = None,
     ) -> None:
         if not _eh_loopback(host) and not token.strip():
             raise ServeConfigError(
@@ -427,7 +789,16 @@ class ServeServer:
         self.token = token.strip()
         # Segredo separado do token do chat: sem ele, /control/api nao existe.
         self.control_token = control_token.strip()
+        # Sessoes de cookie: painel (``gaia_control``) e chat (``gaia_chat``).
+        # Conjuntos separados de proposito: o nonce de um nao vale no outro.
+        self.control_sessions = ControlSessions()
+        self.chat_sessions = Sessions()
         self.center = center if self.control_token else None
+        # `instances.json` e lido por requisicao: editar o arquivo e o jeito de
+        # adicionar uma maquina, sem reiniciar o serve.
+        self.instance_id = instance_id.strip()
+        self.instances_path = instances_path
+        self.probe = probe
         self.parar = threading.Event()
         self._httpd = ThreadingHTTPServer((host, port), _Handler)
         self._httpd.daemon_threads = True
@@ -465,3 +836,31 @@ class ServeServer:
             host = "127.0.0.1"
         return f"http://{host}:{porta}"
 
+    # -------------------------------------------------------------- instancias
+    def instance_identity(self) -> dict[str, Any]:
+        """Esta instancia, quando ela nao esta (ou nao casa) no arquivo."""
+        return {
+            "id": self.instance_id or "local",
+            "name": "esta instância",
+            "url": self.base_url,
+            "current": True,
+        }
+
+    def instances_current(
+        self, *, probe: bool = False, host_header: str = ""
+    ) -> list[dict[str, Any]]:
+        """Instancias do arquivo, ``current`` marcado e status opcional."""
+        host = host_header or f"127.0.0.1:{self.address[1]}"
+        try:
+            itens = instances_mod.load(self.instances_path)
+        except Exception as exc:  # arquivo nunca derruba a rota
+            logger.warning("instances.json: %s", exc)
+            itens = []
+        itens = instances_mod.marcar_atual(itens, host, self.instance_id)
+        if not probe:
+            return [item.public() for item in itens]
+        sonda = self.probe or instances_mod.probe
+        return instances_mod.describe(itens, probe_fn=sonda)
+
+
+__all__ = ["ServeConfigError", "ServeServer", "Target"]

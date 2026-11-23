@@ -269,12 +269,14 @@ def test_serve_vem_do_ambiente():
             "GAIA_SERVE_PORT": "9000",
             "GAIA_SERVE_TOKEN": "abc",
             "GAIA_SERVE_ALLOW_REMOTE": "true",
+            "GAIA_SERVE_INSTANCE_ID": "mini",
         }
     )
     assert cfg.serve.host == "100.66.45.57"
     assert cfg.serve.port == 9000
     assert cfg.serve.token == "abc"
     assert cfg.serve.allow_remote is True
+    assert cfg.serve.instance_id == "mini"
 
 
 def test_template_padrao_traz_a_secao_serve(tmp_path):

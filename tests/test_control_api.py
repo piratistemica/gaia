@@ -338,3 +338,154 @@ def test_health_do_chat_continua_igual(setup):
     status, corpo = pedir(base, "GET", "/health")
     assert status == 200
     assert corpo["ok"] is True
+
+
+# ---------------------------------------------------------------- sessao/cookie
+def pedir_com_cookie(
+    base: str,
+    metodo: str,
+    caminho: str,
+    *,
+    cookie: str | None = None,
+    token: str | None = None,
+    corpo: Any = None,
+) -> tuple[int, Any, str]:
+    """Como `pedir`, mas devolve tambem o Set-Cookie da resposta."""
+    host, porta = base.removeprefix("http://").split(":")
+    conexao = http.client.HTTPConnection(host, int(porta), timeout=10)
+    cabecalhos: dict[str, str] = {}
+    if token is not None:
+        cabecalhos["Authorization"] = f"Bearer {token}"
+    if cookie is not None:
+        cabecalhos["Cookie"] = cookie
+    dados = None
+    if corpo is not None:
+        dados = json.dumps(corpo).encode()
+        cabecalhos["Content-Type"] = "application/json"
+    conexao.request(metodo, caminho, body=dados, headers=cabecalhos)
+    resposta = conexao.getresponse()
+    bruto = resposta.read()
+    set_cookie = resposta.getheader("Set-Cookie") or ""
+    conexao.close()
+    try:
+        return resposta.status, json.loads(bruto), set_cookie
+    except ValueError:
+        return resposta.status, bruto, set_cookie
+
+
+def _nonce(set_cookie: str) -> str:
+    return set_cookie.split(";", 1)[0]
+
+
+def test_session_emite_cookie_httponly(setup):
+    base, *_ = setup
+    status, corpo, set_cookie = pedir_com_cookie(
+        base, "POST", "/control/api/session", token="ctl-secreto", corpo={}
+    )
+    assert status == 200
+    assert corpo["ok"] is True
+    assert "gaia_control=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "SameSite=Strict" in set_cookie
+    assert "Path=/control" in set_cookie
+    # O nonce nunca e o token do painel.
+    assert "ctl-secreto" not in set_cookie
+
+
+def test_cookie_da_sessao_autoriza_api(setup):
+    base, *_ = setup
+    _, _, set_cookie = pedir_com_cookie(
+        base, "POST", "/control/api/session", token="ctl-secreto", corpo={}
+    )
+    cookie = _nonce(set_cookie)
+    status, corpo = pedir(base, "GET", "/control/api/overview")
+    assert status == 401  # sem prova
+    status, corpo, _ = pedir_com_cookie(
+        base, "GET", "/control/api/overview", cookie=cookie
+    )
+    assert status == 200
+    assert corpo["engine"]["model"]
+
+
+def test_session_exige_token_do_painel(setup):
+    base, *_ = setup
+    # Sem token, com token errado e com o token do chat: nenhum emite cookie.
+    for token in (None, "errado", "tok-chat"):
+        status, _, set_cookie = pedir_com_cookie(
+            base, "POST", "/control/api/session", token=token, corpo={}
+        )
+        assert status == 401
+        assert set_cookie == ""
+
+
+def test_cookie_inventado_nao_autoriza(setup):
+    base, *_ = setup
+    status, _, _ = pedir_com_cookie(
+        base, "GET", "/control/api/overview", cookie="gaia_control=nao-existe"
+    )
+    assert status == 401
+    # O token de chat continua sem poder administrativo, mesmo em cookie.
+    assert pedir(base, "GET", "/control/api/overview", token="tok-chat")[0] == 401
+
+
+def test_delete_session_revoga(setup):
+    base, *_ = setup
+    _, _, set_cookie = pedir_com_cookie(
+        base, "POST", "/control/api/session", token="ctl-secreto", corpo={}
+    )
+    cookie = _nonce(set_cookie)
+    status, corpo, limpo = pedir_com_cookie(
+        base, "DELETE", "/control/api/session", cookie=cookie
+    )
+    assert status == 200
+    assert corpo["ok"] is True
+    assert "Max-Age=0" in limpo
+    # O cookie antigo nao vale mais.
+    status, _, _ = pedir_com_cookie(
+        base, "GET", "/control/api/overview", cookie=cookie
+    )
+    assert status == 401
+
+
+def test_get_session_diz_se_esta_autenticado(setup):
+    base, *_ = setup
+    status, corpo = pedir(base, "GET", "/control/api/session")
+    assert status == 200
+    assert corpo["authenticated"] is False
+    _, _, set_cookie = pedir_com_cookie(
+        base, "POST", "/control/api/session", token="ctl-secreto", corpo={}
+    )
+    _, corpo, _ = pedir_com_cookie(
+        base, "GET", "/control/api/session", cookie=_nonce(set_cookie)
+    )
+    assert corpo["authenticated"] is True
+    assert corpo["mode"] == "session"
+
+
+def test_sem_control_token_session_responde_503(tmp_path, isolated_env):
+    cfg = Config.load(
+        config_path=tmp_path / "config.toml",
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
+    )
+    store = MemoryStore(tmp_path / "gaia.db")
+    centro = ControlCenter(cfg, store, env_path=tmp_path / ".env")
+    servidor = ServeServer(
+        FakeTarget(),  # type: ignore[arg-type]
+        RemoteUI(),
+        host="127.0.0.1",
+        port=0,
+        token="tok-chat",
+        control_token="",
+        center=centro,
+    )
+    base = servidor.start()
+    try:
+        status, corpo, set_cookie = pedir_com_cookie(
+            base, "POST", "/control/api/session", token="tok-chat", corpo={}
+        )
+        assert status == 503
+        assert set_cookie == ""
+        assert "GAIA_CONTROL_TOKEN" in corpo["message"]
+    finally:
+        servidor.shutdown()
+        store.close()

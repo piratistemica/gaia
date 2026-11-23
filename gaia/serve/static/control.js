@@ -1,58 +1,45 @@
-/* Control Center: fala com /control/api/* usando GAIA_CONTROL_TOKEN.
+/* Control Center: fala com /control/api/* usando uma sessao de cookie.
  *
- * Sem framework e sem build (mesma escolha do chat). O token fica no
- * localStorage e vai no cabecalho Authorization; nada de token na URL.
+ * Sem framework e sem build (mesma escolha do chat). A credencial e a mesma
+ * logica do chat, agora em `/control/static/shared.js`:
+ *   1. `POST /control/api/session` com `Authorization: Bearer <token>` troca o
+ *      token por um cookie HttpOnly (`gaia_control`). O JS nunca ve o nonce.
+ *   2. As chamadas seguintes usam `credentials: "same-origin"` — cookie no
+ *      navegador, nada na URL.
+ *   3. Guardar o token no localStorage e opt-in ("lembrar token neste
+ *      navegador"). Desmarcado, a sessao vale ate o cookie vencer e a tela pede
+ *      o token de novo — nenhum segredo fica no navegador.
+ *
  * Todo numero na tela vem de uma chamada real: se a API falhar, a tela mostra
  * o erro em vez de inventar estado.
  */
 (() => {
   "use strict";
 
+  const { api: apiCompartilhada, auth, header, instances } = window.Gaia;
   const API = "/control/api";
-  const CHAVE_TOKEN = "gaia.control.token";
-  const estado = { aba: "overview", dados: {} };
+  const estado = { aba: "overview", dados: {}, sessao: false, engine: null };
 
   const $ = (sel) => document.querySelector(sel);
-  const el = (tag, attrs = {}, ...filhos) => {
-    const no = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      if (v === null || v === undefined || v === false) continue;
-      if (k === "class") no.className = v;
-      else if (k === "html") no.innerHTML = v;
-      else if (k.startsWith("on")) no.addEventListener(k.slice(2), v);
-      else no.setAttribute(k, v);
-    }
-    for (const filho of filhos.flat()) {
-      if (filho === null || filho === undefined) continue;
-      no.append(filho instanceof Node ? filho : document.createTextNode(String(filho)));
-    }
-    return no;
-  };
+  const el = window.Gaia.el;
 
-  const token = () => localStorage.getItem(CHAVE_TOKEN) || "";
+  const token = () => auth.token("control");
 
-  async function api(caminho, opcoes = {}) {
-    const resposta = await fetch(`${API}${caminho}`, {
-      ...opcoes,
-      headers: {
-        Authorization: `Bearer ${token()}`,
-        ...(opcoes.body ? { "Content-Type": "application/json" } : {}),
-        ...(opcoes.headers || {}),
-      },
-    });
-    let corpo = null;
-    try {
-      corpo = await resposta.json();
-    } catch (_) {
-      corpo = null;
-    }
-    if (!resposta.ok) {
-      const detalhe = (corpo && (corpo.message || corpo.error)) || resposta.statusText;
-      const erro = new Error(`${resposta.status}: ${detalhe}`);
-      erro.status = resposta.status;
-      throw erro;
-    }
-    return corpo;
+  /** Troca o token pelo cookie de sessao. Devolve true se a sessao existe. */
+  async function autenticar(segredo = token()) {
+    const entrou = await auth.entrar("control", segredo);
+    estado.sessao = entrou;
+    return entrou;
+  }
+
+  /** Existe prova valida agora? (pergunta ao servidor, sem confiar em cache) */
+  async function sessaoValida() {
+    estado.sessao = await auth.sessao("control");
+    return estado.sessao;
+  }
+
+  function api(caminho, opcoes = {}) {
+    return apiCompartilhada(caminho, { ...opcoes, base: API, perfil: "control" });
   }
 
   function status(texto, classe = "") {
@@ -63,7 +50,8 @@
 
   function falha(erro) {
     if (erro.status === 401) {
-      status("token invalido ou ausente", "erro");
+      estado.sessao = false;
+      status("sessao expirada", "aviso");
       abrirModal();
       return;
     }
@@ -114,14 +102,20 @@
     carregar();
   }
 
-  async function carregar() {
-    if (!token()) {
-      status("informe o token para carregar", "aviso");
-      abrirModal();
-      return;
+  async function carregar(tentarDeNovo = true) {
+    if (!estado.sessao) {
+      // O token lembrado so serve para refazer a troca: sem ele (opt-out) a
+      // sessao vale ate o cookie vencer e o modal volta, como deve ser.
+      const lembrado = token();
+      if (!(await sessaoValida()) && !(lembrado && (await autenticar(lembrado)))) {
+        status("informe o token para carregar", "aviso");
+        abrirModal();
+        return;
+      }
     }
     status("carregando…");
     try {
+      await carregarEngine();
       const carga = {
         overview: () => api("/overview"),
         models: async () => ({ providers: await api("/providers"), models: await api("/models") }),
@@ -135,6 +129,11 @@
       desenhar();
       status(`atualizado ${new Date().toLocaleTimeString("pt-BR")}`, "dim");
     } catch (erro) {
+      // Cookie expirado (12 h) ou serve reiniciado: refaz a troca com o token
+      // guardado antes de incomodar. Uma tentativa so, para nao fazer laco.
+      if (erro.status === 401 && tentarDeNovo && (await autenticar())) {
+        return carregar(false);
+      }
       falha(erro);
     }
   }
@@ -156,16 +155,52 @@
     pintor(alvo, dados);
   }
 
+  /* ------------------------------------------------------------------ header */
+  async function carregarEngine() {
+    try {
+      // `/control/api/engine` e o mesmo cabecalho do chat, mas dentro do path
+      // do cookie do painel (Path=/control).
+      estado.engine = await api("/engine");
+    } catch (erro) {
+      // 401 no /engine e o mesmo do resto: a sessao morreu.
+      if (erro.status === 401) throw erro;
+      estado.engine = null;
+      return;
+    }
+    pintarCabecalho(estado.engine);
+  }
+
+  function pintarCabecalho(engine) {
+    if (!engine) return;
+    header.pintar(engine, {
+      modelo: "#pill-model",
+      provedor: "#pill-provider",
+      chave: "#pill-key",
+    });
+    $("#pill-provider").hidden = !engine.provider;
+    $("#pill-key").hidden = !engine.has_key;
+    const slot = $("#slot-instancia");
+    const seletor = instances.seletor();
+    if (slot && seletor) slot.replaceChildren(seletor);
+  }
+
+  async function carregarInstancias() {
+    await instances.carregar();
+    if (estado.engine) pintarCabecalho(estado.engine);
+  }
+
   /* ---------------------------------------------------------------- overview */
   function desenharOverview(alvo, dados) {
     const saude = dados.status || "ok";
     $("#pill-status").textContent = saude;
     $("#pill-status").className = `pill ${classeStatus(saude)}`;
-    $("#pill-model").textContent = dados.engine.model || "—";
-
+    const motor = estado.engine || {};
     alvo.append(
       el("div", { class: "cards" },
-        cartao("Modelo ativo", dados.engine.model, `${dados.engine.provider} · ${dados.engine.busy ? "ocupado" : "ocioso"}`),
+        cartao("Modelo ativo", motor.model || dados.engine.model,
+          `${motor.provider || dados.engine.provider} · ${dados.engine.busy ? "ocupado" : "ocioso"}`),
+        cartao("Credencial", motor.masked || (motor.has_key ? "(oculta)" : "sem chave"),
+          motor.auth_source || "defina a chave no .env"),
         cartao("Saúde", saude, `${(dados.health || []).filter((i) => i.status === "error").length} componente(s) com erro`),
         cartao("Skills", `${dados.skills.active}/${dados.skills.total}`, `${dados.skills.error} com erro`),
         cartao("Automações", `${dados.automations.active}/${dados.automations.total}`, `${(dados.automations.missed || []).length} não executaram`),
@@ -374,16 +409,31 @@
 
   /* ------------------------------------------------------------- automations */
   function desenharAutomations(alvo, dados) {
+    const lista = dados.automations || [];
+    const naoRodaram = lista.filter((a) => a.status === "missed");
+    const proximas = lista
+      .filter((a) => a.next_run)
+      .sort((a, b) => String(a.next_run).localeCompare(String(b.next_run)))
+      .slice(0, 5);
+    alvo.append(
+      el("div", { class: "cards" },
+        cartao("Ativas", `${lista.filter((a) => a.enabled).length}/${lista.length}`, "ligadas agora"),
+        cartao("Não executaram", String(naoRodaram.length),
+          naoRodaram.map((a) => a.name).join(", ") || "nada atrasado"),
+        cartao("Próxima", proximas.length ? proximas[0].name : "—",
+          proximas.length ? data(proximas[0].next_run) : "sem agenda"),
+      ),
+    );
     alvo.append(
       el("div", { class: "panel" },
         el("header", {}, el("h2", {}, "Automações"),
-          el("span", { class: "dim" }, "agenda declarada (pausar/executar chega na fase C)")),
+          el("span", { class: "dim" }, "agenda governada pela tabela automations")),
         el("div", { class: "panel-body" },
           el("table", {},
             el("thead", {}, el("tr", {},
               el("th", {}, "automação"), el("th", {}, "dias"), el("th", {}, "janela"),
               el("th", {}, "entrega"), el("th", {}, "status"), el("th", {}, "próxima"), el("th", {}, "última"))),
-            el("tbody", {}, dados.automations.map((a) =>
+            el("tbody", {}, lista.map((a) =>
               el("tr", {},
                 el("td", {}, a.name, el("div", { class: "mono dim" }, a.id)),
                 el("td", { class: "dim" }, a.days_label),
@@ -673,11 +723,24 @@
 
   /* ------------------------------------------------------------------- modal */
   function abrirModal() {
-    $("#input-token").value = token();
+    // `type=password`: nao preenche o campo com o token guardado. Quem ja tem
+    // sessao nem ve este modal; quem nao tem digita uma vez por navegador.
+    $("#input-token").value = "";
+    const lembrar = $("#input-lembrar");
+    if (lembrar) lembrar.checked = auth.lembrado("control");
     $("#modal").hidden = false;
   }
   function fecharModal() {
     $("#modal").hidden = true;
+  }
+
+  /** Encerra a sessao no servidor e esquece o token local. */
+  async function sair() {
+    await auth.sair("control");
+    estado.sessao = false;
+    $("#input-token").value = "";
+    status("sessao encerrada", "aviso");
+    abrirModal();
   }
 
   /* ------------------------------------------------------------------- boot */
@@ -687,22 +750,34 @@
   $("#btn-token").addEventListener("click", abrirModal);
   $("#btn-refresh").addEventListener("click", carregar);
   $("#btn-close-modal").addEventListener("click", fecharModal);
-  $("#btn-save-token").addEventListener("click", () => {
+  $("#btn-save-token").addEventListener("click", async () => {
     const valor = $("#input-token").value.trim();
-    if (valor) localStorage.setItem(CHAVE_TOKEN, valor);
-    else localStorage.removeItem(CHAVE_TOKEN);
+    const lembrar = Boolean($("#input-lembrar") && $("#input-lembrar").checked);
+    // Sem token nao ha o que trocar: so fecha e mostra o aviso.
+    if (!valor) {
+      auth.lembrar("control", false, "");
+      fecharModal();
+      status("informe o token para carregar", "aviso");
+      return;
+    }
+    estado.sessao = await autenticar(valor);
+    if (!estado.sessao) {
+      auth.lembrar("control", false, "");
+      status("token recusado", "erro");
+      return;
+    }
+    // Opt-in: so grava o segredo se a pessoa marcou. Desmarcado apaga o que
+    // houvesse guardado de uma sessao anterior.
+    auth.lembrar("control", lembrar, lembrar ? valor : "");
     fecharModal();
     carregar();
   });
-  $("#btn-clear-token").addEventListener("click", () => {
-    localStorage.removeItem(CHAVE_TOKEN);
-    $("#input-token").value = "";
-    status("token esquecido", "aviso");
-  });
+  $("#btn-clear-token").addEventListener("click", sair);
   $("#input-token").addEventListener("keydown", (evento) => {
     if (evento.key === "Enter") $("#btn-save-token").click();
   });
 
+  carregarInstancias();
   trocarAba(estado.aba);
   setInterval(() => {
     if (document.visibilityState === "visible" && estado.aba === "overview") carregar();

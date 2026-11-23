@@ -10,9 +10,13 @@
 <body>
 <header>
   <h1>Control Center</h1>
+  <span id="slot-instancia"></span>
   <span id="pill-status" class="pill">aguardando</span>
   <span id="pill-model" class="pill mono">—</span>
+  <span id="pill-provider" class="pill">—</span>
+  <span id="pill-key" class="pill mono" title="chave mascarada; nunca aparece inteira"></span>
   <span id="status">informe o token para carregar</span>
+  <a class="pill" href="/" title="voltar para o chat">chat</a>
   <button id="btn-token" class="pill" type="button">token</button>
   <button id="btn-refresh" class="pill" type="button">atualizar</button>
 </header>
@@ -42,18 +46,24 @@
     <h2>Token do Control Center</h2>
     <p class="dim">
       É o valor de <code>GAIA_CONTROL_TOKEN</code> no <code>~/.config/gaia/.env</code>.
-      Fica só neste navegador (<code>localStorage</code>) e vai no cabeçalho
-      <code>Authorization</code> — nunca na URL.
+      Ele é trocado por uma sessão (cookie <code>HttpOnly</code>) e vai no cabeçalho
+      uma única vez, nunca na URL. Desmarcado, nada do token fica guardado e a
+      sessão vale só até o navegador fechar (ou o servidor reiniciar).
     </p>
     <input id="input-token" type="password" placeholder="cole o token" autocomplete="off">
+    <label class="check">
+      <input id="input-lembrar" type="checkbox">
+      <span>lembrar o token neste navegador (refaz a sessão sozinho quando vencer)</span>
+    </label>
     <div class="modal-actions">
       <button id="btn-save-token" type="button" class="primary">salvar</button>
-      <button id="btn-clear-token" type="button">esquecer</button>
+      <button id="btn-clear-token" type="button">sair</button>
       <button id="btn-close-modal" type="button">fechar</button>
     </div>
   </div>
 </div>
 
+<script src="/control/static/shared.js"></script>
 <script src="/control/static/control.js"></script>
 </body>
 </html>

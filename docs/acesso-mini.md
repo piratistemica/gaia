@@ -17,8 +17,22 @@ http://100.66.45.57:8787/control  # mesmo endereço, sem depender do DNS
 ```
 
 A tela pede o token do painel (`GAIA_CONTROL_TOKEN`, separado do token do chat)
-e o guarda no `localStorage` — nunca na URL. Sem ele, `/control` mostra a
-instrução e `/control/api/*` responde 503.
+uma vez por navegador e o troca por uma sessão: cookie `HttpOnly` com
+`Path=/control` e `SameSite=Strict`, emitido por `POST /control/api/session`.
+Depois disso o token não vai na URL nem a cada requisição. Sem ele, `/control`
+mostra a instrução e `/control/api/*` responde 503.
+
+O chat (`/`) segue a mesma ideia com o token do chat: `POST /session` emite o
+cookie `gaia_chat` (`Path=/`) e o `Bearer` continua valendo para `curl` e
+`gaia --remote`.
+
+Guardar o token para "não digitar nunca mais" é **opt-in**: a caixa "lembrar o
+token neste navegador" no modal. Desmarcada (padrão), nada do segredo fica no
+navegador — a sessão vale até o cookie vencer (12 h) e o modal volta. Marcada,
+o token fica no `localStorage` daquele endereço e a tela refaz a troca quando o
+cookie morre. Como cookie é por origem, MagicDNS e IP do tailnet são duas
+sessões (e dois "lembrar"): cada um pede o token uma vez, se você quiser.
+O botão **sair** revoga a sessão no servidor e apaga o token guardado.
 
 Por que aqui e não no MacBook: o painel lê o `gaia.db`, a agenda
 (`automations`) e os workers **do processo que é dono deles**. Um `gaia serve`
@@ -26,6 +40,22 @@ no MacBook mostraria o banco do MacBook — outra Gaia, outro histórico, outra
 agenda. A regra "um único escritor" vale também para o painel.
 
 O chat web é a outra tela: `http://gaia:8787/` (mesmo endereço, token do chat).
+
+Para alternar entre mini e Mac pela própria tela, crie
+`~/.local/share/gaia/instances.json` (no mini) com as duas máquinas:
+
+```json
+[
+  {"id": "mini", "name": "Mini PC", "url": "http://gaia:8787",
+   "serve_token": "...", "control_token": "..."},
+  {"id": "mac", "name": "MacBook", "url": "http://100.x.y.z:8787",
+   "serve_token": "...", "control_token": "..."}
+]
+```
+
+`chmod 600` nele (tem segredos). O seletor do header mostra online/offline
+(sondado pelo servidor) e trocar de instância navega para o outro endereço —
+o MacBook precisa ter o próprio `gaia serve` rodando, com o banco dele.
 
 ## O básico que já existe
 

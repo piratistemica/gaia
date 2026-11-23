@@ -16,6 +16,7 @@ from gaia.cli_runtime import _build_app
 from gaia.config import Config
 from gaia.control.center import ControlCenter
 from gaia.interface.remote import RemoteUI
+from gaia.serve import instances as instances_mod
 from gaia.serve.app import OrchestratorTarget
 from gaia.serve.server import ServeConfigError, ServeServer
 from gaia.telegram.service import TelegramService
@@ -73,6 +74,8 @@ async def _serve_command(
             token=token,
             control_token=control_token,
             center=centro,
+            instance_id=getattr(cfg.serve, "instance_id", ""),
+            instances_path=cfg.resolved_data_dir() / instances_mod.FILENAME,
         )
     except ServeConfigError as exc:
         ui.error(str(exc))

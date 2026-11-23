@@ -62,7 +62,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/briefing/compose.py` | texto dos briefings (manhã, meio-dia, noite) |
 | `gaia/interface/terminal.py` | UI Rich; `textual_app.py` | TUI |
 | `gaia/interface/remote.py` | `RemoteUI`: serializa eventos para o serve (fan-out + histórico) |
-| `gaia/serve/server.py` | HTTP + SSE + `/control`; `app.py` | ponte `OrchestratorTarget`; `control_api.py` | rotas do painel; `web.py`/`static/` | web |
+| `gaia/serve/server.py` | HTTP + SSE + `/control`; `app.py` | ponte `OrchestratorTarget`; `control_api.py` | rotas do painel; `session.py` | nonces de cookie (chat e painel); `instances.py` | `instances.json` e sonda `/health`; `web.py`/`static/` | web (`shared.js` e comum as duas telas) |
 | `gaia/control/` | Control Center: `runs` (histórico), `skills`, `automations` (agenda + seed/load/retry), `health`, `secrets`, `settings`, `providers`, `center` |
 | `gaia/controller/scheduler.py` | agendador único: lê `automations`, calcula `due()`, chama o handler da skill, faz retry e notifica falha |
 | `gaia/client/remote_client.py` | cliente `gaia --remote` |
@@ -106,6 +106,26 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   administra credenciais). Sem ele, a API responde 503 e não existe por
   omissão: o painel não herda poder acidentalmente. Toda resposta mascara
   segredo (`sk-…1234`) e nenhum valor completo aparece em JSON ou log.
+- **Duas sessões de cookie, dois segredos.** O chat autentica com
+  `GAIA_SERVE_TOKEN` (`POST /session` -> cookie `gaia_chat`, `Path=/`); o painel
+  com `GAIA_CONTROL_TOKEN` (`POST /control/api/session` -> `gaia_control`,
+  `Path=/control`). Um nonce nunca vale no conjunto do outro, e o `Bearer`
+  continua aceito nas duas (cliente fino/`curl`). Guardar token no
+  `localStorage` é opt-in ("lembrar token neste navegador"); o padrão é não
+  guardar.
+- **`instances.json` é manual e nunca exposto.** Fica em `GAIA_DATA_DIR`
+  (segredos, `chmod 600`); `GET /instances` devolve só `id`/`name`/`url`/
+  `current`/`has_*_token` + status medido pelo servidor. O seletor **navega**
+  para a outra URL: cookie é por origem, então não há CORS com credenciais.
+- **Sessão do painel é cookie `HttpOnly` derivado do token.**
+  `POST /control/api/session` troca um `Bearer` correto por um nonce opaco
+  (`gaia/serve/session.py`, em memória, TTL 12h, `Path=/control`,
+  `SameSite=Strict`); `GET /control/api/session` só diz `authenticated`.
+  `DELETE` revoga e apaga o cookie. O `Bearer` continua aceito — é o que o
+  `curl` e o cliente fino usam. O nonce nunca é o token e não é derivado dele:
+  reiniciar o `serve` derruba as sessões (o painel refaz o login sozinho se
+  tiver o token no `localStorage`). Por isso o modal não volta ao trocar de
+  origem (`gaia:8787` vs IP do tailnet) nem por limpeza periódica de storage.
 - **Dados ficam fora do repo por padrão:** `~/.local/share/gaia`
   (`GAIA_DATA_DIR`). O repo só usa `./data` quando o launcher seta
   `GAIA_DATA_DIR="$REPO/data"` (`Abrir Gaia.command`).
@@ -138,6 +158,11 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   — iniciar nao e sucesso. Testes: `tests/test_control_skills.py`,
   `tests/test_control_automations.py`, `tests/test_runs_instrumentation.py`,
   `tests/test_scheduler.py`.
+- **Nova rota do chat:** adicione no `do_GET`/`do_POST` de
+  `gaia/serve/server.py` (atrás de `_autorizado()`), implemente o metodo
+  opcional no `OrchestratorTarget` (`gaia/serve/app.py`) e teste em
+  `tests/test_serve_instances.py` (rotas de estado) ou `tests/test_serve.py`
+  (transporte).
 - **Nova rota do painel:** adicione no `get`/`post` de
   `gaia/serve/control_api.py` e o metodo correspondente em
   `gaia/control/center.py`. Toda rota `/control/api/*` exige
@@ -213,6 +238,10 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   tem a tabela de status item por item — mantenha-a atualizada.
   A correcao de proatividade no `serve` (`owns_telegram`, `_speak` mudo em
   `serve`) esta aplicada (commit `12f15b1`).
+- Web do `serve` em paridade com a TUI: `instances.json` (mini/Mac),
+  sessao de cookie no chat (`gaia_chat`) e no painel (`gaia_control`), seletor
+  de instancia no header, modos, sessoes anteriores e proximas automacoes.
+  Design em `docs/plans/2026-11-22-web-instances-sessao-design.md`.
 - Segurança pendente: sandbox/env do `bash`, lock no `POST /turn`, aprovação
   remota vs. callback do Telegram, redação de `serve.token`, timeout de
   permissão.

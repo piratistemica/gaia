@@ -8,9 +8,11 @@ mesmo motor. Duas paginas:
 * ``/control`` — o Agent Control Center (`static/control.html`), que fala com
   ``/control/api/*`` e exige ``GAIA_CONTROL_TOKEN``.
 
-O token vive no ``localStorage`` e vai no cabecalho ``Authorization`` — por isso
-o SSE do chat e lido com ``fetch`` + ``ReadableStream`` em vez de ``EventSource``
-(que nao permite cabecalho proprio). Token na URL vazaria em log e historico.
+O chat autentica por sessao (cookie ``gaia_chat``, trocado em ``POST /session``)
+ou pelo cabecalho ``Authorization``; por isso o SSE e lido com ``fetch`` +
+``ReadableStream`` em vez de ``EventSource`` (que nao permite cabecalho proprio)
+e o JS compartilhado vive em ``/static/shared.js``. Token na URL vazaria em log
+e historico.
 """
 
 from __future__ import annotations
@@ -21,9 +23,11 @@ from pathlib import Path
 STATIC_DIR = Path(__file__).with_name("static")
 PAGE_PATH = STATIC_DIR / "index.html"
 
-# Arquivos do painel que podem ser servidos. Allowlist explicita: nada de
-# resolver caminho vindo da URL (``..`` nunca chega ao disco).
-CONTROL_ASSETS = ("control.html", "control.css", "control.js")
+# Arquivos servidos ao chat. Allowlist explicita: nada de resolver caminho vindo
+# da URL (``..`` nunca chega ao disco) e nada de expor o ``instances.json``.
+STATIC_ASSETS = ("shared.js",)
+# Arquivos do painel que podem ser servidos.
+CONTROL_ASSETS = ("control.html", "control.css", "control.js", "shared.js")
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -49,12 +53,21 @@ def control_page() -> bytes:
     return (STATIC_DIR / "control.html").read_bytes()
 
 
-def control_asset(name: str) -> tuple[bytes, str] | None:
-    """Asset do painel por nome, ou None se nao estiver na allowlist."""
-    if name not in CONTROL_ASSETS:
+def _asset(nome: str, permitidos: tuple[str, ...]) -> tuple[bytes, str] | None:
+    if nome not in permitidos:
         return None
-    caminho = STATIC_DIR / name
+    caminho = STATIC_DIR / nome
     if not caminho.is_file():
         return None
     tipo = _CONTENT_TYPES.get(caminho.suffix, "application/octet-stream")
     return caminho.read_bytes(), tipo
+
+
+def static_asset(name: str) -> tuple[bytes, str] | None:
+    """Asset compartilhado do chat por nome, ou None se nao estiver na allowlist."""
+    return _asset(name, STATIC_ASSETS)
+
+
+def control_asset(name: str) -> tuple[bytes, str] | None:
+    """Asset do painel por nome, ou None se nao estiver na allowlist."""
+    return _asset(name, CONTROL_ASSETS)

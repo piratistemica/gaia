@@ -54,6 +54,7 @@ class OrchestratorTarget:
             # `mode_name` é property no Orchestrator (str), não método: chamar
             # como função levantava TypeError e deixava /health sem resposta.
             "mode": getattr(self.orch, "mode_name", ""),
+            "mode_key": self._mode_key(),
             "busy": self.ocupado,
         }
 
@@ -111,6 +112,80 @@ class OrchestratorTarget:
             logger.warning("busca no Second Brain falhou: %s", exc)
             return []
         return [_plain(hit) for hit in hits]
+
+    # ------------------------------------------------------------------ modos
+    def modes(self) -> list[dict[str, Any]]:
+        """Personas do nucleo (mesma lista do /modo da TUI)."""
+        listar = getattr(self.orch, "modes", None)
+        if not callable(listar):
+            return []
+        atual = self._mode_key()
+        return [
+            {
+                "key": persona.key,
+                "name": persona.name,
+                "summary": persona.summary,
+                "current": persona.key == atual,
+            }
+            for persona in listar()
+        ]
+
+    def select_mode(self, key: str) -> list[str]:
+        """Troca o modo ativo e devolve mensagens do /modo."""
+        if self.ocupado:
+            raise MotorOcupado("turno em andamento")
+        if self._loop is None:
+            raise RuntimeError("serve sem loop asyncio ligado")
+        from gaia.controller.modes import get_persona
+
+        persona = get_persona(key)
+        if persona is None:
+            # `resolve_mode` cai no padrao quando nao conhece a chave; aqui isso
+            # seria uma troca silenciosa errada, entao recusamos.
+            raise ValueError(f"modo desconhecido: {key}")
+        futuro = asyncio.run_coroutine_threadsafe(
+            self.orch.select_mode(persona.key), self._loop
+        )
+        futuro.result(timeout=60.0)
+        return [f"modo ativo: {persona.name} — {persona.summary}"]
+
+    # --------------------------------------------------------------- sessoes
+    def open_session(self, conversation_id: int) -> list[str]:
+        """Abre uma conversa anterior (equivalente a escolher no /sessoes)."""
+        if self.ocupado:
+            raise MotorOcupado("turno em andamento")
+        if self._loop is None:
+            raise RuntimeError("serve sem loop asyncio ligado")
+        futuro = asyncio.run_coroutine_threadsafe(
+            self.orch.select_conversation(int(conversation_id)), self._loop
+        )
+        futuro.result(timeout=60.0)
+        return [f"sessao aberta: {conversation_id}"]
+
+    def new_session(self) -> list[str]:
+        """Cria uma conversa nova (equivalente ao /novo)."""
+        if self.ocupado:
+            raise MotorOcupado("turno em andamento")
+        if self._loop is None:
+            raise RuntimeError("serve sem loop asyncio ligado")
+        futuro = asyncio.run_coroutine_threadsafe(self.orch.new_session(), self._loop)
+        futuro.result(timeout=60.0)
+        return ["sessao nova criada"]
+
+    def history(self) -> list[dict[str, Any]]:
+        """Turnos da conversa ativa (para o web redesenhar ao trocar de sessao)."""
+        ler = getattr(self.orch, "history", None)
+        if not callable(ler):
+            return []
+        try:
+            return [{"role": role, "text": text} for role, text in ler()]
+        except Exception as exc:  # historico nao derruba a rota
+            logger.warning("historico falhou: %s", exc)
+            return []
+
+    def _mode_key(self) -> str:
+        chave = getattr(self.orch, "mode_key", "")
+        return chave if isinstance(chave, str) else ""
 
     def turn(self, text: str) -> str:
         if self.ocupado:
