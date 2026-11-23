@@ -4,7 +4,10 @@
 #   gmin doctor            # ssh, serviço, agenda, IP vs alias
 #   gmin logs [-f]         # journal do serviço (sem sudo, é unidade de usuário)
 #   gmin restart           # reinicia o serviço do Telegram
-#   gmin deploy [--dry-run]# manda o código desta pasta e reinicia
+#   gmin deploy [--dry-run]# leva o mini ao origin/main e reinicia
+#   gmin deploy install    # timer de 5 min: o mini puxa o push sozinho
+#   gmin deploy status     # HEAD do mini vs origin/main + estado do timer
+#   gmin deploy logs       # journal do timer de deploy
 #   gmin test              # smoke test das ferramentas/agenda no mini
 #   gmin agenda [AAAA-MM-DD]# o que a Gaia vê na Agenda
 #   gmin ask "pergunta"    # conversa com a Gaia do mini, sem Telegram
@@ -30,6 +33,7 @@ REMOTE_PY="$REMOTE_REPO/.venv/bin/python"
 UNIT="gaia-telegram.service"
 SERVE_UNIT="gaia-serve.service"
 SB_UNIT="gaia-sb-sync"
+DEPLOY_UNIT="gaia-deploy"
 LOCAL_SB="${GAIA_SECONDBRAIN:-$HOME/SecondBrain}"
 REMOTE_SB="${GMIN_REMOTE_SB:-/home/talita/SecondBrain}"
 
@@ -175,27 +179,73 @@ cmd_serve() {
   esac
 }
 
+# O mini e um clone git (o rsync nunca copiou .git — foi assim que o indice
+# dele ficou 75 commits atras). O transporte agora e o proprio GitHub.
 cmd_deploy() {
-  need_ssh
-  local flags=(-a -v --relative)
-  [ "${1:-}" = "--dry-run" ] && flags+=(--dry-run)
-  info "enviando $LOCAL_REPO → $HOST:$REMOTE_REPO"
-  ( cd "$LOCAL_REPO" && rsync "${flags[@]}" \
-      --exclude '.git' --exclude '.venv' --exclude 'data/' --exclude 'config/' \
-      --exclude '__pycache__' --exclude '.mypy_cache' --exclude '.pytest_cache' \
-      --exclude '.ruff_cache' --exclude '.coverage' --exclude 'gaia/gaia/' \
-      --exclude '*.dmg' --exclude '*.pdf' --exclude '*.xlsx' --exclude '*.xls' \
-      --exclude '*.ods' --exclude '*.numbers' --exclude '*.DS_Store' \
-      ./ "$HOST:$REMOTE_REPO/" )
-  if [ "${1:-}" = "--dry-run" ]; then
-    info "dry-run: nada foi reiniciado"
-    return 0
-  fi
-  "${SSH[@]}" "cd $REMOTE_REPO && $REMOTE_PY -c 'import gaia'" \
-    || die "código enviado mas não importa no mini — serviço NÃO reiniciado"
-  # cmd_restart escolhe a unidade ativa, então o deploy não reinicia um
-  # serviço parado nem deixa o serve rodando código velho.
-  cmd_restart
+  case "${1:-}" in
+    install)
+      need_ssh
+      info "instalando deploy-gaia + timer de 5 min no mini"
+      "${SSH[@]}" 'mkdir -p ~/.local/bin ~/.config/systemd/user' \
+        || die "falha ao preparar os diretorios"
+      scp -q "$LOCAL_REPO/deploy/gaia-deploy.sh" "$HOST:~/.local/bin/deploy-gaia" \
+        || die "falha ao copiar deploy-gaia"
+      "${SSH[@]}" 'chmod +x ~/.local/bin/deploy-gaia' || die "falha no chmod"
+      scp -q "$LOCAL_REPO/deploy/gaia-deploy.service" \
+        "$HOST:~/.config/systemd/user/$DEPLOY_UNIT.service" || die "falha ao copiar a unidade"
+      scp -q "$LOCAL_REPO/deploy/gaia-deploy.timer" \
+        "$HOST:~/.config/systemd/user/$DEPLOY_UNIT.timer" || die "falha ao copiar o timer"
+      "${SSH[@]}" "systemctl --user daemon-reload && systemctl --user enable --now $DEPLOY_UNIT.timer" \
+        || die "falha ao ativar o timer"
+      "${SSH[@]}" "systemctl --user list-timers $DEPLOY_UNIT.timer --no-pager"
+      printf 'ativo: no maximo 5 min depois de um push na main o mini atualiza e reinicia.\n'
+      ;;
+    status)
+      need_ssh
+      "${SSH[@]}" "cd $REMOTE_REPO && \
+        printf 'HEAD:        %s\n' \"\$(git rev-parse --short HEAD)\" && \
+        printf 'origin/main: %s\n' \"\$(git rev-parse --short origin/main 2>/dev/null || echo '(sem fetch ainda)')\" && \
+        printf 'sujo:        %s arquivo(s)\n' \"\$(git status --porcelain | wc -l)\" && \
+        git log -1 --format='ultimo commit: %h %s (%cr)'; \
+        echo; systemctl --user is-active $DEPLOY_UNIT.timer; \
+        systemctl --user list-timers $DEPLOY_UNIT.timer --no-pager | head -3"
+      ;;
+    logs)
+      need_ssh
+      "${SSH[@]}" "journalctl --user -u $DEPLOY_UNIT.service --no-pager -n 40"
+      ;;
+    ''|--dry-run)
+      need_ssh
+      local dry=0
+      if [ "${1:-}" = "--dry-run" ]; then dry=1; fi
+      info "$HOST: fetch origin/main em $REMOTE_REPO"
+      local saida
+      saida=$("${SSH[@]}" "cd $REMOTE_REPO || exit 1; \
+        git fetch --prune origin main >/dev/null 2>&1 || { echo 'fetch falhou (rede?)'; exit 1; }; \
+        A=\$(git rev-parse HEAD); B=\$(git rev-parse origin/main); \
+        if [ \"\$A\" = \"\$B\" ]; then echo SEM_MUDANCA; exit 0; fi; \
+        echo \"\$(git rev-parse --short \$A) -> \$(git rev-parse --short \$B): \$(git log -1 --format=%s \$B)\"; \
+        if [ $dry = 1 ]; then exit 0; fi; \
+        git reset --hard \$B >/dev/null && git clean -fdq \
+          || { echo 'reset falhou (estado sujo?)'; exit 1; }; \
+        $REMOTE_PY -c 'import gaia' \
+          || { echo 'codigo novo nao importa — voltando para' \$A; git reset --hard \$A >/dev/null; exit 1; }" \
+        ) || die "deploy abortado no mini — serviço NÃO reiniciado"
+      printf '%s\n' "$saida"
+      if [ "$saida" = SEM_MUDANCA ]; then
+        info "mini ja estava em origin/main — nada reiniciado"
+        return 0
+      fi
+      if [ $dry = 1 ]; then
+        info "dry-run: nada foi alterado nem reiniciado"
+        return 0
+      fi
+      # cmd_restart escolhe a unidade ativa, então o deploy não reinicia um
+      # serviço parado nem deixa o serve rodando código velho.
+      cmd_restart
+      ;;
+    *) die "use: gmin deploy [--dry-run]|install|status|logs" ;;
+  esac
 }
 
 cmd_test() {
@@ -350,7 +400,7 @@ main() {
     sb) cmd_sb "$@" ;;
     shell|ssh) cmd_shell ;;
     sudo) cmd_sudo "$@" ;;
-    -h|--help|help) sed -n '2,22p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' ;;
+    -h|--help|help) sed -n '2,26p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' ;;
     *) die "subcomando desconhecido: $sub (use: gmin help)" ;;
   esac
 }

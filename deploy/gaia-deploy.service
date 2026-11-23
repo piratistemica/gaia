@@ -1,0 +1,15 @@
+[Unit]
+Description=Atualiza o repo da Gaia a partir do GitHub e reinicia o servico
+# Precisa da rede para o fetch; o timer roda no boot e a cada 5 min.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Caminho copiado por `gmin deploy install` (deploy/gaia-deploy.sh).
+ExecStart=%h/.local/bin/deploy-gaia
+# Um fetch lento nao pode empilhar execucoes: se estourar, a proxima pega.
+TimeoutStartSec=300
+# 2 = estado sujo (reset falhou): nao e sucesso, mas nao e "failed" eterno —
+# a proxima rodada tenta de novo e o journal mostra o motivo.
+SuccessExitStatus=2

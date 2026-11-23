@@ -79,7 +79,9 @@ gmin doctor              # ssh, alias vs IP real, serviço, agenda, ferramentas,
 gmin logs -f             # journal do serviço (unidade de usuário: sem sudo)
 gmin restart             # reinicia a unidade ativa (serve ou telegram)
 gmin serve status        # /health no loopback e no tailnet
-gmin deploy --dry-run    # mostra o que iria; depois `gmin deploy` envia e reinicia
+gmin deploy --dry-run    # mostra o que iria; depois `gmin deploy` atualiza e reinicia
+gmin deploy status       # HEAD do mini vs origin/main + estado do timer
+gmin deploy install      # timer de 5 min: o mini puxa o push sozinho
 gmin test                # smoke test: importa tudo, confere agenda e permissões
 gmin agenda [AAAA-MM-DD] # exatamente o que a Gaia vê na Agenda
 gmin ask "pergunta"      # conversa com a Gaia do mini sem passar pelo Telegram
@@ -91,10 +93,20 @@ gmin sb install          # timer de 15 min no mini (systemd)
 gmin sb install-mac      # agente launchd de 15 min no Mac
 ```
 
-`gmin deploy` sincroniza o repo menos o que não deve sair do MacBook
-(`.git`, `.venv`, `data/`, `config/`, caches) e só reinicia o serviço se o código
-importar no destino. Antes de reiniciar ele não faz nada destrutivo: não usa
-`--delete`.
+`gmin deploy` **não copia arquivo**: o mini é um clone git normal
+(`origin` = GitHub). O comando faz `git fetch` + `reset --hard origin/main` e
+só reinicia o serviço se o código novo importar; se não importar, volta ao SHA
+anterior e não reinicia.
+
+O caminho normal é automático: `gmin deploy install` instala
+`gaia-deploy.timer` (a cada 5 min), e **todo push na `main` chega no mini em até
+5 min**, com reset para o SHA novo e restart da unidade ativa. Cinco minutos, e
+não um, porque cada restart custa ~13 s de SIGTERM; sem commit novo o script sai
+0 sem reiniciar nada. `data/`, `config/` e `.env` estão no `.gitignore`, então o
+reset não toca neles.
+
+`rsync` não é mais o transporte. Ele nunca copiou `.git` — foi assim que o
+índice do mini ficou preso 75 commits atrás, com o disco já no código novo.
 
 ## Second Brain: um repo, duas máquinas
 

@@ -225,6 +225,12 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   `tests/test_serve_web.py` (rotas, evento por idioma), `test_orchestrator.py`
   (prompt/cache) e `test_textual_app.py` (rótulo na TUI).
 - **Novo modo:** `controller/modes.py` (`PERSONAS`) e teste em `test_modes.py`.
+- **Mudança no fluxo de deploy:** o script roda no mini
+  (`deploy/gaia-deploy.sh` → `~/.local/bin/deploy-gaia`), as unidades são
+  `deploy/gaia-deploy.service`/`.timer` e o `gmin deploy` só orquestra por SSH
+  (`install`, `status`, `logs`, `--dry-run`). Teste sem SSH nem rede em
+  `tests/test_gmin_deploy.py` (repo bare em `tmp_path`, stubs de `systemctl` e
+  do `python` do venv).
 - **Nova automação:** `controller/briefing.py` (janelas `*_at`/`*_until`) ou
   `controller/initiative.py` (lembretes/check-in); use `claim_meta` para
   garantir "uma vez por dia". Ex.: `_check_estudos` (cobra estudo atrasado).
@@ -254,6 +260,11 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   registrada em `docs/prompt-correcoes.md`).
 - **`bash` herda o `.env` inteiro** hoje; não use a ferramenta para inspecionar
   ambiente/segredos até isso ser filtrado (pendência).
+- **`rsync` nunca copia `.git`.** O mini já foi atualizado por `rsync` e por
+  isso o índice ficou 75 commits atrás do disco: `git status` mentia e não havia
+  rollback. Hoje o mini é clone git e o `gaia-deploy.timer` (5 min) faz
+  `fetch` + `reset --hard origin/main` + restart da unidade ativa. `rsync` no
+  mini só como fallback manual, sempre com `--dry-run` antes.
 
 ## Testes
 
