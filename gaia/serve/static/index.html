@@ -1487,10 +1487,29 @@ async function vozCicloNavegador() {
  */
 async function vozGravarAteEnviar() {
   const voz = estado.voz;
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error("este navegador não dá acesso ao microfone");
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+    throw new Error("não foi possível acessar o microfone (HTTPS ou navegador incompatível)");
   }
-  const fluxo = await navigator.mediaDevices.getUserMedia({ audio: true });
+  let fluxo;
+  try {
+    fluxo = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (erro) {
+    let mensagem = "não foi possível acessar o microfone";
+    if (erro && erro.name === "NotAllowedError") {
+      mensagem = "permissão do microfone negada — permita o acesso nas configurações do navegador";
+    } else if (erro && erro.name === "NotFoundError") {
+      mensagem = "nenhum microfone encontrado neste dispositivo";
+    } else if (erro && erro.name === "NotReadableError") {
+      mensagem = "o microfone está sendo usado por outro aplicativo";
+    } else if (erro && erro.name === "SecurityError") {
+      mensagem = "microfone só funciona em HTTPS ou localhost";
+    } else if (erro && erro.message) {
+      mensagem = erro.message;
+    }
+    const novo = new Error(mensagem);
+    novo.original = erro;
+    throw novo;
+  }
   try {
     const Contexto = window.AudioContext || window.webkitAudioContext;
     if (!Contexto) throw new Error("este navegador não tem Web Audio");
