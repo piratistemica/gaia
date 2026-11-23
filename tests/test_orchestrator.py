@@ -1613,3 +1613,26 @@ async def test_atalho_sem_destino_avisa_em_vez_de_virar_modelo(orch, monkeypatch
     assert responses[0][0] == "warning"
     assert "sem modelo definido" in responses[0][1]
     assert orch.cfg.agent.model != "zen"
+
+
+async def test_set_proactive_enabled_liga_e_desliga_o_laco(orch):
+    """O checkbox da tela de automacoes precisa parar/religar o laco agora."""
+    orch.cfg.proactive.enabled = False
+    assert orch._proactive_task is None
+
+    assert orch.set_proactive_enabled(True) is True
+    assert orch.cfg.proactive.enabled is True
+    tarefa = orch._proactive_task
+    assert tarefa is not None and not tarefa.done()
+
+    assert orch.set_proactive_enabled(False) is False
+    assert orch.cfg.proactive.enabled is False
+    assert orch._proactive_task is None
+    # O cancelamento e cooperativo: o laco so termina no proximo tick do loop.
+    await asyncio.sleep(0)
+    assert tarefa.cancelled() or tarefa.done()
+
+    # Religar depois de desligar cria uma tarefa nova (nao reusa a cancelada).
+    assert orch.set_proactive_enabled(True) is True
+    assert orch._proactive_task is not None and orch._proactive_task is not tarefa
+    await orch.aclose()

@@ -199,6 +199,11 @@ def _enabled(cfg: Config, item: Automation) -> bool:
     """True se o caminho de config da automacao estiver ligado."""
     if not item.enabled:
         return False
+    return _configured(cfg, item)
+
+
+def _configured(cfg: Config, item: Automation) -> bool:
+    """A skill esta ligada no config? (ignora a pausa da tabela)"""
     if not item.enabled_path:
         return True
     atual: Any = cfg
@@ -579,7 +584,11 @@ def render(
         "until": item.until,
         "delivery": item.delivery,
         "enabled": _enabled(cfg, item),
+        # Duas coisas diferentes, e a tela precisa das duas: `paused` e a
+        # decisao da pessoa (tabela, o checkbox que ela acabou de clicar) e
+        # `enabled` e o resultado final (pausada OU skill desligada no config).
         "paused": not item.enabled,
+        "config_enabled": _configured(cfg, item),
         "status": status(item, cfg, store, momento),
         "next_run": proxima.isoformat(timespec="seconds") if proxima else "",
         "retry_max": item.retry_max,

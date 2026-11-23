@@ -13,7 +13,7 @@ lista de status deste plano.
 | Item | Status | Onde / observação |
 |---|---|---|
 | C.1 tabela `automations` (schema v7) | **feito** (`39142d0`) | `MemoryStore` (`upsert_automation`, `update_automation`, `list_automations`, `get_automation`) + `control/automations.seed/load/update` |
-| C.2 endpoints das automações | pendente | `GET /automations` já existe (fase A); faltam `PATCH {id}`, `run`, `pause`, `resume`, `runs` |
+| C.2 endpoints das automações | **parcial** | tela do web completa: `GET /automations` (+ bloco `proactive`), `POST /automations/set` (`{id, enabled}`), `POST /automations/run` (`{id}`, executa com `trigger=manual` via `run_automation_now`) e `POST /proactive` (`{enabled}`, grava TOML e aplica no processo), todos com o token do chat via `ControlCenter`. Faltam as rotas do painel: `PATCH /control/api/automations/{id}`, `run`, `pause`, `resume`, `runs` |
 | C.3 scheduler único | **feito** (`2ccbe99`) | `gaia/controller/scheduler.py` (`_scheduler_loop`, `_scheduler_tick`, `run_automation_now`); gates de hora removidos de briefing/career/memory. `claim_meta` preservado como segunda barreira |
 | C.4 missed + retry | **feito** (`2ccbe99`) | `retry_allowed`/`backoff_seconds`; só `network`/`unknown`; `auth`/`config` não repetem |
 | C.5 CRUD de skills no painel | pendente | ativar/desativar grava no TOML via `control/settings.update`; `dry_run` não existe nos handlers |

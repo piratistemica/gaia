@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <title>Gaia</title>
 <style>
   :root {
@@ -57,6 +58,39 @@
   .modo-resumo { font-size: 12px; color: var(--dim); }
   #status { flex: 1; color: var(--dim); font-size: 13px; overflow: hidden;
             text-overflow: ellipsis; white-space: nowrap; min-width: 8ch; }
+  /* Tela propria de automacoes (`#automacoes` na URL): ocupa o lugar do
+     chat, mantendo o cabecalho com status/instancia. */
+  #view-automacoes {
+    overflow-y: auto; padding: 18px; display: flex; flex-direction: column;
+    gap: 12px; align-items: stretch; max-width: 900px; width: 100%; margin: 0 auto;
+    min-height: 0;
+  }
+  #view-automacoes[hidden] { display: none; }
+  /* `hidden` sozinho nao basta: `main { display: grid }` vence a regra do UA. */
+  #view-chat[hidden], footer[hidden] { display: none; }
+  #view-automacoes > header.tela {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 0 0 8px; border-bottom: 1px solid var(--line); background: none;
+  }
+  #view-automacoes h2 { font-size: 15px; margin: 0; letter-spacing: .03em; }
+  .auto-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+               background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
+  .auto-card.falhou { border-color: color-mix(in srgb, var(--err) 45%, var(--line)); }
+  .auto-card .topo { display: flex; align-items: center; justify-content: space-between;
+                     gap: 10px; flex-wrap: wrap; }
+  .auto-card .nome { font-size: 14px; font-weight: 600; }
+  .auto-card .linha-meta { display: flex; flex-wrap: wrap; gap: 4px 14px;
+                           font-size: 12px; color: var(--dim); font-family: var(--mono); }
+  .auto-card .ultima { font-size: 13px; }
+  .auto-card .ultima.ok { color: var(--accent); }
+  .auto-card .ultima.falhou { color: var(--err); }
+  .auto-card .erro { font-size: 12px; color: var(--err); overflow-wrap: anywhere; }
+  .auto-card .check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+                      color: var(--dim); cursor: pointer; user-select: none; }
+  .auto-card .check input { accent-color: var(--accent); }
+  .auto-card button.rodar-agora { font-size: 11px; padding: 2px 10px; margin-left: auto; }
+  .auto-card button.rodar-agora:disabled { opacity: .6; cursor: progress; }
+  .ligado { color: var(--accent); }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 0; }
   @media (max-width: 820px) { main { grid-template-columns: 1fr; } aside { display: none; } }
   #chat { overflow-y: auto; padding: 18px 18px 8px; display: flex; flex-direction: column; gap: 12px; }
@@ -156,6 +190,32 @@
                        white-space: nowrap; }
   #comandos .vazio { color: var(--dim); font-size: 13px; padding: 8px; }
   footer { position: relative; }
+  /* Automações: cartões da tela própria (mesmo JSON de /automations). */
+  .auto { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+          background: var(--bg); }
+  .auto .auto-topo { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .auto .auto-nome { font-size: 13px; font-weight: 600; }
+  .auto .auto-meta { font-size: 11px; color: var(--dim); font-family: var(--mono);
+                     margin-top: 3px; overflow-wrap: anywhere; }
+  .auto .auto-erro { font-size: 12px; color: var(--err); margin-top: 4px;
+                     overflow-wrap: anywhere; }
+  .tag { font-size: 11px; border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+         border: 1px solid var(--line); color: var(--dim); }
+  .tag.ok { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+  .tag.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--line)); }
+  /* Modo voz: o botao e o sinal de estado (ouvindo/transcrito/falando/mudo). */
+  button.pill.voz.ok { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  button.pill.voz.ouvindo {
+    color: var(--accent); border-color: var(--accent);
+    animation: pulso 1.6s ease-in-out infinite;
+  }
+  button.pill.voz.falando { color: var(--warn); border-color: var(--warn); }
+  button.pill.voz.silenciado { color: var(--err); border-color: var(--err); }
+  @keyframes pulso { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) {
+    button.pill.voz.ouvindo { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -168,14 +228,18 @@
   <span id="provedor" class="pill" title="provedor ativo" hidden></span>
   <span id="chave" class="pill mono" title="chave mascarada; nunca aparece inteira" hidden></span>
   <span id="status"></span>
+  <button id="btn-automacoes" class="pill" type="button"
+          title="estado das automações: próxima execução, atrasos e última rodada" hidden>automações</button>
   <button id="btn-sessoes" class="pill" type="button" title="abrir uma conversa anterior">sessões</button>
   <button id="btn-nova" class="pill" type="button" title="comecar uma conversa nova">+ nova</button>
   <button id="btn-chines" class="pill" type="button" title="mostrar 中文 + pinyin de cada mensagem" hidden>中文</button>
+  <button id="btn-voz" class="pill voz" type="button"
+          title="modo voz: fala com a Gaia pelo microfone deste servidor" hidden>🎙 voz</button>
   <button id="abortar" class="perigo" title="encerra o turno atual" disabled>parar</button>
   <button id="trocar-token" title="trocar o token / sair">token</button>
 </header>
 
-<main>
+<main id="view-chat">
   <section id="chat" aria-live="polite"></section>
   <aside>
     <div id="motor"></div>
@@ -187,6 +251,20 @@
     <p class="dica" id="notas"></p>
   </aside>
 </main>
+
+<!-- Tela propria da agenda (botao "automacoes" do header). Nao e dialog:
+     tem URL (#automacoes), sobrevive ao F5 e o voltar do navegador funciona. -->
+<section id="view-automacoes" hidden aria-label="Automações e proatividade">
+  <header class="tela">
+    <h2>Automações</h2>
+    <span id="auto-resumo" class="dica"></span>
+    <span class="dica" style="flex:1"></span>
+    <button id="auto-atualizar" class="pill" type="button" title="consultar de novo">atualizar</button>
+    <button id="btn-chat" class="pill" type="button" title="voltar para a conversa">voltar ao chat</button>
+  </header>
+  <div id="auto-proativo" class="auto-card"></div>
+  <div id="auto-lista"></div>
+</section>
 
 <footer>
   <div id="comandos" hidden role="listbox" aria-label="comandos"></div>
@@ -266,6 +344,25 @@ const estado = {
   comandosAtivo: -1,
   chines: false,    // eco 中文 ligado no servidor
   userLocal: null,  // bolha do usuário desenhada no envio (o evento `user` repete)
+  ocupado: false,   // turno em andamento (run_started -> run_finished)
+  textoFinal: "",   // última resposta da Gaia no turno (vira áudio no modo voz)
+  voz: {
+    // Modo voz: o microfone é o do SERVIDOR (`POST /voice/listen` grava e
+    // transcreve com o faster-whisper local, a mesma voz da TUI); o navegador
+    // só pede, reproduz e desenha o estado. Sem caixa de som no mini, é aqui
+    // que a resposta é ouvida.
+    disponivel: false, // `GET /voice` disse que há microfone e STT
+    motivo: "",        // por que o modo voz não existe nesta máquina
+    tts: false,        // o motor sintetiza áudio (`/voice/speak`)
+    ativo: false,      // botão ligado: o laço de voz está no comando
+    estado: "off",     // off | ouvindo | transcrevendo | enviando | falando | silenciado
+    eraVoz: false,     // o turno atual nasceu de uma fala (Enter não conta)
+    janela: null,      // AbortController da escuta em curso
+    audio: null,       // elemento <audio> único (o clique libera o autoplay)
+    url: "",           // blob: do áudio atual (revogado no fim)
+  },
+  textoFinal: "",     // ultimo texto que a Gaia escreveu no turno
+  automacoesProativo: null, // bloco `proactive` de `GET /automations`
 };
 
 // Markdown mínimo e seguro: escapa tudo e depois reabilita três marcas.
@@ -364,6 +461,11 @@ function marcarConexao(rotulo, classe) {
   conexao.className = "pill " + classe;
 }
 
+/** Linha de status do header (`status` e `tokens` do SSE passam por aqui). */
+function status(conteudo, detalhe) {
+  $("#status").textContent = texto(conteudo) + (detalhe ? " · " + texto(detalhe) : "");
+}
+
 /* --------------------------------------------------------------- autenticação */
 function abrirLogin(mensagem) {
   const dialogo = $("#login");
@@ -419,36 +521,318 @@ async function carregarInstancias() {
   else slot.replaceChildren();
 }
 
-/** Próximas execuções da agenda (mesma tabela do Control Center). */
-async function carregarAutomacoes() {
-  const alvo = $("#automacoes");
-  let lista = [];
-  try {
-    const dados = await api("/automations");
-    lista = Array.isArray(dados.automations) ? dados.automations : [];
-  } catch (erro) {
-    if (erro.status === 401) return; // sessão tratada em outro lugar
-    // Sem Control Center configurado a agenda não é servida: o card some.
-    alvo.replaceChildren();
+/* --------------------------------------------------------------- automações */
+/**
+ * Tela propria da agenda (mesmo JSON de `GET /automations`, que ja traz o
+ * estado da proatividade). O botao do header NAVEGA para a tela e a URL vira
+ * `#automacoes`; nao existe dialog aqui — F5 e o voltar do navegador
+ * continuam na mesma tela.
+ *
+ * Escrever (checkbox) usa o token do CHAT: pausar uma rotina e operacao, nao
+ * administracao de credencial (o `/control` continua separado).
+ *
+ * O card do aside mostra as proximas; o botao do header abre a tela inteira
+ * com o estado de cada rotina. Sem Control Center o `/automations` responde
+ * 503 e tanto o card quanto o botao somem — a tela nao inventa agenda.
+ */
+const AUTO_STATUS = {
+  scheduled: ["agendada", ""],
+  running: ["rodando", "warn"],
+  completed: ["deu certo", "ok"],
+  failed: ["falhou", "err"],
+  missed: ["não rodou", "err"],
+  disabled: ["desligada", ""],
+  paused: ["pausada", "warn"],
+};
+
+/** "hh:mm" quando foi hoje, "dd/mm hh:mm" nos outros dias. */
+function horaCurta(iso) {
+  if (!iso) return "—";
+  const quando = new Date(iso);
+  if (Number.isNaN(quando.getTime())) return iso;
+  const hoje = new Date();
+  const mesmoDia = quando.toDateString() === hoje.toDateString();
+  return quando.toLocaleString("pt-BR", mesmoDia
+    ? { timeStyle: "short" }
+    : { dateStyle: "short", timeStyle: "short" });
+}
+
+/** Ultima execucao em portugues: "deu certo às 09:02" / "falhou em 21/11 09:02". */
+function ultimaEmTexto(ultima) {
+  if (!ultima) return "nunca rodou";
+  const quando = horaCurta(ultima.started_at);
+  const verbo = AUTO_STATUS[ultima.status] ? AUTO_STATUS[ultima.status][0] : (ultima.status || "—");
+  const tentativa = ultima.attempt > 1 ? " · tentativa " + ultima.attempt : "";
+  return verbo + " " + quando + tentativa;
+}
+
+function autoTag(status) {
+  const [rotulo] = AUTO_STATUS[status] || [status || "—", ""];
+  return window.Gaia.el("span", { class: "tag " + (AUTO_STATUS[status] || ["", ""])[1] }, rotulo);
+}
+
+/* -------------------------------------------------- tela de automações --- */
+
+/** A tela de automacoes esta aberta? (o hash e a unica fonte de verdade) */
+function naTelaDeAutomacoes() {
+  return location.hash === "#automacoes";
+}
+
+/** Mostra/oculta chat e tela de automacoes conforme o hash. */
+function pintarTelaAtual() {
+  const naAgenda = naTelaDeAutomacoes();
+  $("#view-chat").hidden = naAgenda;
+  $("#view-automacoes").hidden = !naAgenda;
+  // Sem composer na tela de automacoes: digitar ali nao teria destino.
+  document.querySelector("footer").hidden = naAgenda;
+  if (naAgenda) carregarTelaAutomacoes();
+  else rolar();
+}
+
+/** Botao do header e "voltar ao chat": navegam pelo hash (F5 preserva). */
+function irParaAutomacoes() {
+  if (naTelaDeAutomacoes()) {
+    carregarTelaAutomacoes();
     return;
   }
-  if (!lista.length) { alvo.replaceChildren(); return; }
+  location.hash = "#automacoes";
+}
+
+function voltarAoChat() {
+  // `replace` nao empilha historico: voltar ao chat e "fechar" a tela.
+  history.replaceState(null, "", location.pathname + location.search);
+  pintarTelaAtual();
+  entrada.focus();
+}
+
+/** Card lateral com as próximas execuções (o botão é que abre a lista). */
+async function carregarAutomacoes() {
+  const alvo = $("#automacoes");
+  const botao = $("#btn-automacoes");
+  const lista = await agendaAutomacoes();
+  if (!lista) {
+    alvo.replaceChildren();
+    botao.hidden = true;
+    return;
+  }
+  botao.hidden = false;
   const proximas = lista
-    .filter((item) => item.next_run)
+    .filter((item) => item.enabled && item.next_run)
     .sort((a, b) => String(a.next_run).localeCompare(String(b.next_run)))
     .slice(0, 3);
   const atrasadas = lista.filter((item) => item.status === "missed");
+  const falhas = lista.filter((item) => (item.last_run || {}).status === "failed");
   alvo.replaceChildren(window.Gaia.el("div", { class: "cartao-motor" },
-    window.Gaia.el("div", { class: "dica" }, "automações"),
+    window.Gaia.el("div", { class: "dica" },
+      "automações · " + lista.filter((item) => item.enabled).length + "/" + lista.length + " ligadas"),
     ...proximas.map((item) =>
       window.Gaia.el("div", { class: "linha-info" },
         window.Gaia.el("span", { class: "dica" }, item.name),
         window.Gaia.el("span", {}, dataCurta(item.next_run)))),
     atrasadas.length
       ? window.Gaia.el("div", { class: "notice warning" },
-          atrasadas.length + " não executaram: " + atrasadas.map((i) => i.name).join(", "))
+          atrasadas.length + " não rodaram: " + atrasadas.map((i) => i.name).join(", "))
+      : null,
+    falhas.length
+      ? window.Gaia.el("div", { class: "notice error" },
+          falhas.length + " falharam na última rodada: " + falhas.map((i) => i.name).join(", "))
       : null,
   ));
+}
+
+/** Lista da agenda, ou null quando este motor não tem Control Center. */
+async function agendaAutomacoes() {
+  try {
+    const dados = await api("/automations");
+    estado.automacoesProativo = dados && dados.proactive ? dados.proactive : null;
+    return Array.isArray(dados.automations) ? dados.automations : [];
+  } catch (erro) {
+    if (erro.status === 401) tratar401(erro);
+    estado.automacoesProativo = null;
+    return null;
+  }
+}
+
+function linhaAutomacao(item) {
+  const ultima = item.last_run || null;
+  const quando = item.next_run ? "próxima " + dataCurta(item.next_run) : "sem próxima execução";
+  const janela = item.at && item.until ? item.at + "–" + item.until : "sem janela";
+  const meta = [
+    janela,
+    item.days_label || "",
+    item.delivery ? "entrega " + item.delivery : "",
+    quando,
+  ].filter(Boolean).join(" · ");
+  const falhou = Boolean(ultima && ultima.status === "failed");
+  const erro = falhou ? ultima.error || ultima.error_kind || "falhou" : "";
+  // O checkbox e a decisao da pessoa (`paused`); `enabled` pode continuar
+  // falso porque a skill esta desligada no config — e isso a linha explica.
+  const ligada = !item.paused;
+  const aviso = ligada && !item.enabled
+    ? window.Gaia.el("div", { class: "erro" },
+        "ligada aqui, mas desligada no config (" + (item.skill || item.id)
+        + ".enabled): o agendador não a executa.")
+    : null;
+  return window.Gaia.el("div", { class: "auto-card" + (falhou ? " falhou" : "") },
+    window.Gaia.el("div", { class: "topo" },
+      window.Gaia.el("span", { class: "nome" }, item.name || item.id),
+      window.Gaia.el("label", { class: "check", title: "ligar/desligar esta automação" },
+        window.Gaia.el("input", {
+          type: "checkbox",
+          ...(ligada ? { checked: "checked" } : {}),
+          onchange: (evento) => alternarAutomacao(item, evento.target),
+        }),
+        window.Gaia.el("span", { class: ligada ? "ligado" : "" },
+          ligada ? "ativa" : "pausada")),
+      autoTag(item.status),
+      window.Gaia.el("button", {
+        class: "pill rodar-agora",
+        type: "button",
+        title: "executar esta automação agora, sem esperar a janela de horário",
+        onclick: (evento) => rodarAutomacao(item, evento.currentTarget),
+      }, "rodar agora")),
+    window.Gaia.el("div", { class: "linha-meta" }, meta),
+    window.Gaia.el("div", {
+      class: "ultima " + (falhou ? "falhou" : (ultima && ultima.status === "completed" ? "ok" : "")),
+    }, "última: " + ultimaEmTexto(ultima)),
+    erro ? window.Gaia.el("div", { class: "erro" }, erro) : null,
+    aviso,
+  );
+}
+
+/** Card da proatividade: um checkbox e o que ela cobre. */
+function cardProativo(proativo) {
+  const ligado = Boolean(proativo && proativo.enabled);
+  return window.Gaia.el("div", { class: "auto-card" },
+    window.Gaia.el("div", { class: "topo" },
+      window.Gaia.el("span", { class: "nome" }, "Proatividade"),
+      window.Gaia.el("label", { class: "check", title: "ligar/desligar a iniciativa proativa" },
+        window.Gaia.el("input", {
+          type: "checkbox",
+          ...(ligado ? { checked: "checked" } : {}),
+          onchange: (evento) => alternarProativo(evento.target),
+        }),
+        window.Gaia.el("span", { class: ligado ? "ligado" : "" },
+          ligado ? "ligada" : "desligada")),
+      window.Gaia.el("span", { class: "dica" }, "iniciativa")),
+    window.Gaia.el("div", { class: "linha-meta" },
+      "lembretes · check-in de ociosidade · foco · saudação"),
+    window.Gaia.el("div", { class: "dica" },
+      "silêncio entre " + ((proativo && proativo.quiet_hours) || "—")
+      + " · até " + ((proativo && proativo.daily_max) ?? "—") + " falas por dia"),
+  );
+}
+
+/** Desenha a tela inteira a partir de `GET /automations`. */
+async function carregarTelaAutomacoes() {
+  const lista = await agendaAutomacoes();
+  const proativo = estado.automacoesProativo;
+  if (lista === null) {
+    $("#auto-resumo").textContent = "";
+    $("#auto-proativo").replaceChildren();
+    $("#auto-lista").replaceChildren(window.Gaia.el("p", { class: "dica" },
+      "este motor não expõe a agenda: configure GAIA_CONTROL_TOKEN no servidor."));
+    return;
+  }
+  const ligadas = lista.filter((item) => item.enabled).length;
+  const atrasadas = lista.filter((item) => item.status === "missed").length;
+  const falhas = lista.filter((item) => (item.last_run || {}).status === "failed").length;
+  $("#auto-resumo").textContent = [
+    ligadas + "/" + lista.length + " ligadas",
+    atrasadas ? atrasadas + " não rodaram" : "",
+    falhas ? falhas + " falharam" : "",
+  ].filter(Boolean).join(" · ");
+  $("#auto-proativo").replaceChildren(...(proativo === null
+    ? [window.Gaia.el("p", { class: "dica" },
+        "proatividade não exposta por este motor")]
+    : [cardProativo(proativo)]));
+  $("#auto-lista").replaceChildren(
+    ...(lista.length
+      ? lista.map(linhaAutomacao)
+      : [window.Gaia.el("p", { class: "dica" }, "nenhuma automação registrada.")]),
+  );
+}
+
+/** Pausa/retoma uma automacao (o scheduler le a tabela a cada ciclo). */
+async function alternarAutomacao(item, caixa) {
+  caixa.disabled = true;
+  try {
+    await api("/automations/set", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id, enabled: caixa.checked }),
+    });
+    await carregarTelaAutomacoes();
+    carregarAutomacoes();
+  } catch (erro) {
+    caixa.checked = !caixa.checked; // desfaz na tela: o servidor recusou
+    if (erro.status === 401) tratar401(erro);
+    aviso("error", "não foi possível mudar a automação: " + texto(erro.message));
+  } finally {
+    caixa.disabled = false;
+  }
+}
+
+/**
+ * Executa a rotina de verdade agora (`trigger=manual`).
+ *
+ * Nao e simulacao: busca vagas/cotacoes e pode mandar mensagem no Telegram.
+ * Por isso pede confirmacao e mostra o resultado real (inclusive a falha).
+ */
+async function rodarAutomacao(item, botao) {
+  const entrega = item.delivery === "telegram" ? " Vai enviar no Telegram." : "";
+  const ok = window.confirm(
+    'Rodar "' + (item.name || item.id) + '" agora?' + entrega
+    + "\n\nIsso executa de verdade, sem esperar o horário.",
+  );
+  if (!ok) return;
+  const rotulo = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = "rodando…";
+  try {
+    const dados = await api("/automations/run", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id }),
+    });
+    const run = (dados && dados.run) || {};
+    const deuCerto = run.status === "completed";
+    aviso(
+      deuCerto ? "success" : "error",
+      (item.name || item.id) + ": " + (run.status || "sem resultado")
+      + (run.detail ? " — " + run.detail : "")
+      + (run.error ? " — " + run.error : ""),
+    );
+  } catch (erro) {
+    if (erro.status === 401) tratar401(erro);
+    const motivo = erro.status === 409
+      ? "o motor está num turno; tente quando ele terminar"
+      : texto(erro.message);
+    aviso("error", "não foi possível rodar " + (item.name || item.id) + ": " + motivo);
+  } finally {
+    botao.disabled = false;
+    botao.textContent = rotulo;
+    await carregarTelaAutomacoes();
+    carregarAutomacoes();
+  }
+}
+
+/** Liga/desliga a proatividade (TOML + processo). */
+async function alternarProativo(caixa) {
+  caixa.disabled = true;
+  try {
+    const dados = await api("/proactive", {
+      method: "POST",
+      body: JSON.stringify({ enabled: caixa.checked }),
+    });
+    const atual = (dados && dados.proactive) || {};
+    estado.automacoesProativo = { ...(estado.automacoesProativo || {}), enabled: Boolean(atual.value) };
+    await carregarTelaAutomacoes();
+  } catch (erro) {
+    caixa.checked = !caixa.checked;
+    if (erro.status === 401) tratar401(erro);
+    aviso("error", "não foi possível mudar a proatividade: " + texto(erro.message));
+  } finally {
+    caixa.disabled = false;
+  }
 }
 
 function tratar401(erro) {
@@ -534,12 +918,19 @@ function finalizar(textoFinal) {
   estado.raciocinio = null;
   for (const chip of estado.ferramentas) chip.classList.replace("running", "ok");
   estado.ferramentas = [];
+  // O modo voz precisa do texto para falar; quem chama a fala é o
+  // `run_finished` (é lá que se sabe se o turno terminou de verdade).
+  status("");
+  if (final) estado.textoFinal = final;
 }
 
 function tratarEvento(evento) {
   switch (evento.type) {
     case "run_started":
       estado.respondeu = false;
+      estado.ocupado = true;
+      estado.textoFinal = "";
+      if (estado.voz.ativo && estado.voz.eraVoz) vozEstado("enviando");
       $("#abortar").disabled = false;
       break;
     case "user":
@@ -608,10 +999,10 @@ function tratarEvento(evento) {
       aviso(evento.level, evento.text);
       break;
     case "status":
-      $("#status").textContent = texto(evento.text) + (evento.detail ? " · " + evento.detail : "");
+      status(evento.text, evento.detail);
       break;
     case "tokens":
-      if (evento.text) $("#status").textContent = texto(evento.text);
+      if (evento.text) status(evento.text);
       break;
     case "session":
     case "banner":
@@ -640,15 +1031,26 @@ function tratarEvento(evento) {
       // Deltas podem nao existir (provedor sem stream): o texto final
       // chega aqui, e nao no stream_end, que so fecha o bloco.
       finalizar(evento.text);
+      estado.ocupado = false;
       $("#abortar").disabled = true;
-      $("#status").textContent = "";
       if (evento.ok === false) aviso("error", "o turno falhou: " + texto(evento.error));
+      // Modo voz: fala a resposta (só quando o pedido veio da fala) e, quando
+      // o áudio acaba, volta a ouvir. Pedido digitado não é falado.
+      if (estado.voz.ativo) {
+        if (estado.textoFinal && estado.voz.eraVoz) vozFalar(estado.textoFinal);
+        else vozCiclo();
+      }
+      estado.voz.eraVoz = false;
       carregarEngine();
+      carregarAutomacoes(); // uma skill pode ter rodado neste turno
       break;
     case "aborted":
       finalizar("");
+      estado.ocupado = false;
       $("#abortar").disabled = true;
       aviso("warning", "turno interrompido.");
+      if (estado.voz.ativo && estado.voz.eraVoz) vozCiclo();
+      estado.voz.eraVoz = false;
       break;
     case "closed":
       marcarConexao("servidor encerrou", "off");
@@ -696,6 +1098,19 @@ function cartaoPermissao(evento) {
 async function enviar() {
   const conteudo = entrada.value.trim();
   if (!conteudo) return;
+  // Texto digitado no meio do modo voz: fecha a janela de escuta antes de
+  // enviar (dois pedidos ao motor ao mesmo tempo só atrapalham) e o turno
+  // não é falado, porque não nasceu de uma fala.
+  if (estado.voz.ativo) {
+    const janela = estado.voz.janela;
+    estado.voz.janela = null;
+    if (janela) {
+      try { janela.abort(); } catch (_) { /* já cancelada */ }
+    }
+    estado.voz.eraVoz = false;
+    vozPararEscuta();
+    vozEstado("enviando");
+  }
   entrada.value = ""; entrada.style.height = "auto";
   fecharComandos();
   estado.userLocal = bolha("user", conteudo, "você");
@@ -885,6 +1300,291 @@ function fecharComandos() {
   estado.comandosAtivo = -1;
 }
 
+/* ---------------------------------------------------------------- modo voz */
+// O microfone é o do servidor: `POST /voice/listen` grava uma fala (janela +
+// VAD) e devolve o texto do faster-whisper. O navegador só autentica, desenha o
+// estado, envia o texto no `/turn` e reproduz o áudio de `/voice/speak` no
+// `<audio>` — numa máquina headless o TTS local não teria para onde tocar.
+//
+// Laço: clicar liga -> ouve 15 s -> Enter envia (ou os 15 s de silêncio
+// silenciam o mic) -> resposta é falada -> quando a fala acaba, volta a ouvir.
+// Clicar de novo desliga e volta ao chat de texto.
+const VOZ_JANELA = 15;      // segundos de espera por fala antes de silenciar
+const VOZ_MIN_FALA = 2;     // menos que isso e ruido: nao vira mensagem
+
+/**
+ * Laço do modo voz (o microfone é o do servidor):
+ *
+ *   clicar liga -> POST /voice/listen (janela de 15 s + VAD) -> Enter envia
+ *   (ou 15 s sem fala silenciam o mic) -> /turn -> a resposta é falada por
+ *   /voice/speak no <audio> -> quando o áudio acaba, volta a ouvir.
+ *
+ * Enter no silêncio religa o microfone; clicar de novo sai do modo voz.
+ */
+async function carregarVoz() {
+  const botao = $("#btn-voz");
+  try {
+    const dados = await api("/voice");
+    estado.voz.disponivel = Boolean(dados.available);
+    estado.voz.tts = Boolean(dados.tts);
+    estado.voz.motivo = texto(dados.reason);
+  } catch (erro) {
+    if (erro.status === 401) return tratar401(erro);
+    estado.voz.disponivel = false;
+    estado.voz.tts = false;
+    estado.voz.motivo = "o servidor não respondeu sobre a voz";
+  }
+  botao.hidden = !estado.voz.disponivel;
+  botao.title = estado.voz.disponivel
+    ? "modo voz: microfone do servidor; Enter envia a fala"
+    : estado.voz.motivo;
+  if (estado.voz.ativo && !estado.voz.disponivel) desligarVoz();
+  else if (!estado.voz.ativo) botao.classList.remove("ok");
+}
+
+/** Único lugar que muda o desenho/estado do botão de voz. */
+function vozEstado(novo) {
+  estado.voz.estado = novo;
+  const botao = $("#btn-voz");
+  const rotulos = {
+    off: "🎙 voz",
+    ouvindo: "🎙 ouvindo…",
+    transcrevendo: "🎙 transcrevendo…",
+    enviando: "🎙 pensando…",
+    falando: "🎙 falando…",
+    silenciado: "🎙 microfone mudo",
+  };
+  const dicas = {
+    off: "modo voz: clique para falar com a Gaia",
+    ouvindo: "fale agora · Enter envia a transcrição · clique para sair do modo voz",
+    transcrevendo: "transcrevendo o que você falou…",
+    enviando: "enviando para a Gaia… · clique para sair do modo voz",
+    falando: "a Gaia está respondendo; Enter interrompe a fala e volta a ouvir",
+    silenciado: "microfone silenciado · Enter volta a ouvir · clique para sair",
+  };
+  botao.textContent = rotulos[novo] || rotulos.off;
+  botao.className = "pill voz" + (novo === "off" ? "" : " " + novo);
+  botao.title = dicas[novo] || dicas.off;
+  botao.classList.toggle("ok", estado.voz.ativo);
+}
+
+/**
+ * Um ciclo: abre uma janela de escuta, transcreve e envia se houver fala.
+ * Janela vazia = 15 s sem fala: o microfone para e só um Enter o religa.
+ */
+async function vozCiclo() {
+  const voz = estado.voz;
+  if (!voz.ativo || estado.ocupado) return;
+  voz.eraVoz = false;          // o ciclo anterior já decidiu (e não fala mais)
+  const janela = new AbortController();
+  voz.janela = janela;
+  vozEstado("ouvindo");
+  let dados = null;
+  try {
+    dados = await api("/voice/listen", {
+      method: "POST",
+      body: JSON.stringify({ window: VOZ_JANELA }),
+      signal: janela.signal,
+    });
+  } catch (erro) {
+    if (erro.name === "AbortError") return; // desligar já decidiu o resto
+    if (erro.status === 401) return tratar401(erro);
+    if (erro.status === 503) {
+      aviso("warning", "o modo voz não está disponível: " + erro.message);
+      desligarVoz();
+      return;
+    }
+    aviso("error", "não consegui ouvir (" + erro.message + ").");
+    vozSilenciar("erro no microfone");
+    return;
+  } finally {
+    if (voz.janela === janela) voz.janela = null;
+  }
+  if (!voz.ativo) return;
+  vozEstado("transcrevendo");
+  if (!dados || !dados.heard) {
+    vozSilenciar("15 s sem fala");
+    return;
+  }
+  entrada.value = texto(dados.text);
+  await vozEnviar(dados.text);
+}
+
+function vozEnviar(textoFalado) {
+  const dito = texto(textoFalado).trim();
+  if (dito.length < VOZ_MIN_FALA) return vozCiclo(); // ruído: volta a ouvir
+  const voz = estado.voz;
+  vozEstado("enviando");
+  voz.eraVoz = true;
+  fecharComandos();
+  estado.userLocal = bolha("user", dito, "você");
+  return api("/turn", { method: "POST", body: JSON.stringify({ text: dito }) }).catch((erro) => {
+    if (erro.status === 401) return tratar401(erro);
+    if (erro.status === 409) {
+      // Turno anterior ainda rodando: o `run_finished` dele fecha o ciclo.
+      aviso("warning", "a Gaia ainda está no turno anterior.");
+      return;
+    }
+    aviso("error", "não consegui enviar sua fala (" + erro.message + ").");
+    voz.eraVoz = false;
+    if (voz.ativo) vozCiclo();
+  });
+}
+
+/** Fala a resposta no navegador; quando o áudio acaba, volta a ouvir. */
+async function vozFalar(textoResposta) {
+  const voz = estado.voz;
+  if (!voz.ativo || !voz.eraVoz) return;
+  if (!voz.tts) {
+    vozCiclo();
+    return;
+  }
+  vozEstado("falando");
+  let dados = null;
+  try {
+    dados = await api("/voice/speak", {
+      method: "POST",
+      body: JSON.stringify({ text: textoResposta }),
+    });
+  } catch (erro) {
+    if (erro.status === 401) return tratar401(erro);
+    vozCiclo(); // sem áudio não é erro: a resposta já está no chat
+    return;
+  }
+  if (!voz.ativo) return;
+  if (dados && dados.audio) await vozTocar(dados.audio, dados.mime);
+  if (!voz.ativo || !voz.eraVoz) return; // Enter já interrompeu a fala
+  vozCiclo();
+}
+
+/** Reproduz o base64 do motor no `<audio>` único (criado no clique: autoplay). */
+function vozTocar(audioBase64, mime) {
+  return new Promise((resolver) => {
+    const voz = estado.voz;
+    vozLimpaAudio();
+    let binario;
+    try {
+      binario = atob(audioBase64);
+    } catch (_) {
+      resolver();
+      return;
+    }
+    const bytes = new Uint8Array(binario.length);
+    for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
+    voz.url = URL.createObjectURL(new Blob([bytes], { type: mime || "audio/mpeg" }));
+    if (!voz.audio) voz.audio = new Audio();
+    const elemento = voz.audio;
+    const terminar = () => {
+      elemento.onended = null;
+      elemento.onerror = null;
+      vozLimpaAudio();
+      resolver();
+    };
+    elemento.onended = terminar;
+    elemento.onerror = terminar;
+    elemento.src = voz.url;
+    elemento.play().catch(() => terminar());
+  });
+}
+
+/** Libera o blob: do contrário a memória do áudio nunca é devolvida. */
+function vozLimpaAudio() {
+  const voz = estado.voz;
+  if (voz.audio) {
+    voz.audio.pause();
+    voz.audio.removeAttribute("src");
+  }
+  if (voz.url) URL.revokeObjectURL(voz.url);
+  voz.url = "";
+}
+
+function vozSilenciar(motivo) {
+  const voz = estado.voz;
+  if (!voz.ativo) return;
+  vozEstado("silenciado");
+  aviso("warning", "microfone silenciado (" + motivo + "). Aperte Enter ou clique em 🎙 para voltar a ouvir.");
+}
+
+/**
+ * Enter no ouvindo: encerra a janela AGORA e deixa a transcricao chegar.
+ * O `POST /voice/stop` faz o servidor devolver o que ja ouviu (com o VAD);
+ * abortar a requisicao perderia justamente a fala que a pessoa quer enviar.
+ */
+function vozPararEscuta() {
+  return api("/voice/stop", { method: "POST", body: "{}" }).catch(() => {});
+}
+
+function ligarVoz() {
+  const voz = estado.voz;
+  if (!voz.disponivel || voz.ativo) return;
+  voz.ativo = true;
+  voz.eraVoz = false;
+  if (!voz.audio) voz.audio = new Audio(); // o clique libera o autoplay
+  aviso("", "modo voz ligado: fale normalmente. Enter envia a transcrição; 15 s de silêncio desligam o microfone.");
+  vozCiclo();
+  entrada.focus();
+}
+
+function desligarVoz() {
+  const voz = estado.voz;
+  if (!voz.ativo) return;
+  voz.ativo = false;
+  voz.eraVoz = false;
+  const janela = voz.janela;
+  voz.janela = null;
+  if (janela) {
+    try { janela.abort(); } catch (_) { /* já cancelada */ }
+  }
+  vozLimpaAudio();
+  vozEstado("off");
+  // Solta a gravação no servidor (a janela pode estar em curso).
+  vozPararEscuta();
+  entrada.value = ""; // o rascunho transcrito não vira mensagem ao sair
+  entrada.style.height = "auto";
+  aviso("", "modo voz desligado; o chat voltou ao texto.");
+  entrada.focus();
+}
+
+function alternarVoz() {
+  if (estado.voz.ativo) desligarVoz();
+  else ligarVoz();
+}
+
+/**
+ * Enter no modo voz. Devolve true quando ele já decidiu (não envia texto).
+ *
+ * - há transcrição na caixa: false, o Enter normal envia o texto;
+ * - silenciado: religa o microfone;
+ * - ouvindo: encerra a janela e envia o que já foi falado;
+ * - transcrevendo/enviando: espera (o turno decide sozinho);
+ * - falando: interrompe a fala e volta a ouvir.
+ */
+function vozEnter() {
+  const voz = estado.voz;
+  if (!voz.ativo) return false;
+  if (entrada.value.trim()) return false;
+  if (voz.estado === "silenciado") {
+    vozCiclo();
+    return true;
+  }
+  if (voz.estado === "ouvindo") {
+    vozPararEscuta();
+    vozEstado("transcrevendo");
+    return true;
+  }
+  if (voz.estado === "transcrevendo" || voz.estado === "enviando") {
+    aviso("", "só um instante: ainda estou " + (voz.estado === "enviando" ? "pensando" : "transcrevendo") + "…");
+    return true;
+  }
+  if (voz.estado === "falando") {
+    vozLimpaAudio();
+    voz.eraVoz = false;
+    vozCiclo();
+    return true;
+  }
+  return false;
+}
+
 /* ------------------------------------------------------------------ modais */
 function preencherLista(lista, itens, vazio) {
   lista.replaceChildren();
@@ -987,10 +1687,12 @@ function dataCurta(iso) {
 }
 
 function desenharHistorico(historico) {
+  if (estado.voz.ativo) desligarVoz(); // sessao nova/trocada nao herda o modo voz
   chat.replaceChildren();
   estado.fluxo = null; estado.raciocinio = null; estado.ferramentas = [];
   estado.respondeu = false;
   estado.userLocal = null;
+  estado.textoFinal = "";
   for (const turno of historico || []) {
     const papel = texto(turno.role);
     const conteudo = texto(turno.text);
@@ -1077,8 +1779,13 @@ $("#login").addEventListener("close", async () => {
   estado.ultimoSeq = 0;
   await carregarEngine();
   await carregarInstancias();
+  carregarVoz();
   carregarComandos();
   conectar();
+  // O login destrava a agenda do motor: sem isto o botao do header so
+  // aparecia depois de um F5 (o boot tinha desistido antes da sessao).
+  carregarAutomacoes();
+  pintarTelaAtual();
 });
 
 async function sair() {
@@ -1089,10 +1796,15 @@ async function sair() {
 
 $("#modelo").addEventListener("click", abrirModelos);
 $("#modo").addEventListener("click", abrirModos);
+$("#btn-automacoes").addEventListener("click", irParaAutomacoes);
+$("#btn-chat").addEventListener("click", voltarAoChat);
+$("#auto-atualizar").addEventListener("click", carregarTelaAutomacoes);
+$("#automacoes").addEventListener("click", irParaAutomacoes);
 $("#btn-sessoes").addEventListener("click", abrirSessoes);
 $("#nova-sessao").addEventListener("click", novaSessao);
 $("#btn-nova").addEventListener("click", novaSessao);
 $("#btn-chines").addEventListener("click", alternarChines);
+$("#btn-voz").addEventListener("click", alternarVoz);
 $("#trocar-token").addEventListener("click", () => abrirLogin());
 $("#enviar").addEventListener("click", enviar);
 $("#abortar").addEventListener("click", async () => {
@@ -1122,11 +1834,20 @@ entrada.addEventListener("keydown", (evento) => {
     escolherComando(false);
     return;
   }
+  if (evento.key === "Escape" && estado.voz.ativo) {
+    // Escape interrompe a fala e cala o microfone sem sair do modo voz.
+    evento.preventDefault();
+    vozSilenciar("interrompido por você");
+    return;
+  }
   if (evento.key === "Enter" && !evento.shiftKey) {
     evento.preventDefault();
     // Na paleta, Enter completa; se o comando já está inteiro e aceita
     // argumento, a pessoa continua digitando (ou aperta Enter de novo).
     if (aberta && escolherComando(true)) return;
+    // Modo voz: Enter envia a transcrição (ou religa o mic silenciado) sem
+    // esperar a janela de 15 s do servidor.
+    if (vozEnter()) return;
     enviar();
   }
 });
@@ -1145,6 +1866,9 @@ $("#q").addEventListener("input", () => {
   espera = setTimeout(buscar, 300);
 });
 
+/* Troca de tela pelo hash: voltar/avancar do navegador nao recarrega a pagina. */
+window.addEventListener("hashchange", pintarTelaAtual);
+
 /* ------------------------------------------------------------------- boot */
 (async function iniciar() {
   if (!(await garantirSessao())) {
@@ -1154,9 +1878,13 @@ $("#q").addEventListener("input", () => {
   }
   await carregarInstancias();
   await carregarEngine();
+  carregarVoz();
   carregarComandos();
   carregarAutomacoes();
   conectar();
+  // O hash e a fonte de verdade da tela (`#automacoes`): F5, link e o
+  // voltar/avancar do navegador continuam na mesma tela.
+  pintarTelaAtual();
 })();
 </script>
 </body>

@@ -153,11 +153,13 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
 ```
 
 - Rotas do chat: `GET /`, `/health`, `/session`, `/instances`, `/engine`,
-  `/modes`, `/commands`, `/sessions`, `/history`, `/automations`, `/providers`,
-  `/models`, `/search`,
+  `/modes`, `/commands`, `/voice`, `/sessions`, `/history`, `/automations`,
+  `/providers`, `/models`, `/search`,
   `/events` (SSE); `POST /session`, `/turn`, `/permission/{id}`, `/abort`,
-  `/model`, `/mode`, `/chinese`, `/session/open`, `/session/new`;
-  `DELETE /session`.
+  `/model`, `/mode`, `/chinese`, `/automations/set`, `/automations/run`,
+  `/proactive`,
+  `/voice/listen`, `/voice/speak`, `/voice/stop`,
+  `/session/open`, `/session/new`; `DELETE /session`.
 - Escutar fora do loopback **exige** `GAIA_SERVE_TOKEN`; a guarda recusa subir
   caso contrário.
 - A página web em `GET /` é um cliente completo: streaming, ferramentas,
@@ -167,6 +169,42 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
   fecha) e `/ajuda` imprime a lista no chat. O header tem `+ nova` (sessão
   nova), `sessões` (conversas anteriores) e `中文` (eco 中文 + pinyin de cada
   mensagem, o mesmo `/chines` da TUI — estado do processo, não do TOML).
+- **Tela de automações no web.** O botão `automações` do header leva a uma tela
+  própria (a URL vira `#automacoes`; F5 e o voltar do navegador continuam nela)
+  e o composer fica escondido ali. Cada rotina aparece como um cartão com
+  nome, checkbox **ativa/pausada**, janela (`at–until`), dias, entrega, próxima
+  execução, status em português (`agendada`/`rodando`/`deu certo`/`falhou`/
+  `não rodou`/`pausada`/`desligada`), **última execução com data e hora** (e a
+  tentativa, quando houve retry) e o erro específico quando falhou. No topo, um
+  cartão da proatividade com o mesmo checkbox.
+
+  Os dois checkboxes gravam de verdade: `POST /automations/set` (`{id,
+  enabled}`) pausa/retoma a rotina na tabela `automations`, que é o que o
+  agendador obedece a cada ciclo; `POST /proactive` (`{enabled}`) grava
+  `[proactive] enabled` no TOML e liga/desliga o laço na hora (se o valor vier
+  de `GAIA_PROACTIVE_ENABLED` no `.env`, a rota responde 422 explicando, em vez
+  de divergir do arquivo). As duas usam o **token do chat**: pausar uma rotina é
+  operação, não administração de credencial — o `/control` continua separado.
+  Sem `GAIA_CONTROL_TOKEN` o motor não tem agenda e a tela avisa; o card do
+  aside mostra as próximas execuções. Vagas e carteira aparecem aí como
+  *Pesquisa de vagas* e *Resumo da carteira*.
+
+  Cada cartão tem **rodar agora** (`POST /automations/run`), que executa a
+  rotina de verdade sem esperar a janela — com confirmação, porque a busca de
+  vagas/cotações faz rede e pode mandar mensagem no Telegram. O run fica
+  registrado com `trigger=manual` e o resultado (ou o erro) aparece na hora; o
+  botão mostra `rodando…` enquanto espera e responde 409 se o motor estiver num
+  turno. Rodar uma rotina pausada é permitido: o clique é explícito.
+- **Modo voz no web** (`🎙 voz`, aparece quando o servidor tem microfone e STT).
+  O microfone é o **do servidor**: `POST /voice/listen` grava uma fala (janela
+  de 15 s + VAD) e devolve o texto do faster-whisper local. `Enter` envia a
+  transcrição (editável na caixa) sem esperar a janela; 15 s sem fala silenciam
+  o microfone e só um novo `Enter` (ou o botão) volta a ouvir. A resposta é
+  sintetizada pelo mesmo TTS da TUI (`/voice/speak`, mp3/aiff em base64) e
+  tocada no navegador — no mini headless não há caixa de som, então é a
+  página que fala. Quando o áudio acaba, ela volta a ouvir; clicar de novo no
+  botão sai do modo voz e volta ao chat. Sem microfone o botão nem aparece
+  (`GET /voice` devolve o motivo).
 - **Sessão de cookie em vez de token a cada visita.** `POST /session` troca o
   `Authorization: Bearer` por um nonce em cookie `HttpOnly` (`gaia_chat`,
   `Path=/`, `SameSite=Strict`); o `Bearer` continua valendo para `gaia
@@ -255,9 +293,10 @@ primeira, o banco continua impedindo entrega dupla se algo escapar.
 - **Proatividade no `serve`:** o processo que é dono do poller entrega no chat;
   o TTS local não toca numa máquina headless.
 
-O que ainda **não** existe: pausar/executar uma automação pela tela (as rotas
-`PATCH/run/pause/resume` são a próxima parte da fase C), CRUD de skills no
-painel, níveis de autonomia da proatividade (`observe`/`inform`/`act`), retenção
+O que ainda **não** existe: as rotas equivalentes no painel `/control`
+(`PATCH/run/pause/resume` por lá; pausar, retomar e rodar agora já funcionam
+na tela de automações do chat), CRUD de skills no painel, níveis de autonomia
+da proatividade (`observe`/`inform`/`act`), retenção
 de execuções e exportação de diagnóstico. O estado item por item está em
 `docs/plans/2026-11-22-control-center-fases-cde.md`.
 

@@ -255,6 +255,27 @@ class Orchestrator(
         if self._proactive_task is None or self._proactive_task.done():
             self._proactive_task = asyncio.create_task(self._proactive_loop(greet=False))
 
+    def set_proactive_enabled(self, enabled: bool) -> bool:
+        """Liga/desliga a iniciativa proativa no processo (tela de automacoes).
+
+        O `/proativo` da TUI e o checkbox do web precisam do mesmo efeito:
+        desligar para o laco agora (sem esperar o proximo ciclo) e religar
+        criando a tarefa de novo. Devolve se o laco esta rodando depois da
+        chamada; **precisa** ser chamado no loop do motor (create_task).
+        """
+        self.cfg.proactive.enabled = bool(enabled)
+        if not enabled:
+            tarefa = self._proactive_task
+            self._proactive_task = None
+            if tarefa is not None:
+                tarefa.cancel()
+            return False
+        if self._proactive_task is None or self._proactive_task.done():
+            self._proactive_task = asyncio.create_task(
+                self._proactive_loop(greet=False)
+            )
+        return True
+
     async def _warmup_stt(self) -> None:
         try:
             await asyncio.to_thread(self.transcriber.warmup)

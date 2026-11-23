@@ -11,6 +11,7 @@ e fica esperando (numa thread) até ``POST /permission/{id}`` destravar.
 from __future__ import annotations
 
 import asyncio
+import base64
 import concurrent.futures
 import inspect
 import logging
@@ -19,6 +20,11 @@ import threading
 from typing import Any
 
 from gaia.interface.remote import RemoteUI, _plain
+from gaia.serve.voice import (
+    LISTEN_TIMEOUT_SLACK,
+    WebVoice,
+    clamp_window,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +42,13 @@ class OrchestratorTarget:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._tarefa: concurrent.futures.Future[Any] | None = None
         self._run = ""
+        # Voz do web: microfone/STT/TTS do proprio motor, atras de /voice/*.
+        self.voz = WebVoice(
+            getattr(orchestrator, "recorder", None),
+            getattr(orchestrator, "transcriber", None),
+            getattr(orchestrator, "tts", None),
+            logger=logger,
+        )
 
     # ------------------------------------------------------------------ ciclo
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -262,6 +275,42 @@ class OrchestratorTarget:
         if self._loop is None:
             return
         asyncio.run_coroutine_threadsafe(self._abortar(), self._loop)
+
+    # -------------------------------------------------------------------- voz
+    def voice_status(self) -> dict[str, Any]:
+        """O modo voz do web existe nesta maquina? (microfone + STT + TTS)"""
+        ok, motivo = self.voz.available()
+        tts = getattr(self.orch, "tts", None)
+        return {
+            "available": ok,
+            "reason": motivo,
+            "tts": bool(tts is not None and getattr(tts, "enabled", False)),
+        }
+
+    def listen(self, window: float = 15.0) -> dict[str, Any]:
+        """Grava uma fala no microfone do motor e devolve o texto transcrito."""
+        if self._loop is None:
+            raise RuntimeError("serve sem loop asyncio ligado")
+        segundos = clamp_window(window)
+        futuro = asyncio.run_coroutine_threadsafe(
+            self.voz.listen(segundos), self._loop
+        )
+        return futuro.result(timeout=segundos + LISTEN_TIMEOUT_SLACK)
+
+    def stop_listening(self) -> None:
+        """Fecha a janela de escuta agora (botao desligado no meio da fala)."""
+        self.voz.stop()
+
+    def speak(self, text: str) -> dict[str, Any]:
+        """Sintetiza a resposta e devolve ``{audio, mime}`` (base64) para o web."""
+        if self._loop is None:
+            raise RuntimeError("serve sem loop asyncio ligado")
+        futuro = asyncio.run_coroutine_threadsafe(self.voz.speech(text), self._loop)
+        preparado = futuro.result(timeout=60.0)
+        if preparado is None:
+            return {"audio": "", "mime": ""}
+        dados, tipo = preparado
+        return {"audio": base64.b64encode(dados).decode("ascii"), "mime": tipo}
 
     # ------------------------------------------------------------- control center
     def run_awaitable(self, aguardavel: Any, timeout: float = 60.0) -> Any:

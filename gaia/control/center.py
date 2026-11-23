@@ -129,7 +129,23 @@ class ControlCenter:
         return {"skills": skills_mod.describe_skills(self.cfg, self.store)}
 
     def automations(self) -> dict[str, Any]:
-        return {"automations": automations_mod.describe_automations(self.cfg, self.store)}
+        """Agenda + estado da proatividade (a tela mostra as duas coisas).
+
+        ``proactive`` vai junto porque a tela de automacoes tem um checkbox so
+        para ela e nao pode pagar uma rota extra por isso. O bloco e aditivo:
+        quem le ``automations`` continua igual.
+        """
+        cfg = self.cfg.proactive
+        return {
+            "automations": automations_mod.describe_automations(self.cfg, self.store),
+            "proactive": {
+                "enabled": bool(cfg.enabled),
+                "reminders": bool(cfg.reminders),
+                "idle_checkin": bool(cfg.idle_checkin),
+                "quiet_hours": str(cfg.quiet_hours),
+                "daily_max": int(cfg.daily_max),
+            },
+        }
 
     def activity(self, limit: int = 50, kind: str = "", status: str = "") -> dict[str, Any]:
         if self.store is None:
@@ -213,6 +229,59 @@ class ControlCenter:
 
     def remove_override(self, section: str, key: str) -> dict[str, Any]:
         return settings_mod.remove_env_override(self.env_path, section, key)
+
+    def update_automation(
+        self, automation_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Edita uma automacao na tabela (pausar/retomar, horario, dias...).
+
+        Nao grava config: ``enabled`` aqui e a decisao do painel/tela, que o
+        agendador obedece a cada tick. Valor invalido vira ``ValueError``
+        (422) e id desconhecido ``KeyError`` (404).
+        """
+        if self.store is None:
+            raise RuntimeError("motor sem banco: agenda indisponivel")
+        return automations_mod.update(self.store, self.cfg, automation_id, payload)
+
+    async def run_automation(self, automation_id: str) -> dict[str, Any]:
+        """Executa a rotina agora (``trigger=manual``) e devolve o run.
+
+        Delega ao agendador do motor (``Orchestrator.run_automation_now``), que
+        limpa a reserva do dia, reinicia o relogio de retry e registra o run
+        com ``trigger="manual"``. **Assincrono**: buscar vagas/cotacoes leva
+        segundos a minutos, e a espera tem de acontecer no loop do motor.
+
+        ``KeyError`` = id desconhecido (404), ``RuntimeError`` = motor ocupado
+        com um turno (409). Rodar uma automacao pausada e permitido: o clique e
+        explicito e o resultado aparece na hora.
+        """
+        executar = getattr(self.orch, "run_automation_now", None)
+        if not callable(executar):
+            raise RuntimeError("este motor nao executa automacao sob demanda")
+        return dict(await executar(automation_id))
+
+    async def set_proactive(self, enabled: bool) -> dict[str, Any]:
+        """Liga/desliga a iniciativa proativa (TOML + processo).
+
+        **Assincrono de proposito**: ligar cria a ``_proactive_task``, e criar
+        tarefa exige estar no loop do motor. O transporte roda isto com
+        ``run_awaitable``, como o resto que mexe no processo.
+
+        Grava primeiro e aplica depois: se o valor vier do ``.env`` o update
+        levanta ``ValueError`` e nada muda (o processo nao pode divergir do
+        arquivo).
+        """
+        valor = bool(enabled)
+        resultado = settings_mod.update(
+            self.config_path, "proactive", "enabled", valor, cfg=self.cfg
+        )
+        self.cfg.proactive.enabled = valor
+        aplicar = getattr(self.orch, "set_proactive_enabled", None)
+        if callable(aplicar):
+            resultado["running"] = bool(aplicar(valor))
+        else:
+            resultado["running"] = valor
+        return resultado
 
     def set_secret(self, key: str, value: str) -> dict[str, Any]:
         return secrets_mod.set_secret(self.env_path, key, value)

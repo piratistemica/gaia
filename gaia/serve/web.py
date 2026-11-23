@@ -22,12 +22,13 @@ from pathlib import Path
 
 STATIC_DIR = Path(__file__).with_name("static")
 PAGE_PATH = STATIC_DIR / "index.html"
+ICON_PATH = STATIC_DIR / "icon.png"
 
 # Arquivos servidos ao chat. Allowlist explicita: nada de resolver caminho vindo
 # da URL (``..`` nunca chega ao disco) e nada de expor o ``instances.json``.
-STATIC_ASSETS = ("shared.js",)
+STATIC_ASSETS = ("shared.js", "icon.png")
 # Arquivos do painel que podem ser servidos.
-CONTROL_ASSETS = ("control.html", "control.css", "control.js", "shared.js")
+CONTROL_ASSETS = ("control.html", "control.css", "control.js", "shared.js", "icon.png")
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -46,6 +47,11 @@ def page() -> bytes:
 
 def content_type() -> str:
     return "text/html; charset=utf-8"
+
+
+def icon() -> tuple[bytes, str]:
+    """Icone da Gaia (o mesmo nas duas telas). Lido uma vez por processo."""
+    return ICON_PATH.read_bytes(), _CONTENT_TYPES[".png"]
 
 
 def control_page() -> bytes:

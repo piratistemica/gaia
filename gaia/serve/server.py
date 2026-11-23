@@ -43,6 +43,7 @@ from gaia.interface.remote import RemoteUI
 from gaia.serve import control_api, session, web
 from gaia.serve import instances as instances_mod
 from gaia.serve.session import ControlSessions, Sessions
+from gaia.serve.voice import VoiceUnavailable, clamp_window
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,30 @@ class Target(Protocol):
     def decide(self, request_id: str, decision: str) -> None: ...
 
     def abort(self) -> None: ...
+
+
+def _opcional(target: Any, nome: str) -> Any:
+    """Metodo opcional do `Target` (rota que so existe em motor de verdade).
+
+    Os fakes dos testes implementam so o basico: sem o metodo a rota responde
+    503 ("nao disponivel neste motor") em vez de estourar AttributeError.
+    """
+    funcao = getattr(target, nome, None)
+    return funcao if callable(funcao) else None
+
+def _aguardar(handler: Any, resultado: Any) -> Any:
+    """Espera um awaitable rodando no loop do motor, sem bloquear o HTTP.
+
+    Mesmo padrao do ``control_api._aguardar``: o socket vive na thread do
+    servidor, o awaitable tem de rodar no loop do ``Orchestrator``.
+    """
+    if not hasattr(resultado, "__await__"):
+        return resultado
+    esperar = getattr(handler.app.target, "run_awaitable", None)
+    if esperar is None:
+        raise RuntimeError("motor sem runner para operacoes assincronas")
+    return esperar(resultado)
+
 
 class ServeConfigError(ValueError):
     """Configuracao que exporia o servidor (bind na rede sem token)."""
@@ -296,6 +321,11 @@ class _Handler(BaseHTTPRequestHandler):
             # (todo o resto exige Authorization) — quem pede o token e a tela.
             self._arquivo(web.page(), web.content_type())
             return
+        if rota == "/favicon.ico":
+            # O navegador pede isto sozinho na raiz do site, sem token.
+            corpo, tipo = web.icon()
+            self._arquivo(corpo, tipo)
+            return
         if rota.startswith(f"{STATIC_PREFIX}/"):
             self._asset(rota[len(STATIC_PREFIX) + 1 :])
             return
@@ -315,9 +345,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, self._engine())
             return
         if rota == "/automations":
-            # Leitura da agenda (status/next_run), nao administracao: o painel
-            # continua dono de `/control/api/*` (credencial separada). Aqui a
-            # prova exigida e a do chat.
+            # Agenda + estado da proatividade para a tela de automacoes do chat.
+            # O token exigido e o do chat: pausar uma rotina e operacao, nao
+            # administracao de credencial (o painel continua dono de /control).
             self._automacoes()
             return
         if rota == "/providers":
@@ -331,6 +361,11 @@ class _Handler(BaseHTTPRequestHandler):
             # Catalogo unico (`controller/command_catalog.py`): a paleta do web
             # filtra por `names`; o despacho continua em `/turn`.
             self._json(HTTPStatus.OK, {"commands": commands.as_dicts()})
+            return
+        if rota == "/voice":
+            # O modo voz do web precisa de microfone e STT nesta maquina; a tela
+            # pergunta antes de mostrar o botao.
+            self._json(HTTPStatus.OK, self._voz_status())
             return
         if rota == "/history":
             self._json(HTTPStatus.OK, {"history": self._history()})
@@ -401,6 +436,36 @@ class _Handler(BaseHTTPRequestHandler):
         if rota == "/abort":
             self.app.target.abort()
             self._json(HTTPStatus.OK, {"ok": True})
+            return
+        if rota == "/voice/listen":
+            self._escutar(corpo)
+            return
+        if rota == "/voice/stop":
+            # Idempotente: solta a janela de escuta (botao desligado no meio).
+            parar = _opcional(self.app.target, "stop_listening")
+            if parar is not None:
+                parar()
+            self._json(HTTPStatus.OK, {"ok": True})
+            return
+        if rota == "/voice/speak":
+            self._falar(corpo)
+            return
+        if rota == "/automations/set":
+            # Checkbox da tela de automacoes: {id, enabled}. Separada de
+            # /automations (GET) para nao misturar leitura e escrita na mesma
+            # rota e para o 404 de id desconhecido ser explicito.
+            self._mudar_automacao(corpo)
+            return
+        if rota == "/automations/run":
+            # "rodar agora" (tela de automacoes): executa a rotina de verdade,
+            # com trigger=manual. Pode demorar (rede) e avisa no Telegram — por
+            # isso a tela confirma antes e mostra "rodando...".
+            self._rodar_automacao(corpo)
+            return
+        if rota == "/proactive":
+            # Checkbox da proatividade: grava no TOML e aplica no processo na
+            # hora (o `/proativo on|off` da TUI faz o mesmo sem gravar).
+            self._proatividade(corpo)
             return
         if rota == "/chinese":
             # Liga/desliga o eco 中文 do web. Nao grava no TOML: e estado do
@@ -611,6 +676,111 @@ class _Handler(BaseHTTPRequestHandler):
             logger.warning("automations falhou: %s", exc)
             self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "automations_failed", str(exc))
 
+    def _mudar_automacao(self, corpo: dict[str, Any]) -> None:
+        """Liga/desliga (ou edita horario de) uma automacao pela tabela."""
+        centro = self.app.center
+        if centro is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "no_center",
+                "automações exigem GAIA_CONTROL_TOKEN configurado",
+            )
+            return
+        automation_id = str(corpo.get("id") or "").strip()
+        if not automation_id:
+            self._erro(HTTPStatus.BAD_REQUEST, "missing_id", "informe id")
+            return
+        corpo_sem_id = {chave: valor for chave, valor in corpo.items() if chave != "id"}
+        if not corpo_sem_id:
+            self._erro(
+                HTTPStatus.BAD_REQUEST, "missing_value", "informe enabled (ou outro campo)"
+            )
+            return
+        try:
+            self._json(
+                HTTPStatus.OK,
+                {"ok": True, "automation": centro.update_automation(automation_id, corpo_sem_id)},
+            )
+        except KeyError:
+            self._erro(HTTPStatus.NOT_FOUND, "unknown_automation", f"automação desconhecida: {automation_id}")
+        except ValueError as exc:
+            # Inclui id desconhecido sem tabela semeada e payload invalido: a
+            # mensagem ja diz o que corrigir.
+            self._erro(HTTPStatus.UNPROCESSABLE_ENTITY, "invalid_automation", str(exc))
+        except Exception as exc:
+            logger.warning("mudar automacao falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "automation_failed", str(exc))
+
+    def _rodar_automacao(self, corpo: dict[str, Any]) -> None:
+        """Executa a automacao agora e devolve o run registrado.
+
+        404 = id desconhecido, 409 = motor ocupado com um turno, 503 = motor
+        sem Control Center. A espera roda no loop do motor (``run_awaitable``),
+        porque a rotina faz rede e pode levar minutos.
+        """
+        centro = self.app.center
+        if centro is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "no_center",
+                "automações exigem GAIA_CONTROL_TOKEN configurado",
+            )
+            return
+        automation_id = str(corpo.get("id") or "").strip()
+        if not automation_id:
+            self._erro(HTTPStatus.BAD_REQUEST, "missing_id", "informe id")
+            return
+        try:
+            resultado = _aguardar(self, centro.run_automation(automation_id))
+        except KeyError:
+            self._erro(
+                HTTPStatus.NOT_FOUND,
+                "unknown_automation",
+                f"automação desconhecida: {automation_id}",
+            )
+            return
+        except RuntimeError as exc:
+            # Motor ocupado (turno em andamento) ou motor sem o metodo: nos dois
+            # casos a acao certa e tentar depois, nao corrigir payload.
+            self._erro(HTTPStatus.CONFLICT, "busy", str(exc))
+            return
+        except Exception as exc:
+            logger.warning("rodar automacao falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "automation_failed", str(exc))
+            return
+        self._json(HTTPStatus.OK, {"ok": True, "run": resultado})
+
+    def _proatividade(self, corpo: dict[str, Any]) -> None:
+        """Liga/desliga a proatividade no TOML e no processo."""
+        centro = self.app.center
+        if centro is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "no_center",
+                "proatividade editável exige GAIA_CONTROL_TOKEN configurado",
+            )
+            return
+        if "enabled" not in corpo:
+            self._erro(HTTPStatus.BAD_REQUEST, "missing_value", "informe enabled")
+            return
+        ligado = corpo.get("enabled")
+        if not isinstance(ligado, bool):
+            self._erro(
+                HTTPStatus.BAD_REQUEST, "bad_enabled", "enabled deve ser true ou false"
+            )
+            return
+        try:
+            resultado = _aguardar(self, centro.set_proactive(ligado))
+        except ValueError as exc:
+            # Valor vem do .env: a tela mostra o motivo em vez de mentir.
+            self._erro(HTTPStatus.UNPROCESSABLE_ENTITY, "invalid_setting", str(exc))
+            return
+        except Exception as exc:
+            logger.warning("proatividade falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "proactive_failed", str(exc))
+            return
+        self._json(HTTPStatus.OK, {"ok": True, "proactive": resultado})
+
     def _provedores(self) -> None:
         centro = self.app.center
         if centro is None:
@@ -641,6 +811,84 @@ class _Handler(BaseHTTPRequestHandler):
             logger.warning("instances falhou: %s", exc)
             self._json(HTTPStatus.OK, {"instances": []})
 
+    # ------------------------------------------------------------------- voz
+    def _voz_status(self) -> dict[str, Any]:
+        funcao = _opcional(self.app.target, "voice_status")
+        if funcao is None:
+            return {"available": False, "reason": "modo voz indisponivel neste motor", "tts": False}
+        try:
+            dados = dict(funcao() or {})
+        except Exception as exc:  # microfone quebrado nao derruba o header
+            logger.warning("voice_status falhou: %s", exc)
+            return {"available": False, "reason": str(exc), "tts": False}
+        dados.setdefault("available", False)
+        dados.setdefault("reason", "")
+        dados.setdefault("tts", False)
+        return dados
+
+    def _escutar(self, corpo: dict[str, Any]) -> None:
+        """POST /voice/listen: grava uma fala no motor e devolve o texto."""
+        funcao = _opcional(self.app.target, "listen")
+        if funcao is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "voice_unavailable",
+                "modo voz indisponivel neste motor",
+            )
+            return
+        try:
+            janela = clamp_window(corpo.get("window", 15.0))
+        except (TypeError, ValueError):  # pragma: no cover - clamp_window normaliza
+            janela = 15.0
+        try:
+            dados = funcao(janela)
+        except VoiceUnavailable as exc:
+            self._erro(HTTPStatus.SERVICE_UNAVAILABLE, "voice_unavailable", str(exc))
+            return
+        except RuntimeError as exc:
+            self._erro(HTTPStatus.SERVICE_UNAVAILABLE, "voice_unavailable", str(exc))
+            return
+        except Exception as exc:  # microfone/STT nunca vira connection reset
+            logger.warning("escuta do web falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "voice_failed", str(exc))
+            return
+        texto = str((dados or {}).get("text") or "").strip()
+        self._json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "text": texto,
+                "heard": bool((dados or {}).get("heard", bool(texto))),
+                "window": janela,
+            },
+        )
+
+    def _falar(self, corpo: dict[str, Any]) -> None:
+        """POST /voice/speak: audio (base64) da resposta para o `<audio>`."""
+        funcao = _opcional(self.app.target, "speak")
+        if funcao is None:
+            self._erro(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "voice_unavailable",
+                "modo voz indisponivel neste motor",
+            )
+            return
+        texto = str(corpo.get("text") or "").strip()
+        if not texto:
+            self._erro(HTTPStatus.BAD_REQUEST, "empty_text", "texto vazio")
+            return
+        try:
+            dados = funcao(texto)
+        except Exception as exc:
+            logger.warning("fala do web falhou: %s", exc)
+            self._erro(HTTPStatus.INTERNAL_SERVER_ERROR, "voice_failed", str(exc))
+            return
+        audio = str((dados or {}).get("audio") or "")
+        self._json(
+            HTTPStatus.OK,
+            {"ok": True, "audio": audio, "mime": str((dados or {}).get("mime") or "")},
+        )
+
     # ------------------------------------------------------- paginas e assets
     def _pagina_controle(self) -> None:
         """HTML do painel. Se nao ha token configurado, a tela explica o porque.
@@ -656,6 +904,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not self.app.control_token:
             corpo = (
                 b"<!doctype html><html lang=pt-BR><meta charset=utf-8>"
+                b"<link rel=icon href=/static/icon.png>"
                 b"<title>Control Center desativado</title>"
                 b"<body style='font:15px system-ui;padding:2rem;max-width:60ch'>"
                 b"<h1>Control Center desativado</h1>"

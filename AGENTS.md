@@ -63,7 +63,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/briefing/compose.py` | texto dos briefings (manhã, meio-dia, noite) |
 | `gaia/interface/terminal.py` | UI Rich; `textual_app.py` | TUI |
 | `gaia/interface/remote.py` | `RemoteUI`: serializa eventos para o serve (fan-out + histórico) |
-| `gaia/serve/server.py` | HTTP + SSE + `/control`; `app.py` | ponte `OrchestratorTarget`; `control_api.py` | rotas do painel; `session.py` | nonces de cookie (chat e painel); `instances.py` | `instances.json` e sonda `/health`; `web.py`/`static/` | web (`shared.js` e comum as duas telas) |
+| `gaia/serve/server.py` | HTTP + SSE + `/control`; `app.py` | ponte `OrchestratorTarget`; `voice.py` | modo voz do web (microfone/STT do motor + audio do TTS); `control_api.py` | rotas do painel; `session.py` | nonces de cookie (chat e painel); `instances.py` | `instances.json` e sonda `/health`; `web.py`/`static/` | web (`shared.js` e comum as duas telas) |
 | `gaia/control/` | Control Center: `runs` (histórico), `skills`, `automations` (agenda + seed/load/retry), `health`, `secrets`, `settings`, `providers`, `center` |
 | `gaia/controller/scheduler.py` | agendador único: lê `automations`, calcula `due()`, chama o handler da skill, faz retry e notifica falha |
 | `gaia/client/remote_client.py` | cliente `gaia --remote` |
@@ -164,6 +164,25 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   opcional no `OrchestratorTarget` (`gaia/serve/app.py`) e teste em
   `tests/test_serve_instances.py` (rotas de estado), `tests/test_serve_web.py`
   (tela/comandos) ou `tests/test_serve.py` (transporte).
+- **Tela de automacoes (web):** e uma *view* do `index.html` (`#view-automacoes`),
+  nao um dialog: o hash `#automacoes` e a fonte de verdade (`pintarTelaAtual`),
+  o composer some e o botao do header so navega. Os checkboxes escrevem em
+  rotas do CHAT (`POST /automations/set`, `/automations/run`, `/proactive`) e
+  passam pelo `ControlCenter`; o motor exponhe incognitas como `paused` (decisao
+  da tabela) e `config_enabled` (skill ligada no TOML) para a tela nao mentir.
+  "Rodar agora" delega em `Orchestrator.run_automation_now` (trigger=manual,
+  limpa a reserva do dia; KeyError=404, motor ocupado=409) — a espera roda no
+  loop do motor via `run_awaitable`. O
+  `status`/`last_run` ja vem de `describe_automations` — nao reimplemente a
+  regra na tela. Testes: `tests/test_serve_web.py` (contrato da view) e
+  `tests/test_control_api.py` (rotas, 401/404/422/503, TOML e processo).
+- **Voz no web:** o microfone e o do *servidor* (`gaia/serve/voice.py`:
+  `record_until_silence` + faster-whisper); o navegador so pede (`POST
+  /voice/listen`), envia o texto no `/turn` e toca o audio de `POST
+  /voice/speak`. Nao existe TTS local no caminho: no mini headless ele nao tem
+  para onde tocar. O botao da tela chama `vozEnter()` no Enter; quem silencia
+  depois de 15 s e o `setTimeout` do `index.html`, nao o servidor. Testes em
+  `tests/test_serve_voice.py` (rotas, janela, silencio e lock de uma escuta).
 - **Nova rota do painel:** adicione no `get`/`post` de
   `gaia/serve/control_api.py` e o metodo correspondente em
   `gaia/control/center.py`. Toda rota `/control/api/*` exige
@@ -239,8 +258,11 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   com backoff so em `network`/`unknown` e notificacao de falha no Telegram
   (uma por falha). A divida da duplicacao de agenda foi paga: a tabela
   `automations` e a fonte de verdade e os workers nao decidem mais a hora.
-  Faltam em C: rotas `PATCH/run/pause/resume/runs` do painel, CRUD de skills
-  e botoes na UI. Fases D/E (`[proactivity] autonomy`, sugestao de automacao,
+  A tela de automacoes do web (`#automacoes`) pausa/retoma rotina, liga/
+  desliga a proatividade e executa na hora (token do chat; `POST
+  /automations/set`, `/automations/run` e `/proactive`).
+  Faltam em C: rotas `run`/`pause`/`resume`/`runs` do painel, CRUD de skills
+  e botoes na UI do `/control`. Fases D/E (`[proactivity] autonomy`, sugestao de automacao,
   retencao de 90 dias, export de diagnostico, integracao ponta a ponta) ainda
   **nao** implementadas: `docs/plans/2026-11-22-control-center-fases-cde.md`
   tem a tabela de status item por item — mantenha-a atualizada.

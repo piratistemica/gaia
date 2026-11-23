@@ -134,6 +134,15 @@ def test_asset_fora_da_allowlist_e_404(setup):
     assert status in {404, 400}
 
 
+def test_icone_servido_no_chat_e_no_painel(setup):
+    """Favicon unico: a mesma imagem em `/`, `/control` e no pedido automatico."""
+    base, *_ = setup
+    for rota in ("/static/icon.png", "/control/static/icon.png", "/favicon.ico"):
+        status, corpo = pedir(base, "GET", rota)
+        assert status == 200, rota
+        assert corpo.startswith(b"\x89PNG")
+
+
 def test_api_exige_token_do_painel(setup):
     base, *_ = setup
     assert pedir(base, "GET", "/control/api/overview")[0] == 401
@@ -489,3 +498,242 @@ def test_sem_control_token_session_responde_503(tmp_path, isolated_env):
     finally:
         servidor.shutdown()
         store.close()
+
+
+# ------------------------------------------------- tela de automacoes (chat) --
+# O botao "automacoes" do web e uma tela propria. Ela usa o token do CHAT
+# (pausar rotina e operacao, nao administracao de credencial): estas rotas
+# vivem no transporte do chat, mas quem escreve e o mesmo ControlCenter.
+
+
+def test_automations_traz_proatividade(setup):
+    base, *_ = setup
+    status, corpo = pedir(base, "GET", "/automations", token="tok-chat")
+    assert status == 200
+    assert isinstance(corpo["automations"], list)
+    assert corpo["proactive"]["enabled"] is True
+    assert "quiet_hours" in corpo["proactive"]
+
+
+def test_pausar_automacao_pelo_chat(setup):
+    base, _, store, _ = setup
+    status, corpo = pedir(
+        base,
+        "POST",
+        "/automations/set",
+        token="tok-chat",
+        corpo={"id": "career:weekly", "enabled": False},
+    )
+    assert status == 200
+    assert corpo["automation"]["paused"] is True
+    assert corpo["automation"]["enabled"] is False
+    # A tabela e a fonte de verdade do agendador.
+    assert store.get_automation("career:weekly")["enabled"] == 0
+
+    _, corpo = pedir(base, "GET", "/automations", token="tok-chat")
+    carreira = next(a for a in corpo["automations"] if a["id"] == "career:weekly")
+    assert carreira["status"] == "paused"
+    assert carreira["paused"] is True
+
+
+def test_automacao_desconhecida_404(setup):
+    base, *_ = setup
+    status, corpo = pedir(
+        base,
+        "POST",
+        "/automations/set",
+        token="tok-chat",
+        corpo={"id": "nao:existe", "enabled": False},
+    )
+    assert status == 404
+    assert corpo["error"] == "unknown_automation"
+
+
+def test_automacao_payload_invalido_422(setup):
+    base, *_ = setup
+    status, corpo = pedir(
+        base,
+        "POST",
+        "/automations/set",
+        token="tok-chat",
+        corpo={"id": "career:weekly", "enabled": "sim"},
+    )
+    assert status == 422
+    assert "enabled" in corpo["message"]
+
+
+def test_proatividade_grava_e_reflete_no_processo(setup):
+    base, centro, _, _ = setup
+    status, corpo = pedir(
+        base, "POST", "/proactive", token="tok-chat", corpo={"enabled": False}
+    )
+    assert status == 200
+    assert corpo["proactive"]["value"] is False
+    assert centro.cfg.proactive.enabled is False
+    texto_toml = Path(corpo["proactive"]["path"]).read_text()
+    assert "enabled = false" in texto_toml
+
+    _, corpo = pedir(base, "GET", "/automations", token="tok-chat")
+    assert corpo["proactive"]["enabled"] is False
+
+
+def test_proatividade_recusa_quando_vem_do_env(setup, monkeypatch):
+    """Se o .env manda, o TOML nao pode divergir: 422 com o motivo."""
+    base, centro, _, _ = setup
+    monkeypatch.setenv("GAIA_PROACTIVE_ENABLED", "true")
+    status, corpo = pedir(
+        base, "POST", "/proactive", token="tok-chat", corpo={"enabled": False}
+    )
+    assert status == 422
+    assert "GAIA_PROACTIVE_ENABLED" in corpo["message"]
+    assert centro.cfg.proactive.enabled is True
+
+
+def test_automacoes_do_chat_exigem_token(setup):
+    base, *_ = setup
+    assert pedir(base, "GET", "/automations")[0] == 401
+    assert pedir(base, "POST", "/automations/set", corpo={"id": "x", "enabled": True})[0] == 401
+    assert pedir(base, "POST", "/proactive", corpo={"enabled": True})[0] == 401
+
+
+def test_automacoes_sem_control_token_503(tmp_path, isolated_env):
+    cfg = Config.load(
+        config_path=tmp_path / "config.toml",
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
+    )
+    store = MemoryStore(tmp_path / "gaia.db")
+    centro = ControlCenter(cfg, store, env_path=tmp_path / ".env")
+    servidor = ServeServer(
+        FakeTarget(),  # type: ignore[arg-type]
+        RemoteUI(),
+        host="127.0.0.1",
+        port=0,
+        token="tok-chat",
+        control_token="",
+        center=centro,
+    )
+    base = servidor.start()
+    try:
+        assert pedir(base, "GET", "/automations", token="tok-chat")[0] == 503
+        status, corpo = pedir(
+            base,
+            "POST",
+            "/automations/set",
+            token="tok-chat",
+            corpo={"id": "career:weekly", "enabled": False},
+        )
+        assert status == 503
+        assert "GAIA_CONTROL_TOKEN" in corpo["message"]
+    finally:
+        servidor.shutdown()
+        store.close()
+
+
+# --------------------------------------------------- rodar agora (manual) -----
+# O botao "rodar agora" executa a rotina de verdade (trigger=manual). O alvo
+# falso abaixo registra a chamada; o motor real e testado em test_scheduler.py.
+
+
+class FakeRunner(FakeTarget):
+    """Target com o metodo que o `ControlCenter` delega para rodar agora."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rodados: list[str] = []
+        self.ocupado = False
+        self.resultado: dict[str, Any] = {
+            "id": "career:weekly",
+            "trigger": "manual",
+            "status": "completed",
+            "detail": "3 vagas",
+            "error": "",
+            "error_kind": "",
+            "attempt": 1,
+        }
+
+    async def run_automation_now(self, automation_id: str) -> dict[str, Any]:
+        if self.ocupado:
+            raise RuntimeError("motor ocupado; tente quando o turno terminar")
+        if automation_id != "career:weekly":
+            raise KeyError(automation_id)
+        self.rodados.append(automation_id)
+        return dict(self.resultado)
+
+    def run_awaitable(self, aguardavel: Any, timeout: float = 60.0) -> Any:
+        import asyncio
+
+        return asyncio.run(aguardavel) if asyncio.iscoroutine(aguardavel) else aguardavel
+
+
+@pytest.fixture
+def setup_runner(tmp_path, isolated_env):
+    cfg = Config.load(
+        config_path=tmp_path / "config.toml",
+        env={"GAIA_DATA_DIR": str(tmp_path / "data")},
+    )
+    cfg.telegram.enabled = True
+    cfg.telegram.bot_token = "1:abc"
+    store = MemoryStore(tmp_path / "gaia.db")
+    centro = ControlCenter(
+        cfg, store, env_path=tmp_path / ".env", config_path=tmp_path / "config.toml"
+    )
+    alvo = FakeRunner()
+    # `orch` e quem expoe `run_automation_now` no ControlCenter (no motor real
+    # e o Orchestrator, nao o Target).
+    centro.orch = alvo
+    servidor = ServeServer(
+        alvo,  # type: ignore[arg-type]
+        RemoteUI(),
+        host="127.0.0.1",
+        port=0,
+        token="tok-chat",
+        control_token="ctl-secreto",
+        center=centro,
+    )
+    base = servidor.start()
+    yield base, alvo, centro, store
+    servidor.shutdown()
+    store.close()
+
+
+def test_rodar_agora_devolve_o_run(setup_runner):
+    base, alvo, *_ = setup_runner
+    status, corpo = pedir(
+        base, "POST", "/automations/run", token="tok-chat", corpo={"id": "career:weekly"}
+    )
+    assert status == 200
+    assert corpo["run"]["status"] == "completed"
+    assert corpo["run"]["trigger"] == "manual"
+    assert corpo["run"]["detail"] == "3 vagas"
+    assert alvo.rodados == ["career:weekly"]
+
+
+def test_rodar_agora_id_desconhecido_404(setup_runner):
+    base, *_ = setup_runner
+    status, corpo = pedir(
+        base, "POST", "/automations/run", token="tok-chat", corpo={"id": "nao:existe"}
+    )
+    assert status == 404
+    assert corpo["error"] == "unknown_automation"
+
+
+def test_rodar_agora_motor_ocupado_409(setup_runner):
+    base, alvo, *_ = setup_runner
+    alvo.ocupado = True
+    status, corpo = pedir(
+        base, "POST", "/automations/run", token="tok-chat", corpo={"id": "career:weekly"}
+    )
+    assert status == 409
+    assert "ocupado" in corpo["message"]
+
+
+def test_rodar_agora_sem_id_400(setup_runner):
+    base, *_ = setup_runner
+    status, corpo = pedir(base, "POST", "/automations/run", token="tok-chat", corpo={})
+    assert status == 400
+    assert corpo["error"] == "missing_id"
+
+
+def test_rodar_agora_exige_token(setup_runner):
+    base, *_ = setup_runner
+    assert pedir(base, "POST", "/automations/run", corpo={"id": "career:weekly"})[0] == 401

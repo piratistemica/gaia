@@ -75,6 +75,46 @@ def test_botoes_novos_do_header():
     assert 'dialog id="sessoes"' in texto
 
 
+def test_tela_de_automacoes_no_html():
+    """Botao do header NAVEGA para a tela propria (`#automacoes`), sem dialog.
+
+    O desenho mudou de "dialog somente leitura" para tela com checkbox: o
+    contrato agora e o hash (F5/voltar do navegador), os alvos da tela e a
+    leitura/escrita das mesmas rotas do motor.
+    """
+    texto, coletor = _html()
+    assert 'id="btn-automacoes"' in texto
+    assert 'id="view-automacoes"' in texto
+    assert 'id="view-chat"' in texto
+    assert 'dialog id="automacoes-dialog"' not in texto
+    assert "automacoes" in coletor.ids
+    # O botao chama a navegacao, nao `showModal`.
+    assert '"#btn-automacoes").addEventListener("click", irParaAutomacoes)' in texto
+    assert 'location.hash = "#automacoes"' in texto
+    assert 'hashchange' in texto
+    # Le o mesmo JSON do painel e nao inventa status.
+    assert 'api("/automations")' in texto
+    for estado in ("scheduled", "missed", "paused", "failed"):
+        assert estado in texto
+    # Checkbox de cada rotina e da proatividade gravam no motor.
+    assert 'api("/automations/set"' in texto
+    assert 'api("/proactive"' in texto
+    # Status em portugues (o pedido era "se falhou ou se deu certo").
+    assert '"deu certo"' in texto and '"não rodou"' in texto
+
+
+def test_botao_de_voz_no_html():
+    """O modo voz e um contrato entre HTML, JS e rotas `/voice/*`."""
+    texto, _ = _html()
+    assert 'id="btn-voz"' in texto and 'hidden' in texto.split('id="btn-voz"')[1][:200]
+    # O botao so aparece depois de `GET /voice`; o Enter passa por `vozEnter`.
+    assert 'carregarVoz()' in texto
+    assert 'vozEnter()' in texto
+    assert '/voice/listen' in texto and '/voice/speak' in texto and '/voice/stop' in texto
+    # Ao terminar o turno falado, a resposta e falada e o mic volta.
+    assert 'vozFalar(' in texto and 'vozSilenciar(' in texto
+
+
 def test_paleta_de_comandos_no_html():
     texto, _ = _html()
     assert 'id="comandos"' in texto
@@ -82,6 +122,22 @@ def test_paleta_de_comandos_no_html():
     # Enter/Tab/setas tratados antes do envio.
     for tecla in ("ArrowDown", "ArrowUp", "Tab", "Escape"):
         assert f'"{tecla}"' in texto
+
+
+def test_icone_da_gaia_nas_duas_telas():
+    """O mesmo PNG e o favicon do chat e do painel (sem arquivo duplicado)."""
+    from gaia.serve import web
+
+    assert web.ICON_PATH.is_file()
+    assert "icon.png" in web.STATIC_ASSETS
+    assert "icon.png" in web.CONTROL_ASSETS
+    conteudo, tipo = web.icon()
+    assert tipo == "image/png"
+    assert conteudo.startswith(b"\x89PNG")
+    for pagina in (INDEX, RAIZ / "gaia" / "serve" / "static" / "control.html"):
+        texto = pagina.read_text(encoding="utf-8")
+        assert 'rel="icon"' in texto
+        assert "/static/icon.png" in texto
 
 
 # -------------------------------------------------------------- catalogo ---
