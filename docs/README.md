@@ -33,6 +33,7 @@ estado atual. O status abaixo foi verificado no código.
 | [`plans/2026-11-22-control-center-ab.md`](plans/2026-11-22-control-center-ab.md) | implementado: plano tarefa por tarefa das fases A e B (histórico de execução da tarefa) |
 | [`plans/2026-11-22-control-center-fases-cde.md`](plans/2026-11-22-control-center-fases-cde.md) | **em execução**: fase C parcial (schema v7, scheduler único, retry, notificação). Tabela de status item por item dentro do arquivo; D/E são backlog |
 | [`plans/2026-11-22-control-center-continuar.md`](plans/2026-11-22-control-center-continuar.md) | **prompt de retomada** das fases C/D/E, com o estado verificado das fases A/B (commit, rotas, testes) |
+| [`plans/2026-11-23-mini-git-sync.md`](plans/2026-11-23-mini-git-sync.md) | **prompt de implementação, não aplicado**: o mini passa a ser clone git com timer de 5 min em vez de `rsync`; conserta o `.git` sem `config` (HEAD 75 commits atrás) e o venv com `pth` órfão de `zaya` |
 
 ## Specs e análises
 
