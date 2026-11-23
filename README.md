@@ -195,16 +195,19 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
   registrado com `trigger=manual` e o resultado (ou o erro) aparece na hora; o
   botão mostra `rodando…` enquanto espera e responde 409 se o motor estiver num
   turno. Rodar uma rotina pausada é permitido: o clique é explícito.
-- **Modo voz no web** (`🎙 voz`, aparece quando o servidor tem microfone e STT).
-  O microfone é o **do servidor**: `POST /voice/listen` grava uma fala (janela
-  de 15 s + VAD) e devolve o texto do faster-whisper local. `Enter` envia a
-  transcrição (editável na caixa) sem esperar a janela; 15 s sem fala silenciam
-  o microfone e só um novo `Enter` (ou o botão) volta a ouvir. A resposta é
-  sintetizada pelo mesmo TTS da TUI (`/voice/speak`, mp3/aiff em base64) e
-  tocada no navegador — no mini headless não há caixa de som, então é a
-  página que fala. Quando o áudio acaba, ela volta a ouvir; clicar de novo no
-  botão sai do modo voz e volta ao chat. Sem microfone o botão nem aparece
-  (`GET /voice` devolve o motivo).
+- **Modo voz no web** (`🎙 voz`, aparece quando o servidor consegue transcrever).
+  O microfone é o **de quem conversa**: o navegador grava WAV e manda em
+  `POST /voice/upload`, e o motor transcreve com o faster-whisper local (o mini
+  pode ser headless, sem microfone). Com `[serve] voice_source = "server"` o
+  motor volta a gravar com o próprio microfone (`POST /voice/listen`, janela de
+  15 s + VAD). `Enter` envia a transcrição sem esperar a janela; 15 s sem fala
+  silenciam o microfone e só a tecla `M` (ou o botão) volta a ouvir. A resposta
+  é sintetizada pelo mesmo TTS da TUI (`/voice/speak`, mp3/aiff em base64) e
+  tocada no navegador — no mini headless não há caixa de som, então é a página
+  que fala. Quando o áudio acaba, ela volta a ouvir; clicar de novo no botão sai
+  do modo voz e volta ao chat. O botão mostra "transcrevendo…" assim que o VAD
+  fecha a fala (a tela sonda `GET /voice` para isso). Sem STT o botão nem
+  aparece (`GET /voice` devolve o motivo).
 - **Sessão de cookie em vez de token a cada visita.** `POST /session` troca o
   `Authorization: Bearer` por um nonce em cookie `HttpOnly` (`gaia_chat`,
   `Path=/`, `SameSite=Strict`); o `Bearer` continua valendo para `gaia

@@ -176,13 +176,20 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
   `status`/`last_run` ja vem de `describe_automations` — nao reimplemente a
   regra na tela. Testes: `tests/test_serve_web.py` (contrato da view) e
   `tests/test_control_api.py` (rotas, 401/404/422/503, TOML e processo).
-- **Voz no web:** o microfone e o do *servidor* (`gaia/serve/voice.py`:
-  `record_until_silence` + faster-whisper); o navegador so pede (`POST
-  /voice/listen`), envia o texto no `/turn` e toca o audio de `POST
+- **Voz no web:** duas portas para o mesmo Whisper (`gaia/serve/voice.py`).
+  `[serve] voice_source = "browser"` (padrao) faz o *navegador* gravar WAV
+  16-bit mono e mandar em `POST /voice/upload` — o mini headless so transcreve;
+  `"server"` mantem o microfone do motor (`POST /voice/listen`,
+  `record_until_silence`). O texto vai no `/turn` e o audio volta de `POST
   /voice/speak`. Nao existe TTS local no caminho: no mini headless ele nao tem
-  para onde tocar. O botao da tela chama `vozEnter()` no Enter; quem silencia
-  depois de 15 s e o `setTimeout` do `index.html`, nao o servidor. Testes em
-  `tests/test_serve_voice.py` (rotas, janela, silencio e lock de uma escuta).
+  para onde tocar. O upload nao toca o disco (decodifica em memoria, so WAV/PCM:
+  nada de ffmpeg/librosa). Nao existe `MediaRecorder`: o `index.html` usa
+  `ScriptProcessorNode` para ter PCM cru. O botao da tela chama `vozEnter()` no
+  Enter e `M` silencia; quem cala depois de 15 s e o `setTimeout` do
+  `index.html`, nao o servidor. `GET /voice` publica `state`
+  (`idle`/`ouvindo`/`transcrevendo`) para a tela sair de "ouvindo" sem esperar o
+  POST. Testes em `tests/test_serve_voice.py` (rotas, janela, silencio, WAV
+  invalido e lock de uma escuta).
 - **Nova rota do painel:** adicione no `get`/`post` de
   `gaia/serve/control_api.py` e o metodo correspondente em
   `gaia/control/center.py`. Toda rota `/control/api/*` exige
