@@ -16,6 +16,7 @@ Leitura do que a TUI ja faz (paridade no web):
 * ``GET  /modes``, ``POST /mode``
 * ``GET  /history``, ``POST /session/open``, ``POST /session/new``
 * ``GET  /commands``, ``POST /chinese`` (eco 中文 do catalogo de comandos)
+* ``GET  /languages``, ``POST /language`` (dialog "idiomas" do web; hoje so zh)
 * ``GET  /automations``
 * ``GET  /instances`` (maquinas do ``instances.json``, com status)
 
@@ -378,6 +379,11 @@ class _Handler(BaseHTTPRequestHandler):
         if rota == "/modes":
             self._json(HTTPStatus.OK, {"modes": self._modes()})
             return
+        if rota == "/languages":
+            # Idiomas de eco que a tela pode oferecer (hoje so o chines). A tela
+            # monta o dialog "idiomas" daqui em vez de ter um botao 中文 fixo.
+            self._json(HTTPStatus.OK, {"languages": self._idiomas()})
+            return
         if rota == "/commands":
             # Catalogo unico (`controller/command_catalog.py`): a paleta do web
             # filtra por `names`; o despacho continua em `/turn`.
@@ -504,6 +510,34 @@ class _Handler(BaseHTTPRequestHandler):
                 self._erro(HTTPStatus.BAD_REQUEST, "chinese_failed", str(exc))
                 return
             self._json(HTTPStatus.OK, {"ok": True, "chinese": ativo})
+            return
+        if rota == "/language":
+            # Dialog "idiomas": {key: "zh", enabled?: bool}. Sem `enabled` so
+            # escolhe o idioma (liga o eco). A resposta traz a lista para a tela
+            # repintar sem um segundo GET.
+            chave = str(corpo.get("key") or corpo.get("language") or "").strip()
+            if not chave:
+                self._erro(HTTPStatus.BAD_REQUEST, "empty_language", "idioma vazio")
+                return
+            ativar = corpo.get("enabled")
+            try:
+                self._idioma(chave, None if ativar is None else bool(ativar))
+            except ValueError as exc:
+                self._erro(HTTPStatus.BAD_REQUEST, "bad_language", str(exc))
+                return
+            except Exception as exc:
+                logger.warning("troca de idioma falhou: %s", exc)
+                self._erro(HTTPStatus.BAD_REQUEST, "language_failed", str(exc))
+                return
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "key": chave.lower(),
+                    "chinese": bool(self._chines_ativo()),
+                    "languages": self._idiomas(),
+                },
+            )
             return
         if rota == "/model":
             slug = str(corpo.get("model") or "").strip()
@@ -678,6 +712,38 @@ class _Handler(BaseHTTPRequestHandler):
         if not callable(funcao):
             raise RuntimeError("eco em chines indisponivel neste motor")
         return bool(funcao(ligado))
+
+    def _idiomas(self) -> list[dict[str, Any]]:
+        """Lista de idiomas do motor; motor antigo cai num item chines fixo."""
+        funcao = getattr(self.app.target, "languages", None)
+        if callable(funcao):
+            return list(funcao())
+        return [
+            {
+                "key": "zh",
+                "label": "中文",
+                "code": "zh",
+                "current": True,
+                "enabled": bool(self._chines_ativo()),
+            }
+        ]
+
+    def _idioma(self, chave: str, ligado: bool | None) -> bool:
+        trocar = getattr(self.app.target, "set_language", None)
+        if callable(trocar):
+            return bool(trocar(chave, ligado))
+        # Motor antigo: so existe o chines.
+        if chave.lower() != "zh":
+            raise ValueError(f"idioma desconhecido: {chave}")
+        return self._chines(True if ligado is None else ligado)
+
+    def _chines_ativo(self) -> bool:
+        """Estado do eco 中文 sem exigir que o alvo tenha `chinese()`."""
+        ler = getattr(self.app.target, "chinese", None)
+        if callable(ler):
+            return bool(ler())
+        saude = self.app.target.health()
+        return bool((saude or {}).get("chinese"))
 
     def _history(self) -> list[dict[str, Any]]:
         funcao = getattr(self.app.target, "history", None)

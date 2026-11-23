@@ -29,6 +29,20 @@ from gaia.serve.voice import (
 logger = logging.getLogger(__name__)
 
 
+# Idiomas do eco: o idioma de cada traducao (chave da tela -> (rotulo, codigo)).
+# O eco so traduz quando `interface.chinese_echo` esta ligado; por enquanto o
+# unico idioma disponivel e o chines, mas a lista existe para a tela oferecer
+# um seletor ("idiomas") em vez de um botao fixo 中文.
+IDIOMAS_ECO: dict[str, tuple[str, str]] = {
+    "zh": ("中文", "zh"),
+}
+
+
+def idioma_eco() -> str:
+    """Idioma de eco disponivel hoje (a chave de ``IDIOMAS_ECO``)."""
+    return next(iter(IDIOMAS_ECO))
+
+
 class MotorOcupado(RuntimeError):
     """Já existe um turno em andamento; o transporte traduz em HTTP 409."""
 
@@ -187,7 +201,25 @@ class OrchestratorTarget:
         futuro.result(timeout=60.0)
         return ["sessao nova criada"]
 
-    # ------------------------------------------------------------- chines/web
+    # ------------------------------------------------------------ idiomas/web
+    def languages(self) -> list[dict[str, Any]]:
+        """Idiomas de eco que este motor sabe traduzir.
+
+        A tela usa a lista para montar o dialog "idiomas": hoje so o chines,
+        mas acrescentar ingles/frances e so um item em ``IDIOMAS_ECO``.
+        """
+        atual = idioma_eco()
+        return [
+            {
+                "key": chave,
+                "label": rotulo,
+                "code": codigo,
+                "current": chave == atual,
+                "enabled": self.chinese(),
+            }
+            for chave, (rotulo, codigo) in IDIOMAS_ECO.items()
+        ]
+
     def set_chinese(self, enabled: bool) -> bool:
         """Liga/desliga o eco 中文 do web (estado do processo, como na TUI)."""
         ligado = bool(enabled)
@@ -200,6 +232,19 @@ class OrchestratorTarget:
     def chinese(self) -> bool:
         interface = getattr(self.orch.cfg, "interface", None)
         return bool(getattr(interface, "chinese_echo", False))
+
+    def set_language(self, key: str, enabled: bool | None = None) -> bool:
+        """Troca o idioma de eco e/ou liga-desliga o eco (``None`` = so troca).
+
+        Hoje o unico idioma e o chines: escolher ``zh`` liga o eco em
+        ``interface.chinese_echo``. Quando houver ingles/frances, a chave vira
+        ``interface.echo_language`` e o caminho de traducao segue cada um. Chave
+        desconhecida levanta ``ValueError`` (o transporte traduz em 400).
+        """
+        chave = (key or "").strip().lower()
+        if chave not in IDIOMAS_ECO:
+            raise ValueError(f"idioma desconhecido: {key}")
+        return self.set_chinese(True if enabled is None else bool(enabled))
 
     def echo_chinese(self, role: str, text: str) -> None:
         """Traduz em background e emite ``zh``; nunca bloqueia nem derruba o turno.
@@ -232,7 +277,9 @@ class OrchestratorTarget:
             return
         if zh and self.chinese():
             # `role`, nao `kind`: `emit(kind, **payload)` ja usa esse nome.
-            self.ui.emit("zh", role=role, text=texto, zh=zh)
+            # `lang` deixa o web rotular a linha (hoje sempre "zh"; a chave
+            # vem de `IDIOMAS_ECO` para o dia do ingles/frances).
+            self.ui.emit("zh", role=role, text=texto, zh=zh, lang=idioma_eco())
 
     def history(self) -> list[dict[str, Any]]:
         """Turnos da conversa ativa (para o web redesenhar ao trocar de sessao)."""

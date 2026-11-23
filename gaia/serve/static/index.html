@@ -39,21 +39,24 @@
   select.pill { color: var(--fg); font: inherit; font-size: 12px; }
   .instancia { display: inline-flex; align-items: center; gap: 6px; }
   .instancia-status:empty { display: none; }
-  #modelos-lista, #sessoes-lista, #modos-lista {
+  #modelos-lista, #sessoes-lista, #modos-lista, #idiomas-lista {
     list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto;
-  }  #modelos-lista li, #sessoes-lista li, #modos-lista li {
+  }  #modelos-lista li, #sessoes-lista li, #modos-lista li, #idiomas-lista li {
     padding: 7px 9px; border-radius: 8px; font-size: 13px; cursor: pointer;
   }
   #modelos-lista li { font-family: var(--mono); font-size: 12.5px; }
-  #modelos-lista li:hover, #sessoes-lista li:hover, #modos-lista li:hover { background: var(--panel2); }
-  #modelos-lista li.atual, #sessoes-lista li.atual, #modos-lista li.atual {
-    color: var(--accent); font-weight: bold;
-  }
+  #modelos-lista li:hover, #sessoes-lista li:hover, #modos-lista li:hover,
+  #idiomas-lista li:hover { background: var(--panel2); }
+  #modelos-lista li.atual, #sessoes-lista li.atual, #modos-lista li.atual,
+  #idiomas-lista li.atual { color: var(--accent); font-weight: bold; }
   #modelos-lista li.atual::before, #sessoes-lista li.atual::before,
-  #modos-lista li.atual::before { content: "● "; }
+  #modos-lista li.atual::before, #idiomas-lista li.atual::before { content: "● "; }
   #modelos-lista li:not(.atual)::before, #sessoes-lista li:not(.atual)::before,
-  #modos-lista li:not(.atual)::before { content: "○ "; color: var(--dim); }
-  #modelos-lista p, #sessoes-lista p, #modos-lista p { color: var(--dim); font-size: 13px; padding: 8px 4px; }
+  #modos-lista li:not(.atual)::before,
+  #idiomas-lista li:not(.atual)::before { content: "○ "; color: var(--dim); }
+  #modelos-lista p, #sessoes-lista p, #modos-lista p, #idiomas-lista p {
+    color: var(--dim); font-size: 13px; padding: 8px 4px;
+  }
   .sessao-meta { font-size: 11px; color: var(--dim); font-family: var(--mono); }
   .modo-resumo { font-size: 12px; color: var(--dim); }
   #status { flex: 1; color: var(--dim); font-size: 13px; overflow: hidden;
@@ -232,7 +235,8 @@
           title="estado das automações: próxima execução, atrasos e última rodada" hidden>automações</button>
   <button id="btn-sessoes" class="pill" type="button" title="abrir uma conversa anterior">sessões</button>
   <button id="btn-nova" class="pill" type="button" title="comecar uma conversa nova">+ nova</button>
-  <button id="btn-chines" class="pill" type="button" title="mostrar 中文 + pinyin de cada mensagem" hidden>中文</button>
+  <button id="btn-idiomas" class="pill" type="button"
+          title="idiomas do eco: escolher o idioma de cada mensagem" hidden>idiomas</button>
   <button id="btn-voz" class="pill voz" type="button"
           title="modo voz: fala com a Gaia pelo microfone deste servidor" hidden>🎙 voz</button>
   <button id="abortar" class="perigo" title="encerra o turno atual" disabled>parar</button>
@@ -323,6 +327,18 @@
   </form>
 </dialog>
 
+<dialog id="idiomas">
+  <form method="dialog">
+    <h2>Idiomas</h2>
+    <p>O eco mostra a tradução embaixo de cada mensagem. Escolha o idioma.</p>
+    <ul id="idiomas-lista"><li>consultando…</li></ul>
+    <div class="linha">
+      <button id="idiomas-desligar" value="desligar" formnovalidate>desligar o eco</button>
+      <button value="cancelar" formnovalidate>fechar</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="/static/shared.js"></script>
 <script>
 "use strict";
@@ -343,6 +359,8 @@ const estado = {
   comandosFiltrados: [],
   comandosAtivo: -1,
   chines: false,    // eco 中文 ligado no servidor
+  idiomas: [],      // `GET /languages` (rotulo/chave do eco)
+  idioma: "zh",     // idioma de eco em uso
   userLocal: null,  // bolha do usuário desenhada no envio (o evento `user` repete)
   ocupado: false,   // turno em andamento (run_started -> run_finished)
   textoFinal: "",   // última resposta da Gaia no turno (vira áudio no modo voz)
@@ -386,11 +404,17 @@ function md(bruto) {
 
 function rolar() { chat.scrollTop = chat.scrollHeight; }
 
-/* ----------------------------------------------------------- eco em chinês */
-/** Acrescenta a linha 中文 embaixo da bolha que corresponde ao texto. */
-function ecoChines(tipo, original, zh) {
+/* -------------------------------------------------------------- eco/idiomas */
+/**
+ * Acrescenta a linha do eco (ex.: 中文) embaixo da bolha do texto original.
+ * O rotulo vem do idioma ativo (`estado.idiomas`) para o dia em que houver
+ * ingles/frances; as linhas ja desenhadas guardam o rotulo em `data-idioma`.
+ */
+function ecoIdioma(tipo, original, traducao, chave) {
   const alvo = texto(original).trim();
-  if (!texto(zh).trim() || !alvo) return;
+  const codigo = texto(chave) || estado.idioma;
+  if (!texto(traducao).trim() || !alvo) return;
+  const rotulo = rotuloIdioma(codigo);
   const classe = tipo === "user" ? "msg user" : "msg say";
   const bolhas = [...chat.querySelectorAll("." + classe.split(" ").join("."))];
   // De tras para frente: o eco costuma chegar depois da bolha recem-desenhada.
@@ -404,34 +428,99 @@ function ecoChines(tipo, original, zh) {
       linha.className = "zh";
       bolhas[i].append(linha);
     }
-    linha.textContent = "中文 · " + texto(zh);
+    linha.dataset.idioma = codigo;
+    linha.textContent = rotulo + " · " + texto(traducao);
     rolar();
     return;
   }
   // Bolha nao encontrada (historico redesenhado): mostra solta, sem perder o eco.
-  aviso("", "中文 · " + texto(zh));
+  aviso("", rotulo + " · " + texto(traducao));
 }
 
-function pintarChines(ligado) {
-  estado.chines = Boolean(ligado);
-  const botao = $("#btn-chines");
-  botao.hidden = false;
+/** Rotulo curto do idioma (`zh` -> "中文"); desconhecido vira a propria chave. */
+function rotuloIdioma(chave) {
+  const item = estado.idiomas.find((i) => i.key === texto(chave));
+  return item && item.label ? texto(item.label) : (texto(chave) || "eco");
+}
+
+/**
+ * Estado do botao "idiomas" (o eco de cada idioma e um dialogo, nao um botao
+ * fixo 中文): verde quando algum idioma esta ligado, com o rotulo no titulo.
+ */
+function pintarIdiomas(idiomas, chines) {
+  if (Array.isArray(idiomas) && idiomas.length) estado.idiomas = idiomas;
+  if (chines !== undefined) estado.chines = Boolean(chines);
+  const atual = estado.idiomas.find((i) => i.current) || estado.idiomas[0] || null;
+  estado.idioma = atual ? texto(atual.key) : estado.idioma;
+  const rotulo = atual ? texto(atual.label) : "";
+  const botao = $("#btn-idiomas");
+  botao.hidden = !estado.idiomas.length;
   botao.classList.toggle("ok", estado.chines);
-  botao.textContent = estado.chines ? "中文 on" : "中文";
+  botao.textContent = estado.chines && rotulo ? "idiomas · " + rotulo : "idiomas";
   botao.title = estado.chines
-    ? "eco em chinês ligado; clique para desligar"
-    : "mostrar 中文 + pinyin de cada mensagem";
+    ? "eco em " + rotulo + " ligado; clique para escolher outro idioma"
+    : "escolher o idioma do eco de cada mensagem";
 }
 
-async function alternarChines() {
-  const alvo = !estado.chines;
+async function abrirIdiomas() {
+  const dialogo = $("#idiomas");
+  const lista = $("#idiomas-lista");
+  lista.innerHTML = "<li>consultando…</li>";
+  dialogo.showModal();
   try {
-    const dados = await api("/chinese", { method: "POST", body: JSON.stringify({ enabled: alvo }) });
-    pintarChines(dados.chinese);
-    aviso("success", "eco em chinês " + (dados.chinese ? "ativado" : "desativado"));
+    const dados = await api("/languages");
+    const idiomas = Array.isArray(dados.languages) ? dados.languages : [];
+    pintarIdiomas(idiomas);
+    preencherLista(lista, idiomas.map((item) => {
+      // `current` e o idioma do motor; o "atual" da tela tambem depende do eco
+      // estar ligado (idioma escolhido com o eco desligado nao esta em uso).
+      const ativo = item.current && estado.chines;
+      const li = itemLista(ativo ? "atual" : "",
+        texto(item.label) + " (" + texto(item.key) + ")",
+        document.createElement("br"),
+        (() => { const s = document.createElement("span"); s.className = "modo-resumo";
+                 s.textContent = descricaoIdioma(item, ativo); return s; })());
+      li.addEventListener("click", () => escolherIdioma(item.key));
+      return li;
+    }), "nenhum idioma disponível neste motor.");
   } catch (erro) {
     if (erro.status === 401) return tratar401(erro);
-    aviso("error", "não consegui alternar o chinês: " + erro.message);
+    lista.replaceChildren();
+    const p = document.createElement("p");
+    p.textContent = "não consegui listar: " + erro.message;
+    lista.append(p);
+  }
+}
+
+function descricaoIdioma(item, ativo) {
+  if (ativo) return "em uso: tradução embaixo de cada mensagem";
+  if (item.current) return "escolhido, mas o eco está desligado";
+  return "clique para ativar este idioma";
+}
+
+async function escolherIdioma(chave) {
+  const dialogo = $("#idiomas");
+  if (dialogo.open) dialogo.close();
+  try {
+    const dados = await api("/language", { method: "POST", body: JSON.stringify({ key: chave }) });
+    pintarIdiomas(dados.languages, dados.chinese);
+    aviso("success", "eco em " + rotuloIdioma(dados.key) + " ativado.");
+  } catch (erro) {
+    if (erro.status === 401) return tratar401(erro);
+    aviso("error", "não consegui trocar o idioma: " + erro.message);
+  }
+}
+
+async function desligarIdiomas() {
+  const dialogo = $("#idiomas");
+  if (dialogo.open) dialogo.close();
+  try {
+    const dados = await api("/language", { method: "POST", body: JSON.stringify({ key: estado.idioma || "zh", enabled: false }) });
+    pintarIdiomas(dados.languages, dados.chinese);
+    aviso("success", "eco em " + rotuloIdioma(dados.key) + " desativado.");
+  } catch (erro) {
+    if (erro.status === 401) return tratar401(erro);
+    aviso("error", "não consegui desligar o eco: " + erro.message);
   }
 }
 
@@ -507,7 +596,7 @@ function pintarMotor(engine) {
                                     ["#chave", dados.has_key], ["#modo", dados.mode]]) {
     $(seletor).hidden = !mostrar;
   }
-  pintarChines(Boolean(dados.chinese));
+  pintarIdiomas(dados.languages, dados.chinese);
 
   $("#modo").textContent = dados.mode ? "modo: " + dados.mode : "";
   $("#motor").replaceChildren(header.cartao(dados));
@@ -1026,7 +1115,8 @@ function tratarEvento(evento) {
       mostrarHits(evento.hits);
       break;
     case "zh":
-      ecoChines(evento.role, evento.text, evento.zh);
+      // O evento traz `role`/`text`/`zh`; `lang` e opcional (idioma de eco).
+      ecoIdioma(evento.role, evento.text, evento.zh, evento.lang);
       break;
     case "help":
       catalogoNoChat();
@@ -2081,7 +2171,8 @@ $("#automacoes").addEventListener("click", irParaAutomacoes);
 $("#btn-sessoes").addEventListener("click", abrirSessoes);
 $("#nova-sessao").addEventListener("click", novaSessao);
 $("#btn-nova").addEventListener("click", novaSessao);
-$("#btn-chines").addEventListener("click", alternarChines);
+$("#btn-idiomas").addEventListener("click", abrirIdiomas);
+$("#idiomas-desligar").addEventListener("click", desligarIdiomas);
 $("#btn-voz").addEventListener("click", alternarVoz);
 $("#trocar-token").addEventListener("click", () => abrirLogin());
 $("#enviar").addEventListener("click", enviar);

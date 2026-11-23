@@ -7,7 +7,8 @@ Tres contratos que a tela depende e que quebram em silencio:
   ``<dialog>`` e chamava ``showModal`` num ``<button>``);
 * ``GET /commands`` serve o mesmo catalogo da ajuda do terminal;
 * ``POST /chinese`` liga o eco 中文 no motor, e o ``zh`` so e emitido com ele
-  ligado.
+  ligado; ``GET /languages``/``POST /language`` sao o dialog "idiomas" (ela
+  oferece a lista e o botao 中文 unico nao existe mais).
 """
 
 from __future__ import annotations
@@ -69,10 +70,13 @@ def test_todo_seletor_de_id_existe_no_html():
 
 def test_botoes_novos_do_header():
     texto, _ = _html()
-    for botao in ("btn-sessoes", "btn-nova", "btn-chines"):
+    for botao in ("btn-sessoes", "btn-nova", "btn-idiomas"):
         assert f'id="{botao}"' in texto
-    # O dialog continua sendo o alvo do `showModal`.
+    # O atual de cada lista continua sendo o alvo do `showModal`.
     assert 'dialog id="sessoes"' in texto
+    assert 'dialog id="idiomas"' in texto
+    # O botao 中文 fixo saiu: quem escolhe o idioma e o dialog.
+    assert 'id="btn-chines"' not in texto
 
 
 def test_tela_de_automacoes_no_html():
@@ -278,6 +282,59 @@ def test_chinese_liga_e_desliga_no_motor(servidor):
     assert alvo.chinese is False
 
 
+def test_languages_lista_o_idioma_de_eco(servidor):
+    _alvo, base = servidor
+    status, corpo = _pedir(base, "GET", "/languages")
+    assert status == 200
+    idiomas = corpo["languages"]
+    assert [item["key"] for item in idiomas] == ["zh"]
+    assert idiomas[0]["label"] == "中文"
+    assert idiomas[0]["current"] is True
+    assert idiomas[0]["enabled"] is False
+
+
+def test_language_escolhe_o_idioma_e_liga_o_eco(servidor):
+    """Dialog "idiomas": `{key: "zh"}` escolhe e liga; `enabled: false` desliga."""
+    alvo, base = servidor
+    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "zh"})
+    assert status == 200
+    assert corpo["key"] == "zh" and corpo["chinese"] is True
+    assert alvo.chinese is True
+    assert corpo["languages"][0]["enabled"] is True
+
+    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "zh", "enabled": False})
+    assert status == 200 and corpo["chinese"] is False
+    assert alvo.chinese is False
+
+
+def test_language_desconhecido_e_400(servidor):
+    _, base = servidor
+    status, corpo = _pedir(base, "POST", "/language", corpo={"key": "fr"})
+    assert status == 400
+    assert corpo["error"] == "bad_language"
+
+    status, corpo = _pedir(base, "POST", "/language", corpo={})
+    assert status == 400
+    assert corpo["error"] == "empty_language"
+
+
+def test_language_aceita_motor_antigo_sem_set_language(servidor):
+    """Target antigo (so `set_chinese`) continua atendendo o dialog."""
+
+    class Antigo(FakeTarget):
+        set_language = None  # type: ignore[assignment]
+
+    srv = ServeServer(Antigo(), RemoteUI(), host="127.0.0.1", port=0)  # type: ignore[arg-type]
+    base = srv.start()
+    try:
+        status, corpo = _pedir(base, "POST", "/language", corpo={"key": "zh"})
+        assert status == 200 and corpo["chinese"] is True
+        status, corpo = _pedir(base, "POST", "/language", corpo={"key": "fr"})
+        assert status == 400
+    finally:
+        srv.shutdown()
+
+
 def test_chinese_sem_suporte_no_motor_e_400():
     class SemChines(FakeTarget):
         set_chinese = None  # type: ignore[assignment]
@@ -364,6 +421,8 @@ def test_eco_zh_so_com_o_interruptor_ligado():
         ecos = _de(depois, "zh")
         assert [eco["role"] for eco in ecos] == ["user", "gaia"]
         assert ecos[0]["zh"] == "你好 | nǐ hǎo"
+        # `lang` rotula a linha do eco na tela (hoje "zh").
+        assert {eco["lang"] for eco in ecos} == {"zh"}
         # A pergunta e a resposta passaram pelo tradutor.
         assert orch.chamadas == ["bom dia", "eco: bom dia"]
     finally:
@@ -391,6 +450,20 @@ def test_eco_zh_nao_derruba_o_turno_quando_a_traducao_falha():
     finally:
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=3)
+
+
+def test_languages_e_set_language_no_motor_de_verdade():
+    orch = _Orch()
+    alvo = OrchestratorTarget(orch, RemoteUI())
+    idiomas = alvo.languages()
+    assert [item["key"] for item in idiomas] == ["zh"]
+    assert idiomas[0]["enabled"] is False
+    assert alvo.set_language("zh") is True
+    assert orch.cfg.interface.chinese_echo is True
+    assert alvo.languages()[0]["enabled"] is True
+    assert alvo.set_language("zh", False) is False
+    with pytest.raises(ValueError):
+        alvo.set_language("fr")
 
 
 def test_set_chinese_le_a_configuracao_do_motor():

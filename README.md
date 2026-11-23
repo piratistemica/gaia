@@ -153,10 +153,10 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
 ```
 
 - Rotas do chat: `GET /`, `/health`, `/session`, `/instances`, `/engine`,
-  `/modes`, `/commands`, `/voice`, `/sessions`, `/history`, `/automations`,
-  `/providers`, `/models`, `/search`,
+  `/modes`, `/languages`, `/commands`, `/voice`, `/sessions`, `/history`,
+  `/automations`, `/providers`, `/models`, `/search`,
   `/events` (SSE); `POST /session`, `/turn`, `/permission/{id}`, `/abort`,
-  `/model`, `/mode`, `/chinese`, `/automations/set`, `/automations/run`,
+  `/model`, `/mode`, `/language`, `/chinese`, `/automations/set`, `/automations/run`,
   `/proactive`,
   `/voice/listen`, `/voice/speak`, `/voice/stop`,
   `/session/open`, `/session/new`; `DELETE /session`.
@@ -167,8 +167,13 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
   as próximas automações. Digitar `/` abre a paleta de comandos (mesmo catálogo
   da ajuda do terminal, filtrada enquanto se digita; Tab/Enter completam, Esc
   fecha) e `/ajuda` imprime a lista no chat. O header tem `+ nova` (sessão
-  nova), `sessões` (conversas anteriores) e `中文` (eco 中文 + pinyin de cada
-  mensagem, o mesmo `/chines` da TUI — estado do processo, não do TOML).
+  nova), `sessões` (conversas anteriores) e `idiomas` (abre o dialog com os
+  idiomas do eco; escolher um liga a tradução embaixo de cada mensagem e
+  `desligar o eco` desliga — hoje só 中文, o mesmo `/chines` da TUI, estado do
+  processo e não do TOML). `GET /languages` devolve a lista
+  (`key`/`label`/`code`/`current`/`enabled`) e `POST /language` com
+  `{"key": "zh", "enabled": false}` escolhe/troca: acrescentar inglês ou
+  francês é um item novo em `IDIOMAS_ECO` (`gaia/serve/app.py`).
 - **Tela de automações no web.** O botão `automações` do header leva a uma tela
   própria (a URL vira `#automacoes`; F5 e o voltar do navegador continuam nela)
   e o composer fica escondido ali. Cada rotina aparece como um cartão com
