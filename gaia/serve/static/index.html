@@ -347,17 +347,26 @@ const estado = {
   ocupado: false,   // turno em andamento (run_started -> run_finished)
   textoFinal: "",   // última resposta da Gaia no turno (vira áudio no modo voz)
   voz: {
-    // Modo voz: o microfone é o do SERVIDOR (`POST /voice/listen` grava e
-    // transcreve com o faster-whisper local, a mesma voz da TUI); o navegador
-    // só pede, reproduz e desenha o estado. Sem caixa de som no mini, é aqui
-    // que a resposta é ouvida.
-    disponivel: false, // `GET /voice` disse que há microfone e STT
+    // Modo voz: a origem do audio vem de `GET /voice` (`source`). No padrao
+    // "browser" o proprio navegador grava WAV (navigator.mediaDevices) e manda
+    // em `POST /voice/upload`; em "server" o microfone e o do motor
+    // (`POST /voice/listen`). Nos dois casos quem transcreve e o faster-whisper
+    // do motor e quem reproduz a resposta e este navegador.
+    disponivel: false, // `GET /voice` disse que da para usar
     motivo: "",        // por que o modo voz não existe nesta máquina
     tts: false,        // o motor sintetiza áudio (`/voice/speak`)
+    fonte: "browser",  // browser | server (config `[serve] voice_source`)
+    microfone: false,  // o motor tem microfone (só importa em `server`)
     ativo: false,      // botão ligado: o laço de voz está no comando
     estado: "off",     // off | ouvindo | transcrevendo | enviando | falando | silenciado
     eraVoz: false,     // o turno atual nasceu de uma fala (Enter não conta)
-    janela: null,      // AbortController da escuta em curso
+    mudo: false,       // microfone silenciado pela tecla M (ou pelos 15 s)
+    manual: false,     // a janela atual foi cortada por Enter (não pelo VAD)
+    janela: null,      // AbortController da escuta em curso (modo servidor)
+    sonda: null,       // setInterval do `GET /voice` enquanto escuta
+    gravador: null,    // gravação WAV do navegador em curso (modo navegador)
+    pararGravacao: null, // resolve a espera do ciclo: {manual: bool}
+    prazoGravacao: null, // setTimeout da janela aberta no navegador
     audio: null,       // elemento <audio> único (o clique libera o autoplay)
     url: "",           // blob: do áudio atual (revogado no fim)
   },
@@ -1102,11 +1111,8 @@ async function enviar() {
   // enviar (dois pedidos ao motor ao mesmo tempo só atrapalham) e o turno
   // não é falado, porque não nasceu de uma fala.
   if (estado.voz.ativo) {
-    const janela = estado.voz.janela;
     estado.voz.janela = null;
-    if (janela) {
-      try { janela.abort(); } catch (_) { /* já cancelada */ }
-    }
+    vozPararSonda();
     estado.voz.eraVoz = false;
     vozPararEscuta();
     vozEstado("enviando");
@@ -1301,25 +1307,35 @@ function fecharComandos() {
 }
 
 /* ---------------------------------------------------------------- modo voz */
-// O microfone é o do servidor: `POST /voice/listen` grava uma fala (janela +
-// VAD) e devolve o texto do faster-whisper. O navegador só autentica, desenha o
-// estado, envia o texto no `/turn` e reproduz o áudio de `/voice/speak` no
-// `<audio>` — numa máquina headless o TTS local não teria para onde tocar.
+// Duas origens de audio, um unico Whisper (o do motor):
 //
-// Laço: clicar liga -> ouve 15 s -> Enter envia (ou os 15 s de silêncio
-// silenciam o mic) -> resposta é falada -> quando a fala acaba, volta a ouvir.
-// Clicar de novo desliga e volta ao chat de texto.
+// * `source=browser` (padrao): o navegador grava com `navigator.mediaDevices`,
+//   converte para WAV 16-bit mono 16 kHz (Web Audio) e manda os bytes em
+//   `POST /voice/upload`. O mini headless so transcreve — resolve o caso de o
+//   servidor nao ter microfone util, e a fala sai de quem esta conversando.
+// * `source=server`: o modo antigo, `POST /voice/listen` grava no microfone do
+//   motor (janela + VAD). Continua inteiro para quem preferir.
+//
+// Nos dois casos o resto do laco e igual: transcricao -> `/turn` -> resposta
+// falada por `/voice/speak` no `<audio>` -> volta a ouvir.
+//
+// Enter envia o que ja foi falado; `M` silencia/religa o microfone; 15 s sem
+// fala silenciam. Clicar de novo no botao sai do modo voz.
 const VOZ_JANELA = 15;      // segundos de espera por fala antes de silenciar
 const VOZ_MIN_FALA = 2;     // menos que isso e ruido: nao vira mensagem
+const VOZ_SONDA_MS = 400;   // ritmo do GET /voice enquanto o mic esta aberto
+const VOZ_WAV_HZ = 16000;   // taxa que o servidor (e o Whisper) esperam
 
 /**
- * Laço do modo voz (o microfone é o do servidor):
+ * Laço do modo voz. A origem do audio vem de `GET /voice` (`source`):
  *
- *   clicar liga -> POST /voice/listen (janela de 15 s + VAD) -> Enter envia
- *   (ou 15 s sem fala silenciam o mic) -> /turn -> a resposta é falada por
- *   /voice/speak no <audio> -> quando o áudio acaba, volta a ouvir.
+ *   clicar liga -> grava (navegador ou servidor) -> Enter envia (ou 15 s sem
+ *   fala silenciam o mic) -> `/turn` -> a resposta é falada em `/voice/speak`
+ *   -> quando o áudio acaba, volta a ouvir.
  *
- * Enter no silêncio religa o microfone; clicar de novo sai do modo voz.
+ * Enter NUNCA silencia: ele envia a transcrição (a da caixa ou a que o
+ * servidor devolver ao encerrar a janela). Quem abre e fecha o microfone é a
+ * tecla `M` (ou o botão 🎙).
  */
 async function carregarVoz() {
   const botao = $("#btn-voz");
@@ -1327,6 +1343,8 @@ async function carregarVoz() {
     const dados = await api("/voice");
     estado.voz.disponivel = Boolean(dados.available);
     estado.voz.tts = Boolean(dados.tts);
+    estado.voz.fonte = dados.source === "server" ? "server" : "browser";
+    estado.voz.microfone = Boolean(dados.microphone);
     estado.voz.motivo = texto(dados.reason);
   } catch (erro) {
     if (erro.status === 401) return tratar401(erro);
@@ -1336,7 +1354,8 @@ async function carregarVoz() {
   }
   botao.hidden = !estado.voz.disponivel;
   botao.title = estado.voz.disponivel
-    ? "modo voz: microfone do servidor; Enter envia a fala"
+    ? "modo voz: microfone do " + (estado.voz.fonte === "server" ? "servidor" : "navegador")
+      + "; Enter envia a fala, M silencia"
     : estado.voz.motivo;
   if (estado.voz.ativo && !estado.voz.disponivel) desligarVoz();
   else if (!estado.voz.ativo) botao.classList.remove("ok");
@@ -1356,11 +1375,11 @@ function vozEstado(novo) {
   };
   const dicas = {
     off: "modo voz: clique para falar com a Gaia",
-    ouvindo: "fale agora · Enter envia a transcrição · clique para sair do modo voz",
-    transcrevendo: "transcrevendo o que você falou…",
+    ouvindo: "fale agora · Enter envia a transcrição · M silencia o microfone",
+    transcrevendo: "transcrevendo o que você falou · aguarde o envio",
     enviando: "enviando para a Gaia… · clique para sair do modo voz",
     falando: "a Gaia está respondendo; Enter interrompe a fala e volta a ouvir",
-    silenciado: "microfone silenciado · Enter volta a ouvir · clique para sair",
+    silenciado: "microfone mudo · aperte M para voltar a ouvir · clique para sair",
   };
   botao.textContent = rotulos[novo] || rotulos.off;
   botao.className = "pill voz" + (novo === "off" ? "" : " " + novo);
@@ -1369,45 +1388,237 @@ function vozEstado(novo) {
 }
 
 /**
- * Um ciclo: abre uma janela de escuta, transcreve e envia se houver fala.
- * Janela vazia = 15 s sem fala: o microfone para e só um Enter o religa.
+ * Um ciclo: abre uma janela de escuta (navegador ou servidor), transcreve e
+ * envia se houver fala.
+ * `manual` = o Enter cortou a escuta: se nada foi ouvido, o microfone não se
+ * cala (era o que fazia "Enter" parecer a tecla de mudo).
+ * Janela vazia (15 s de silêncio, sem Enter) põe o mic em mudo; o `M` religa.
  */
-async function vozCiclo() {
+async function vozCiclo(opcoes = {}) {
   const voz = estado.voz;
   if (!voz.ativo || estado.ocupado) return;
+  if (voz.mudo) {           // `M` mandou calar: nada abre o mic sozinho
+    vozEstado("silenciado");
+    return;
+  }
+  const manual = Boolean(opcoes.manual || voz.manual);
+  voz.manual = false;          // vale só para a janela que o Enter cortou
   voz.eraVoz = false;          // o ciclo anterior já decidiu (e não fala mais)
-  const janela = new AbortController();
-  voz.janela = janela;
   vozEstado("ouvindo");
+  // O servidor é quem sabe quando o Whisper começou (modo servidor); a sonda
+  // troca o botão para "transcrevendo" nessa hora, não só no fim.
+  if (voz.fonte !== "browser") vozSondar();
   let dados = null;
   try {
-    dados = await api("/voice/listen", {
-      method: "POST",
-      body: JSON.stringify({ window: VOZ_JANELA }),
-      signal: janela.signal,
-    });
+    dados = voz.fonte === "browser"
+      ? await vozCicloNavegador()
+      : await vozCicloServidor(manual);
   } catch (erro) {
-    if (erro.name === "AbortError") return; // desligar já decidiu o resto
-    if (erro.status === 401) return tratar401(erro);
-    if (erro.status === 503) {
+    if (erro && erro.name === "AbortError") return; // desligar/mudo já decidiu
+    if (erro && erro.status === 401) return tratar401(erro);
+    if (erro && erro.status === 503) {
       aviso("warning", "o modo voz não está disponível: " + erro.message);
       desligarVoz();
       return;
     }
-    aviso("error", "não consegui ouvir (" + erro.message + ").");
+    aviso("error", "não consegui ouvir (" + ((erro && erro.message) || erro) + ").");
     vozSilenciar("erro no microfone");
     return;
   } finally {
-    if (voz.janela === janela) voz.janela = null;
+    vozPararSonda();
   }
-  if (!voz.ativo) return;
-  vozEstado("transcrevendo");
+  if (!voz.ativo || voz.mudo) return;
   if (!dados || !dados.heard) {
+    if (manual) {
+      // Enter no silêncio: não há transcrição para enviar e o mic fica aberto.
+      aviso("", "não ouvi nada ainda; o microfone continua aberto — fale e Enter envia.");
+      await vozCiclo();
+      return;
+    }
     vozSilenciar("15 s sem fala");
     return;
   }
+  vozEstado("transcrevendo");
   entrada.value = texto(dados.text);
   await vozEnviar(dados.text);
+}
+
+/** Janela do modo servidor: `POST /voice/listen` (VAD do motor). */
+async function vozCicloServidor(manual) {
+  const voz = estado.voz;
+  const janela = new AbortController();
+  voz.janela = janela;
+  try {
+    return await api("/voice/listen", {
+      method: "POST",
+      body: JSON.stringify({ window: VOZ_JANELA }),
+      signal: janela.signal,
+    });
+  } finally {
+    if (voz.janela === janela) voz.janela = null;
+  }
+}
+
+/**
+ * Janela do modo navegador: grava aqui, manda o WAV em `/voice/upload`.
+ * `manual` nao muda o envio: o Enter apenas fecha a gravacao antes.
+ */
+async function vozCicloNavegador() {
+  const wav = await vozGravarAteEnviar();
+  if (!wav) return null; // mudo/desligado durante a gravacao
+  if (!estado.voz.ativo || estado.voz.mudo) return null;
+  vozEstado("transcrevendo");
+  return await api("/voice/upload", {
+    method: "POST",
+    body: wav,
+    headers: { "Content-Type": "audio/wav" },
+  });
+}
+
+/**
+ * Grava no microfone do navegador ate o Enter, o `M`, o fim da fala (1,2 s de
+ * silencio depois de ter falado) ou os 15 s de janela.
+ * Resolve com um `Blob` WAV, ou null se o modo foi desligado/mudo no meio.
+ *
+ * WAV 16-bit mono 16 kHz: o servidor decodifica com numpy, sem ffmpeg.
+ * `ScriptProcessorNode` e depreciado, mas funciona em todo navegador (o
+ * `AudioWorklet` exigiria um modulo separado e `addModule` — sem ganho para
+ * uma janela de 15 s).
+ */
+async function vozGravarAteEnviar() {
+  const voz = estado.voz;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error("este navegador não dá acesso ao microfone");
+  }
+  const fluxo = await navigator.mediaDevices.getUserMedia({ audio: true });
+  try {
+    const Contexto = window.AudioContext || window.webkitAudioContext;
+    if (!Contexto) throw new Error("este navegador não tem Web Audio");
+    const contexto = new Contexto();
+    const origem = contexto.createMediaStreamSource(fluxo);
+    const processador = contexto.createScriptProcessor(4096, 1, 1);
+    const blocos = [];
+    let falou = false;          // ja houve voz nesta janela
+    let silencio = 0;           // quadros seguidos sem voz
+    let encerrado = false;
+    const taxa = contexto.sampleRate || VOZ_WAV_HZ;
+    const fim = (() => {
+      let resolver = () => {};
+      const espera = new Promise((r) => { resolver = r; });
+      return { espera, resolver: () => { if (encerrado) return; encerrado = true; resolver(); } };
+    })();
+    processador.onaudioprocess = (evento) => {
+      if (encerrado) return;
+      const canal = evento.inputBuffer.getChannelData(0);
+      const copia = new Float32Array(canal.length);
+      copia.set(canal);
+      blocos.push(copia);
+      // Nivel de pico: depois de falar, 1,2 s sem voz fecha a janela (o Whisper
+      // prefere silencio a fala cortada, mas nao vale esperar os 15 s).
+      let pico = 0;
+      for (let i = 0; i < copia.length; i += 16) pico = Math.max(pico, Math.abs(copia[i]));
+      if (pico > 0.012) {
+        falou = true;
+        silencio = 0;
+      } else if (falou) {
+        silencio += copia.length / taxa;
+        if (silencio >= 1.2) fim.resolver();
+      }
+    };
+    origem.connect(processador);
+    processador.connect(contexto.destination);
+
+    try {
+      voz.pararGravacao = fim.resolver;
+      voz.prazoGravacao = setTimeout(fim.resolver, VOZ_JANELA * 1000);
+      await fim.espera;
+    } finally {
+      voz.pararGravacao = null;
+      if (voz.prazoGravacao) clearTimeout(voz.prazoGravacao);
+      voz.prazoGravacao = null;
+      processador.onaudioprocess = null;
+      try { origem.disconnect(); } catch (_) { /* ja solto */ }
+      try { processador.disconnect(); } catch (_) { /* ja solto */ }
+      try { await contexto.close(); } catch (_) { /* ja fechado */ }
+    }
+
+    if (!voz.ativo || voz.mudo) return null;
+    return vozMontarWav(blocos, taxa);
+  } finally {
+    fluxo.getTracks().forEach((trilha) => trilha.stop());
+  }
+}
+
+/** Concatena os blocos, reamostra para 16 kHz e devolve um WAV 16-bit mono. */
+function vozMontarWav(blocos, taxaOrigem) {
+  let total = 0;
+  for (const bloco of blocos) total += bloco.length;
+  const amostras = new Float32Array(total);
+  let pos = 0;
+  for (const bloco of blocos) { amostras.set(bloco, pos); pos += bloco.length; }
+  // `sampleRate` do contexto é invalidado no `close()`: usa a taxa capturada
+  // antes, e reamostra por interpolação linear (a diferença é inaudível para
+  // fala e o servidor também aceita outra taxa — isso só reduz o upload).
+  const destino = Math.max(1, Math.round(amostras.length * VOZ_WAV_HZ / (taxaOrigem || VOZ_WAV_HZ)));
+  const pcm = new Int16Array(destino);
+  for (let i = 0; i < destino; i += 1) {
+    const origem = i * (taxaOrigem || VOZ_WAV_HZ) / VOZ_WAV_HZ;
+    const base = Math.floor(origem);
+    const fracao = origem - base;
+    const a = amostras[base] || 0;
+    const b = amostras[Math.min(base + 1, amostras.length - 1)] || a;
+    const valor = a + (b - a) * fracao;
+    pcm[i] = Math.max(-1, Math.min(1, valor)) * 0x7fff;
+  }
+  return vozEmpacotarWav(pcm);
+}
+
+/** Cabeçalho RIFF/WAVE de 44 bytes + PCM 16-bit LE. */
+function vozEmpacotarWav(pcm) {
+  const buffer = new ArrayBuffer(44 + pcm.length * 2);
+  const visao = new DataView(buffer);
+  const texto = (pos, valor) => {
+    for (let i = 0; i < valor.length; i += 1) visao.setUint8(pos + i, valor.charCodeAt(i));
+  };
+  const bytes = pcm.length * 2;
+  texto(0, "RIFF");
+  visao.setUint32(4, 36 + bytes, true);
+  texto(8, "WAVE");
+  texto(12, "fmt ");
+  visao.setUint32(16, 16, true);          // tamanho do chunk fmt
+  visao.setUint16(20, 1, true);           // PCM
+  visao.setUint16(22, 1, true);           // mono
+  visao.setUint32(24, VOZ_WAV_HZ, true);
+  visao.setUint32(28, VOZ_WAV_HZ * 2, true); // byte rate
+  visao.setUint16(32, 2, true);           // block align
+  visao.setUint16(34, 16, true);          // bits por amostra
+  texto(36, "data");
+  visao.setUint32(40, bytes, true);
+  new Int16Array(buffer, 44).set(pcm);
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+/** Pergunta ao servidor em que fase a escuta está (idle/ouvindo/transcrevendo). */
+function vozSondar() {
+  const voz = estado.voz;
+  vozPararSonda();
+  voz.sonda = setInterval(async () => {
+    if (!voz.ativo || voz.estado !== "ouvindo") return;
+    try {
+      const dados = await api("/voice");
+      if (dados && dados.state === "transcrevendo" && voz.estado === "ouvindo") {
+        vozEstado("transcrevendo");
+      }
+    } catch (_) { /* sonda nunca interrompe a escuta */ }
+  }, VOZ_SONDA_MS);
+}
+
+function vozPararSonda() {
+  const voz = estado.voz;
+  if (voz.sonda) {
+    clearInterval(voz.sonda);
+    voz.sonda = null;
+  }
 }
 
 function vozEnviar(textoFalado) {
@@ -1501,17 +1712,56 @@ function vozLimpaAudio() {
 function vozSilenciar(motivo) {
   const voz = estado.voz;
   if (!voz.ativo) return;
+  voz.mudo = true;               // Enter não religa: o atalho é o `M`
   vozEstado("silenciado");
-  aviso("warning", "microfone silenciado (" + motivo + "). Aperte Enter ou clique em 🎙 para voltar a ouvir.");
+  aviso("warning", "microfone silenciado (" + motivo + "). Aperte M para voltar a ouvir.");
+}
+
+/** `M`: abre/fecha o microfone sem sair do modo voz (como na TUI). */
+function vozAlternarMudo() {
+  const voz = estado.voz;
+  if (!voz.ativo) return;
+  if (!voz.mudo) {
+    voz.mudo = true;
+    vozPararJanela();
+    vozEstado("silenciado");
+    aviso("", "microfone mudo; aperte M para voltar a ouvir.");
+    return;
+  }
+  voz.mudo = false;
+  aviso("", "microfone aberto: pode falar.");
+  vozCiclo();
 }
 
 /**
  * Enter no ouvindo: encerra a janela AGORA e deixa a transcricao chegar.
- * O `POST /voice/stop` faz o servidor devolver o que ja ouviu (com o VAD);
- * abortar a requisicao perderia justamente a fala que a pessoa quer enviar.
+ * No modo servidor, o `POST /voice/stop` faz o servidor devolver o que ja
+ * ouviu (com o VAD); abortar a requisicao perderia justamente a fala que a
+ * pessoa quer enviar. No modo navegador, soltar a gravacao faz o WAV subir.
  */
 function vozPararEscuta() {
+  const voz = estado.voz;
+  if (voz.pararGravacao) {
+    voz.pararGravacao();      // fecha a gravacao local (nao aborta o upload)
+    return Promise.resolve();
+  }
   return api("/voice/stop", { method: "POST", body: "{}" }).catch(() => {});
+}
+
+/** Abandona a janela em curso (Enter, mute ou sair do modo voz). */
+function vozPararJanela() {
+  const voz = estado.voz;
+  const janela = voz.janela;
+  voz.janela = null;
+  voz.manual = false;   // uma janela nova decide sozinha (Enter/15 s)
+  vozPararSonda();
+  if (janela) {
+    try { janela.abort(); } catch (_) { /* já cancelada */ }
+  }
+  if (voz.pararGravacao) {
+    try { voz.pararGravacao(); } catch (_) { /* já solta */ }
+  }
+  vozPararEscuta();
 }
 
 function ligarVoz() {
@@ -1519,8 +1769,11 @@ function ligarVoz() {
   if (!voz.disponivel || voz.ativo) return;
   voz.ativo = true;
   voz.eraVoz = false;
+  voz.mudo = false;
   if (!voz.audio) voz.audio = new Audio(); // o clique libera o autoplay
-  aviso("", "modo voz ligado: fale normalmente. Enter envia a transcrição; 15 s de silêncio desligam o microfone.");
+  aviso("", "modo voz ligado (microfone do "
+    + (voz.fonte === "server" ? "servidor" : "navegador")
+    + "): fale normalmente. Enter envia a transcrição; M silencia o microfone.");
   vozCiclo();
   entrada.focus();
 }
@@ -1530,15 +1783,10 @@ function desligarVoz() {
   if (!voz.ativo) return;
   voz.ativo = false;
   voz.eraVoz = false;
-  const janela = voz.janela;
-  voz.janela = null;
-  if (janela) {
-    try { janela.abort(); } catch (_) { /* já cancelada */ }
-  }
+  voz.mudo = false;
+  vozPararJanela();      // aborta o fetch e solta a gravação no servidor
   vozLimpaAudio();
   vozEstado("off");
-  // Solta a gravação no servidor (a janela pode estar em curso).
-  vozPararEscuta();
   entrada.value = ""; // o rascunho transcrito não vira mensagem ao sair
   entrada.style.height = "auto";
   aviso("", "modo voz desligado; o chat voltou ao texto.");
@@ -1553,21 +1801,32 @@ function alternarVoz() {
 /**
  * Enter no modo voz. Devolve true quando ele já decidiu (não envia texto).
  *
+ * Enter é o botão "enviar" do modo voz — ele nunca cala o microfone:
+ *
  * - há transcrição na caixa: false, o Enter normal envia o texto;
- * - silenciado: religa o microfone;
  * - ouvindo: encerra a janela e envia o que já foi falado;
  * - transcrevendo/enviando: espera (o turno decide sozinho);
- * - falando: interrompe a fala e volta a ouvir.
+ * - falando: interrompe a fala e volta a ouvir;
+ * - silenciado: só avisa que o atalho para voltar a ouvir é o M.
  */
 function vozEnter() {
   const voz = estado.voz;
   if (!voz.ativo) return false;
   if (entrada.value.trim()) return false;
   if (voz.estado === "silenciado") {
-    vozCiclo();
+    aviso("", "o microfone está mudo: aperte M para voltar a ouvir.");
     return true;
   }
   if (voz.estado === "ouvindo") {
+    // Encerra a janela agora e deixa o servidor devolver o que ouviu; se não
+    // houver fala, o ciclo volta a ouvir em vez de calar o microfone.
+    voz.manual = true;      // cortada pelo Enter, não pelos 15 s de silêncio
+    if (voz.fonte === "browser") {
+      // A gravação local termina aqui; o upload/transcrição seguem sozinhos.
+      if (voz.pararGravacao) voz.pararGravacao();
+      vozEstado("transcrevendo");
+      return true;
+    }
     vozPararEscuta();
     vozEstado("transcrevendo");
     return true;
@@ -1834,6 +2093,13 @@ entrada.addEventListener("keydown", (evento) => {
     escolherComando(false);
     return;
   }
+  // `M` cala/religa o microfone (como na TUI). Só vale com a caixa vazia e no
+  // modo voz: com texto na caixa, "m" continua digitando "m".
+  if (!aberta && estado.voz.ativo && !entrada.value.trim() && teclaMudo(evento)) {
+    evento.preventDefault();
+    vozAlternarMudo();
+    return;
+  }
   if (evento.key === "Escape" && estado.voz.ativo) {
     // Escape interrompe a fala e cala o microfone sem sair do modo voz.
     evento.preventDefault();
@@ -1845,8 +2111,8 @@ entrada.addEventListener("keydown", (evento) => {
     // Na paleta, Enter completa; se o comando já está inteiro e aceita
     // argumento, a pessoa continua digitando (ou aperta Enter de novo).
     if (aberta && escolherComando(true)) return;
-    // Modo voz: Enter envia a transcrição (ou religa o mic silenciado) sem
-    // esperar a janela de 15 s do servidor.
+    // Modo voz: Enter envia a transcrição sem esperar a janela de 15 s do
+    // servidor (quem cala o microfone é o `M`, não o Enter).
     if (vozEnter()) return;
     enviar();
   }
@@ -1859,6 +2125,25 @@ entrada.addEventListener("input", () => {
 });
 entrada.addEventListener("blur", () => setTimeout(fecharComandos, 120));
 entrada.addEventListener("focus", filtrarComandos);
+
+/** `M` sem modificador (pareia com `vozAlternarMudo`, na TUI e no web). */
+function teclaMudo(evento) {
+  return (evento.key === "m" || evento.key === "M")
+    && !evento.ctrlKey && !evento.metaKey && !evento.altKey;
+}
+
+// `M` também vale sem o foco na caixa (depois de clicar numa bolha), desde que
+// ninguém esteja digitando num campo e não haja modal aberto.
+window.addEventListener("keydown", (evento) => {
+  if (!estado.voz.ativo || !teclaMudo(evento)) return;
+  const alvo = evento.target;
+  const digitando = alvo instanceof HTMLElement
+    && (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.isContentEditable);
+  if (digitando || evento.defaultPrevented) return;
+  if (document.querySelector("dialog[open]")) return;
+  evento.preventDefault();
+  vozAlternarMudo();
+});
 
 let espera;
 $("#q").addEventListener("input", () => {
