@@ -48,7 +48,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/agent/runtime.py` | loop do agente: provedor, streaming, ferramentas, permissões |
 | `gaia/agent/session.py` | `AgentSession` e `SessionStore` (JSON em `sessions/`) |
 | `gaia/agent/providers/` | `factory.py` (presets), `openai_compat.py`, `anthropic.py` |
-| `gaia/agent/tools/` | `build_tools()` registra `read/list/glob/grep/write/edit/bash` + agenda/planilha/audiobook |
+| `gaia/agent/tools/` | `build_tools()` registra `read/list/glob/grep/write/edit/bash` + agenda/planilha/audiobook/estudos + `pi` (quando `[pi] enabled`) |
 | `gaia/controller/orchestrator.py` | cola entre UI e agente; conversa, sessão, workers |
 | `gaia/controller/turns.py` | execução de um turno, eventos, permissão |
 | `gaia/controller/commands.py` | comandos de barra (`/status`, `/modelo`, `/sonhar`…) |
@@ -72,6 +72,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/agenda/` | cliente da Agenda (Supabase), usado por ferramentas `agenda_*` |
 | `gaia/estudos/` | progresso dos simulados do Abin Suite (Supabase proprio), tools `estudos_*` e cobranca proativa |
 | `gaia/career/`, `finance/`, `tasks/`, `focus.py` | rotinas de vagas, bolsa, tarefas, foco |
+| `gaia/pi/` | ponte com o pi: `config.py` (`[pi]` do TOML), `runner.py` (subprocesso `pi --print --mode json` → JSONL → `PiResult`) |
 
 ## Fluxo de um turno
 
@@ -149,6 +150,15 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 - **Nova ferramenta:** crie o spec/handler em `gaia/agent/tools/`, registre em
   `build_tools()` e marque `requires_approval=True` se alterar algo. Adicione
   teste em `tests/test_agent.py` e, se for específica, no arquivo do domínio.
+- **Ferramenta `pi` (delegar codigo ao harness):** desligada por padrao em
+  `[pi] enabled = false`. O pi roda com `cwd = pi.workspace` (padrao
+  `~/pr-workspace`), **nunca** em `~/gaia`: o `gaia-deploy.timer` faz
+  `reset --hard` a cada 5 min e apagaria o trabalho. `pi.protect` bloqueia
+  caminhos mesmo dentro da raiz. O binario sai de `pi.binary`, do `PATH` ou de
+  `~/.pi/agent/bin/pi` (o runner acrescenta esse diretorio ao `PATH`, porque a
+  unidade de usuario nao tem login shell). Credencial e do ambiente: `GH_TOKEN`
+  para `gh`/`git`, `DEEPSEEK_API_KEY` para o modelo. Testes em
+  `tests/test_pi.py` (JSONL fake, nada de rede, nenhum pi de verdade).
 - **Nova skill no Control Center:** adicione um `Skill(...)` em
   `gaia/control/skills.py` (id, kind, `requires`, `provides`, `schedule_hint`,
   `module`). O painel nao muda: ele le o registry. Se a skill tiver horario,

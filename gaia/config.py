@@ -21,6 +21,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from gaia.audiobook.config import AudiobookConfig
+from gaia.pi.config import PiConfig
 
 APP_NAME = "gaia"
 _LEGACY_PREFIX = "ZAYA_"
@@ -502,6 +503,7 @@ class Config(BaseModel):
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     serve: ServeConfig = Field(default_factory=ServeConfig)
     audiobook: AudiobookConfig = Field(default_factory=AudiobookConfig)
+    pi: PiConfig = Field(default_factory=PiConfig)
     data_dir: str = ""
 
     # Caminho de onde o config foi carregado (informativo).
@@ -717,6 +719,10 @@ _ENV_MAP: dict[str, tuple[str, str]] = {
     "GAIA_AUDIO_MAX_SECONDS": ("audio", "max_seconds"),
     "GAIA_AUDIO_SILENCE_MS": ("audio", "silence_ms"),
     "GAIA_AUDIO_VAD_THRESHOLD": ("audio", "vad_threshold"),
+    "GAIA_PI_ENABLED": ("pi", "enabled"),
+    "GAIA_PI_BINARY": ("pi", "binary"),
+    "GAIA_PI_WORKSPACE": ("pi", "workspace"),
+    "GAIA_PI_MODEL": ("pi", "model"),
     "GAIA_BROWSER_ENABLED": ("browser", "enabled"),
     "GAIA_BROWSER_HEADLESS": ("browser", "headless"),
     "GAIA_BROWSER_PROFILE_DIR": ("browser", "profile_dir"),
@@ -1173,6 +1179,16 @@ enabled = true
 profile_dir = ""          # vazio => <data_dir>/browser
 headless = true
 timeout_ms = 30000
+
+[pi]
+enabled = false           # liga a ferramenta `pi` (delega codigo ao harness)
+binary = ""               # vazio => pi do PATH ou ~/.pi/agent/bin/pi
+workspace = "~/pr-workspace"  # clone de trabalho do pi (nunca o repo do deploy)
+protect = ["~/gaia"]      # fora do alcance: o deploy reseta esse clone
+model = ""               # ex.: commandcode/deepseek/deepseek-v4.1-flash
+timeout = 900.0
+max_output_chars = 12000
+extra_args = []
 
 [focus]
 enabled = true

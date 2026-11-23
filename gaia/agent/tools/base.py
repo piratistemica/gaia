@@ -43,6 +43,8 @@ class ToolContext:
     audiobook_watch: Any = None
     # EstudosConfig | None: habilita as ferramentas de progresso de estudos.
     estudos: Any = None
+    # PiConfig | None: habilita a ferramenta `pi` (harness de codigo externo).
+    pi: Any = None
 
     def resolve(self, raw: str) -> Path:
         if not (raw or "").strip():

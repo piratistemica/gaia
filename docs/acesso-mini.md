@@ -192,6 +192,72 @@ gmin sudo apt install -y tailscale && gmin sudo tailscale up
 gmin serve install --tailnet       # exige GAIA_SERVE_TOKEN no .env
 ```
 
+## GitHub e o pi no mini (a Gaia com conta propria)
+
+O mini nao tem desktop: nenhuma sessao grafica, `DRM` desconectado. Isso nao
+impede login nenhum dos tres servicos, porque so um deles precisaria de tela:
+
+| Servico | Como autentica no mini | Onde fica o segredo |
+|---|---|---|
+| GitHub | `gh auth login --with-token` (PAT fine-grained) ou device flow | `~/.config/gh/hosts.yml` / `GH_TOKEN` no `.env` |
+| Google | OAuth com `--no-launch-browser` + `ssh -L` do redirect | `~/.config/gcloud/` |
+| X | OAuth2 PKCE com `redirect_uri=localhost` + mesmo `ssh -L` | json de token do cliente |
+
+O truque que dispensa instalar desktop: o fluxo OAuth escuta em
+`127.0.0.1:PORTA` **do mini**; do MacBook, `ssh -N -L PORTA:localhost:PORTA gaia`,
+e o consentimento abre no Safari do Mac. Nenhuma janela no mini e o `code` cai
+direto no processo de la.
+
+### GitHub em 5 minutos
+
+```bash
+ssh gaia
+sudo -n apt-get install -y gh          # 2.46, ja no apt
+gh auth login --hostname github.com --git-protocol https --with-token <<<"github_pat_..."
+gh auth setup-git                      # git push por https usa o token do gh
+gh auth status && gh repo list talitadeoa --limit 3
+```
+
+O device flow tambem funciona sem browser local: `gh auth login` imprime um
+codigo de 8 digitos e voce abre `github.com/login/device` no Mac. Para o
+processo `gaia-serve.service` herdar a credencial, o caminho e o `.env`:
+`echo 'GH_TOKEN=github_pat_...' >> ~/.config/gaia/.env`.
+
+**Use identidade propria.** Uma conta `talitadeoa-gaia` como collaborator (ou
+fork) + PAT fine-grained com `Contents` e `Pull requests` só no repo certo: se
+o agente for enganado por conteudo que leu, o pior caso e um PR num repo, nao
+a sua conta.
+
+### `~/pr-workspace`: onde o pi trabalha
+
+`~/gaia` e resetado (`git reset --hard origin/main`) a cada 5 min pelo
+`gaia-deploy.timer`. Branch de PR aberta ali e apagada. O clone de trabalho do
+pi e outro:
+
+```bash
+ssh gaia 'git clone https://github.com/talitadeoa/gaia.git ~/pr-workspace'
+```
+
+E `git` la precisa de identidade propria (o mini nao tem `--global`):
+
+```bash
+ssh gaia 'cd ~/pr-workspace && git config user.name "Gaia" && git config user.email "gaia@..."'
+```
+
+### pi instalado e apontado para o Command Code
+
+```bash
+ssh gaia 'curl -fsSL https://pi.dev/install.sh | sh'   # deixa ~/.pi/agent/bin/pi
+ssh gaia 'export PATH=$HOME/.pi/agent/bin:$PATH; pi --version'
+```
+
+O pi nao herda `GAIA_AGENT_API_KEY`: ele quer o nome do provedor
+(`DEEPSEEK_API_KEY` etc.). No mini a chave DeepSeek esta **sem saldo** (`402`),
+entao o `~/.pi/agent/models.json` aponta o provedor `commandcode` para
+`https://api.commandcode.ai/provider/v1` com `apiKey: "${COMMAND_CODE_API_KEY}"`
+— a mesma chave que ja esta no `.env` da Gaia. `settings.json` escolhe
+`defaultProvider`/`defaultModel` para o pi funcionar sem `--model`.
+
 ## O que **não** fazer
 
 - Port forwarding de SSH no roteador: é o caminho mais curto para brute force

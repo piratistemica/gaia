@@ -17,6 +17,7 @@ from gaia.agent.tools.filesystem import (
     READ_TOOL,
     WRITE_TOOL,
 )
+from gaia.agent.tools.pi import build_pi_tools
 from gaia.agent.tools.planilhas import build_planilha_tools
 from gaia.agent.tools.shell import BASH_TOOL
 from gaia.estudos.client import EstudosClient
@@ -46,6 +47,9 @@ def build_tools(ctx: ToolContext) -> ToolSet:
     # Audiobook: so com a secao configurada e ligada.
     if ctx.audiobook is not None and getattr(ctx.audiobook, "enabled", False):
         tools.add(*build_audiobook_tools())
+    # Pi: harness de codigo externo, so quando ligado no config.
+    if ctx.pi is not None and getattr(ctx.pi, "enabled", False):
+        tools.add(*build_pi_tools())
     return tools
 
 
