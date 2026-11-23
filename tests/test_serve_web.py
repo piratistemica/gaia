@@ -293,6 +293,19 @@ def test_languages_lista_o_idioma_de_eco(servidor):
     assert idiomas[0]["enabled"] is False
 
 
+def test_engine_traz_a_lista_de_idiomas(servidor):
+    """O botao "idiomas" so aparece se `/engine` disser que ha idioma.
+
+    Antes ele era preenchido por `pintarMotor` sem `languages` e ficava
+    escondido ate alguem abrir o dialog — que era o proprio botao.
+    """
+    _, base = servidor
+    status, corpo = _pedir(base, "GET", "/engine")
+    assert status == 200
+    assert [item["key"] for item in corpo["languages"]] == ["zh"]
+    assert corpo["chinese"] is False
+
+
 def test_language_escolhe_o_idioma_e_liga_o_eco(servidor):
     """Dialog "idiomas": `{key: "zh"}` escolhe e liga; `enabled: false` desliga."""
     alvo, base = servidor

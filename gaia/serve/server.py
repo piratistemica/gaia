@@ -678,6 +678,10 @@ class _Handler(BaseHTTPRequestHandler):
             "mode": dados.get("mode", ""),
             "busy": bool(dados.get("busy")),
             "chinese": bool(dados.get("chinese")),
+            # Lista dos idiomas do eco junto do resto do cabecalho: o botao
+            # "idiomas" so pode aparecer se a tela souber que existe idioma
+            # (buscar em `GET /languages` so ao clicar era ovo e galinha).
+            "languages": self._idiomas(),
             "session": dados.get("session", ""),
             "version": dados.get("version", ""),
             "control_enabled": bool(self.app.control_token),

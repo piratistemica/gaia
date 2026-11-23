@@ -450,11 +450,14 @@ function rotuloIdioma(chave) {
 function pintarIdiomas(idiomas, chines) {
   if (Array.isArray(idiomas) && idiomas.length) estado.idiomas = idiomas;
   if (chines !== undefined) estado.chines = Boolean(chines);
+  // Sem lista do motor (motor antigo) o botao continua visivel: o dialog tenta
+  // `GET /languages` ao abrir e mostra o erro, em vez de sumir sem explicacao.
+  if (!estado.idiomas.length) estado.idiomas = [{ key: "zh", label: "中文", code: "zh", current: true }];
   const atual = estado.idiomas.find((i) => i.current) || estado.idiomas[0] || null;
   estado.idioma = atual ? texto(atual.key) : estado.idioma;
   const rotulo = atual ? texto(atual.label) : "";
   const botao = $("#btn-idiomas");
-  botao.hidden = !estado.idiomas.length;
+  botao.hidden = false;
   botao.classList.toggle("ok", estado.chines);
   botao.textContent = estado.chines && rotulo ? "idiomas · " + rotulo : "idiomas";
   botao.title = estado.chines
