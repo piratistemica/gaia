@@ -15,6 +15,7 @@ Leitura do que a TUI ja faz (paridade no web):
 * ``GET  /engine``   modelo, provedor, chave mascarada, modo, ocupado
 * ``GET  /modes``, ``POST /mode``
 * ``GET  /history``, ``POST /session/open``, ``POST /session/new``
+* ``GET  /commands``, ``POST /chinese`` (eco 中文 do catalogo de comandos)
 * ``GET  /automations``
 * ``GET  /instances`` (maquinas do ``instances.json``, com status)
 
@@ -37,6 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
+from gaia.controller import command_catalog as commands
 from gaia.interface.remote import RemoteUI
 from gaia.serve import control_api, session, web
 from gaia.serve import instances as instances_mod
@@ -325,6 +327,11 @@ class _Handler(BaseHTTPRequestHandler):
         if rota == "/modes":
             self._json(HTTPStatus.OK, {"modes": self._modes()})
             return
+        if rota == "/commands":
+            # Catalogo unico (`controller/command_catalog.py`): a paleta do web
+            # filtra por `names`; o despacho continua em `/turn`.
+            self._json(HTTPStatus.OK, {"commands": commands.as_dicts()})
+            return
         if rota == "/history":
             self._json(HTTPStatus.OK, {"history": self._history()})
             return
@@ -394,6 +401,18 @@ class _Handler(BaseHTTPRequestHandler):
         if rota == "/abort":
             self.app.target.abort()
             self._json(HTTPStatus.OK, {"ok": True})
+            return
+        if rota == "/chinese":
+            # Liga/desliga o eco 中文 do web. Nao grava no TOML: e estado do
+            # processo, igual ao `/chines` da TUI.
+            ligado = bool(corpo.get("enabled", True))
+            try:
+                ativo = self._chines(ligado)
+            except Exception as exc:
+                logger.warning("eco em chines falhou: %s", exc)
+                self._erro(HTTPStatus.BAD_REQUEST, "chinese_failed", str(exc))
+                return
+            self._json(HTTPStatus.OK, {"ok": True, "chinese": ativo})
             return
         if rota == "/model":
             slug = str(corpo.get("model") or "").strip()
@@ -533,6 +552,7 @@ class _Handler(BaseHTTPRequestHandler):
             "auth_source": provedor.get("auth_source", ""),
             "mode": dados.get("mode", ""),
             "busy": bool(dados.get("busy")),
+            "chinese": bool(dados.get("chinese")),
             "session": dados.get("session", ""),
             "version": dados.get("version", ""),
             "control_enabled": bool(self.app.control_token),
@@ -561,6 +581,12 @@ class _Handler(BaseHTTPRequestHandler):
         if not callable(funcao):
             raise RuntimeError("nova sessao indisponivel neste motor")
         return list(funcao())
+
+    def _chines(self, ligado: bool) -> bool:
+        funcao = getattr(self.app.target, "set_chinese", None)
+        if not callable(funcao):
+            raise RuntimeError("eco em chines indisponivel neste motor")
+        return bool(funcao(ligado))
 
     def _history(self) -> list[dict[str, Any]]:
         funcao = getattr(self.app.target, "history", None)

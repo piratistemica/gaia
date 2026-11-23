@@ -153,15 +153,20 @@ gaia --remote http://gaia:8787 ask "resuma o dia"
 ```
 
 - Rotas do chat: `GET /`, `/health`, `/session`, `/instances`, `/engine`,
-  `/modes`, `/sessions`, `/history`, `/automations`, `/providers`, `/models`,
-  `/search`,
+  `/modes`, `/commands`, `/sessions`, `/history`, `/automations`, `/providers`,
+  `/models`, `/search`,
   `/events` (SSE); `POST /session`, `/turn`, `/permission/{id}`, `/abort`,
-  `/model`, `/mode`, `/session/open`, `/session/new`; `DELETE /session`.
+  `/model`, `/mode`, `/chinese`, `/session/open`, `/session/new`;
+  `DELETE /session`.
 - Escutar fora do loopback **exige** `GAIA_SERVE_TOKEN`; a guarda recusa subir
   caso contrário.
 - A página web em `GET /` é um cliente completo: streaming, ferramentas,
   aprovação por botão, busca, troca de modelo e de modo, sessões anteriores e
-  as próximas automações.
+  as próximas automações. Digitar `/` abre a paleta de comandos (mesmo catálogo
+  da ajuda do terminal, filtrada enquanto se digita; Tab/Enter completam, Esc
+  fecha) e `/ajuda` imprime a lista no chat. O header tem `+ nova` (sessão
+  nova), `sessões` (conversas anteriores) e `中文` (eco 中文 + pinyin de cada
+  mensagem, o mesmo `/chines` da TUI — estado do processo, não do TOML).
 - **Sessão de cookie em vez de token a cada visita.** `POST /session` troca o
   `Authorization: Bearer` por um nonce em cookie `HttpOnly` (`gaia_chat`,
   `Path=/`, `SameSite=Strict`); o `Bearer` continua valendo para `gaia

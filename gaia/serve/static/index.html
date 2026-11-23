@@ -40,8 +40,7 @@
   .instancia-status:empty { display: none; }
   #modelos-lista, #sessoes-lista, #modos-lista {
     list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto;
-  }
-  #modelos-lista li, #sessoes-lista li, #modos-lista li {
+  }  #modelos-lista li, #sessoes-lista li, #modos-lista li {
     padding: 7px 9px; border-radius: 8px; font-size: 13px; cursor: pointer;
   }
   #modelos-lista li { font-family: var(--mono); font-size: 12.5px; }
@@ -75,6 +74,9 @@
   .msg .title { font-size: 12px; color: var(--dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .05em; }
   .msg code { font-family: var(--mono); font-size: 13px; background: var(--panel2); padding: 1px 5px; border-radius: 5px; }
   .msg pre { font-family: var(--mono); font-size: 13px; background: var(--panel2); padding: 8px; border-radius: 8px; overflow-x: auto; }
+  .msg .zh { display: block; margin-top: 6px; font-size: 13px; color: var(--dim);
+             border-top: 1px dashed var(--line); padding-top: 5px; }
+  .msg .zh b { color: var(--accent); font-weight: 600; }
   .notice { font-size: 13px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
             color: var(--dim); align-self: flex-start; max-width: 78ch; white-space: pre-wrap; }
   .notice.warning { color: var(--warn); }
@@ -133,6 +135,27 @@
                        color: var(--dim); margin-bottom: 12px; cursor: pointer; }
   dialog label.check input { margin-top: 3px; }
   .linha { display: flex; gap: 8px; justify-content: flex-end; }
+  /* Paleta de comandos: aparece acima do composer quando a entrada comeca
+     com "/", filtra enquanto se digita e completa com Tab/Enter. */
+  #comandos {
+    position: absolute; left: 14px; right: 14px; bottom: 100%; margin-bottom: 6px;
+    max-height: 40vh; overflow-y: auto; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 6px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .35); z-index: 20;
+  }
+  #comandos[hidden] { display: none; }
+  #comandos ul { list-style: none; margin: 0; padding: 0; }
+  #comandos li {
+    display: flex; gap: 10px; align-items: baseline; padding: 6px 8px;
+    border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  #comandos li.ativo, #comandos li:hover { background: var(--panel2); }
+  #comandos li .uso { font-family: var(--mono); font-size: 12.5px; color: var(--accent);
+                      white-space: nowrap; }
+  #comandos li .desc { color: var(--dim); overflow: hidden; text-overflow: ellipsis;
+                       white-space: nowrap; }
+  #comandos .vazio { color: var(--dim); font-size: 13px; padding: 8px; }
+  footer { position: relative; }
 </style>
 </head>
 <body>
@@ -145,7 +168,9 @@
   <span id="provedor" class="pill" title="provedor ativo" hidden></span>
   <span id="chave" class="pill mono" title="chave mascarada; nunca aparece inteira" hidden></span>
   <span id="status"></span>
-  <button id="sessoes" class="pill" type="button" title="abrir uma conversa anterior">sessões</button>
+  <button id="btn-sessoes" class="pill" type="button" title="abrir uma conversa anterior">sessões</button>
+  <button id="btn-nova" class="pill" type="button" title="comecar uma conversa nova">+ nova</button>
+  <button id="btn-chines" class="pill" type="button" title="mostrar 中文 + pinyin de cada mensagem" hidden>中文</button>
   <button id="abortar" class="perigo" title="encerra o turno atual" disabled>parar</button>
   <button id="trocar-token" title="trocar o token / sair">token</button>
 </header>
@@ -164,8 +189,9 @@
 </main>
 
 <footer>
+  <div id="comandos" hidden role="listbox" aria-label="comandos"></div>
   <div class="composer">
-    <textarea id="entrada" rows="1" placeholder="Escreva para a Gaia…  (Enter envia, Shift+Enter quebra linha)"></textarea>
+    <textarea id="entrada" rows="1" placeholder="Escreva para a Gaia…  (Enter envia, Shift+Enter quebra linha, / mostra os comandos)"></textarea>
     <button id="enviar" class="primario">enviar</button>
   </div>
 </footer>
@@ -235,6 +261,11 @@ const estado = {
   respondeu: false, // texto final deste turno ja foi desenhado
   engine: null,
   conectando: false,
+  comandos: [],     // catalogo de `GET /commands` (paleta do "/")
+  comandosFiltrados: [],
+  comandosAtivo: -1,
+  chines: false,    // eco 中文 ligado no servidor
+  userLocal: null,  // bolha do usuário desenhada no envio (o evento `user` repete)
 };
 
 // Markdown mínimo e seguro: escapa tudo e depois reabilita três marcas.
@@ -248,6 +279,55 @@ function md(bruto) {
 }
 
 function rolar() { chat.scrollTop = chat.scrollHeight; }
+
+/* ----------------------------------------------------------- eco em chinês */
+/** Acrescenta a linha 中文 embaixo da bolha que corresponde ao texto. */
+function ecoChines(tipo, original, zh) {
+  const alvo = texto(original).trim();
+  if (!texto(zh).trim() || !alvo) return;
+  const classe = tipo === "user" ? "msg user" : "msg say";
+  const bolhas = [...chat.querySelectorAll("." + classe.split(" ").join("."))];
+  // De tras para frente: o eco costuma chegar depois da bolha recem-desenhada.
+  for (let i = bolhas.length - 1; i >= 0; i -= 1) {
+    const corpo = corpoDe(bolhas[i]);
+    const conteudo = corpo ? corpo.textContent.trim() : "";
+    if (conteudo !== alvo && !conteudo.startsWith(alvo)) continue;
+    let linha = bolhas[i].querySelector(".zh");
+    if (!linha) {
+      linha = document.createElement("div");
+      linha.className = "zh";
+      bolhas[i].append(linha);
+    }
+    linha.textContent = "中文 · " + texto(zh);
+    rolar();
+    return;
+  }
+  // Bolha nao encontrada (historico redesenhado): mostra solta, sem perder o eco.
+  aviso("", "中文 · " + texto(zh));
+}
+
+function pintarChines(ligado) {
+  estado.chines = Boolean(ligado);
+  const botao = $("#btn-chines");
+  botao.hidden = false;
+  botao.classList.toggle("ok", estado.chines);
+  botao.textContent = estado.chines ? "中文 on" : "中文";
+  botao.title = estado.chines
+    ? "eco em chinês ligado; clique para desligar"
+    : "mostrar 中文 + pinyin de cada mensagem";
+}
+
+async function alternarChines() {
+  const alvo = !estado.chines;
+  try {
+    const dados = await api("/chinese", { method: "POST", body: JSON.stringify({ enabled: alvo }) });
+    pintarChines(dados.chinese);
+    aviso("success", "eco em chinês " + (dados.chinese ? "ativado" : "desativado"));
+  } catch (erro) {
+    if (erro.status === 401) return tratar401(erro);
+    aviso("error", "não consegui alternar o chinês: " + erro.message);
+  }
+}
 
 function aviso(nivel, conteudo) {
   const div = document.createElement("div");
@@ -265,10 +345,18 @@ function bolha(classe, conteudo, titulo) {
     t.className = "title"; t.textContent = titulo; div.append(t);
   }
   const corpo = document.createElement("div");
+  corpo.className = "corpo";
   corpo.innerHTML = md(conteudo);
   div.append(corpo);
   chat.append(div); rolar();
   return div;
+}
+
+/** Corpo da bolha. Nome de classe, nao `div:last-child`: com a linha 中文
+ *  anexada depois, o ultimo filho deixa de ser o texto da mensagem. */
+function corpoDe(bolha) {
+  const div = bolha ? bolha.querySelector(".corpo") : null;
+  return div || (bolha ? bolha.lastElementChild : null);
 }
 
 function marcarConexao(rotulo, classe) {
@@ -308,6 +396,8 @@ function pintarMotor(engine) {
                                     ["#chave", dados.has_key], ["#modo", dados.mode]]) {
     $(seletor).hidden = !mostrar;
   }
+  pintarChines(Boolean(dados.chinese));
+
   $("#modo").textContent = dados.mode ? "modo: " + dados.mode : "";
   $("#motor").replaceChildren(header.cartao(dados));
 }
@@ -426,7 +516,7 @@ function tratarBloco(bloco) {
 function finalizar(textoFinal) {
   const final = texto(textoFinal);
   if (estado.fluxo) {
-    const corpo = estado.fluxo.querySelector("div:last-child");
+    const corpo = corpoDe(estado.fluxo);
     const tinha = !!(corpo && corpo.textContent.trim());
     if (final) {
       corpo.innerHTML = md(final);
@@ -453,6 +543,12 @@ function tratarEvento(evento) {
       $("#abortar").disabled = false;
       break;
     case "user":
+      // O servidor tambem emite `user` para o que acabou de ser enviado; sem
+      // isto a mensagem aparecia duas vezes.
+      if (estado.userLocal && corpoDe(estado.userLocal).textContent.trim() === texto(evento.text).trim()) {
+        estado.userLocal = null;
+        break;
+      }
       bolha("user", evento.text, "você");
       break;
     case "say":
@@ -466,7 +562,7 @@ function tratarEvento(evento) {
       break;
     case "stream_delta": {
       if (!estado.fluxo) estado.fluxo = bolha("say", "", "gaia");
-      const corpo = estado.fluxo.querySelector("div:last-child");
+      const corpo = corpoDe(estado.fluxo);
       corpo.textContent += texto(evento.text);
       rolar();
       break;
@@ -528,6 +624,12 @@ function tratarEvento(evento) {
       break;
     case "search_results":
       mostrarHits(evento.hits);
+      break;
+    case "zh":
+      ecoChines(evento.role, evento.text, evento.zh);
+      break;
+    case "help":
+      catalogoNoChat();
       break;
     case "context_hits": {
       const hits = Array.isArray(evento.hits) ? evento.hits : [];
@@ -595,7 +697,8 @@ async function enviar() {
   const conteudo = entrada.value.trim();
   if (!conteudo) return;
   entrada.value = ""; entrada.style.height = "auto";
-  bolha("user", conteudo, "você");
+  fecharComandos();
+  estado.userLocal = bolha("user", conteudo, "você");
   try {
     await api("/turn", { method: "POST", body: JSON.stringify({ text: conteudo }) });
   } catch (erro) {
@@ -644,6 +747,142 @@ function mostrarHits(hits, consulta) {
     item.addEventListener("click", () => item.classList.toggle("aberto"));
     resultados.append(item);
   }
+}
+
+/* ------------------------------------------------------------- comandos */
+/** Catalogo do `GET /commands` (mesma fonte da ajuda do terminal). */
+async function carregarComandos() {
+  try {
+    const dados = await api("/commands");
+    estado.comandos = Array.isArray(dados.commands) ? dados.commands : [];
+  } catch (erro) {
+    if (erro.status === 401) return trata401(erro);
+    estado.comandos = [];
+  }
+  filtrarComandos();
+}
+
+/** Imprime o catalogo no chat (o `/ajuda` remoto emite o evento `help`). */
+function catalogoNoChat() {
+  if (!estado.comandos.length) {
+    aviso("", "a lista de comandos ainda não carregou; tente de novo em instantes.");
+    return;
+  }
+  const linhas = estado.comandos.map((item) => texto(item.usage) + " — " + texto(item.summary));
+  bolha("say", linhas.join("\n"), "comandos da gaia");
+}
+
+function inicioDoComando(valor) {
+  // Só abre quando o começo da mensagem é um comando (nada antes do "/").
+  const achado = /^\/([^\s]*)$/.exec(valor);
+  return achado ? achado[1] : null;
+}
+
+function filtrarComandos() {
+  const caixa = $("#comandos");
+  const parcial = inicioDoComando(entrada.value);
+  if (parcial === null) {
+    fecharComandos();
+    return;
+  }
+  const termo = parcial.toLowerCase();
+  const achados = estado.comandos.filter((item) =>
+    (item.names || []).some((nome) => texto(nome).toLowerCase().startsWith("/" + termo)),
+  );
+  caixa.replaceChildren();
+  if (!achados.length) {
+    const vazio = document.createElement("div");
+    vazio.className = "vazio";
+    vazio.textContent = termo ? "nenhum comando com “/" + parcial + "”" : "sem comandos";
+    caixa.append(vazio);
+  } else {
+    const lista = document.createElement("ul");
+    lista.setAttribute("role", "listbox");
+    achados.forEach((item, indice) => {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.dataset.indice = String(indice);
+      if (indice === estado.comandosAtivo) li.classList.add("ativo");
+      const uso = document.createElement("span");
+      uso.className = "uso";
+      uso.textContent = texto(item.usage);
+      const desc = document.createElement("span");
+      desc.className = "desc";
+      desc.textContent = texto(item.summary);
+      li.append(uso, desc);
+      li.addEventListener("mousedown", (evento) => {
+        evento.preventDefault(); // não tira o foco do textarea
+        completarComando(item);
+      });
+      lista.append(li);
+    });
+    caixa.append(lista);
+  }
+  caixa.hidden = false;
+  estado.comandosFiltrados = achados;
+  if (estado.comandosAtivo >= achados.length) estado.comandosAtivo = achados.length - 1;
+  destacarComando();
+}
+
+function destacarComando() {
+  const caixa = $("#comandos");
+  caixa.querySelectorAll("li").forEach((li, indice) => {
+    li.classList.toggle("ativo", indice === estado.comandosAtivo);
+    if (indice === estado.comandosAtivo) li.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function moverComando(passo) {
+  const total = (estado.comandosFiltrados || []).length;
+  if (!total) return;
+  const atual = estado.comandosAtivo < 0 ? (passo > 0 ? -1 : 0) : estado.comandosAtivo;
+  estado.comandosAtivo = (atual + passo + total) % total;
+  destacarComando();
+}
+
+/** Escolhe o comando da linha ativa e completa a entrada. */
+function escolherComando(executarDireto = false) {
+  const filtrados = estado.comandosFiltrados || [];
+  const ativo = estado.comandosAtivo;
+  if (ativo >= 0 && ativo < filtrados.length) {
+    completarComando(filtrados[ativo], executarDireto);
+    return true;
+  }
+  // Sem linha destacada: Enter num comando inteiro envia; num parcial completa.
+  const digitado = inicioDoComando(entrada.value);
+  if (digitado !== null) {
+    const nomes = filtrados.flatMap((item) => item.names || []);
+    const exato = nomes.find((nome) => texto(nome).toLowerCase() === "/" + digitado.toLowerCase());
+    if (exato && executarDireto) {
+      fecharComandos();
+      enviar();
+      return true;
+    }
+  }
+  if (!filtrados.length) return false;
+  completarComando(filtrados[0], executarDireto);
+  return true;
+}
+
+function completarComando(item, executarDireto = false) {
+  const nomes = (item.names || []).map((nome) => texto(nome));
+  const digitado = inicioDoComando(entrada.value);
+  // Prefere o nome que a pessoa ja comecou a digitar (ex.: "/mo" -> /modelo).
+  const nome = digitado
+    ? nomes.find((n) => n.toLowerCase().startsWith("/" + digitado.toLowerCase())) || nomes[0]
+    : nomes[0];
+  entrada.value = nome + (item.argument ? " " : "");
+  fecharComandos();
+  entrada.focus();
+  entrada.setSelectionRange(entrada.value.length, entrada.value.length);
+  if (executarDireto && !item.argument) enviar();
+}
+
+function fecharComandos() {
+  const caixa = $("#comandos");
+  caixa.hidden = true;
+  caixa.replaceChildren();
+  estado.comandosAtivo = -1;
 }
 
 /* ------------------------------------------------------------------ modais */
@@ -750,6 +989,8 @@ function dataCurta(iso) {
 function desenharHistorico(historico) {
   chat.replaceChildren();
   estado.fluxo = null; estado.raciocinio = null; estado.ferramentas = [];
+  estado.respondeu = false;
+  estado.userLocal = null;
   for (const turno of historico || []) {
     const papel = texto(turno.role);
     const conteudo = texto(turno.text);
@@ -770,13 +1011,16 @@ async function abrirSessoes() {
     preencherLista(lista, sessoes.map((sessao) => {
       const meta = document.createElement("div");
       meta.className = "sessao-meta";
-      meta.textContent = [dataCurta(sessao.updated_at), sessao.turns + " turno(s)"].join(" · ");
+      const turnos = Number(sessao.turns || 0);
+      meta.textContent = [dataCurta(sessao.updated_at), turnos + " turno(s)"].join(" · ");
       const li = itemLista(sessao.current ? "atual" : "",
         texto(sessao.title) || "(sem título)", document.createElement("br"), meta);
+      li.title = "abrir a sessão " + sessao.id;
       li.addEventListener("click", () => abrirSessao(sessao.id));
       return li;
-    }), "nenhuma sessão anterior neste modo/canal.");
+    }), "nenhuma sessão anterior neste modo/canal; use “+ nova”.");
   } catch (erro) {
+    if (erro.status === 401) return tratar401(erro);
     lista.replaceChildren();
     const p = document.createElement("p");
     p.textContent = "não consegui listar: " + erro.message;
@@ -785,7 +1029,8 @@ async function abrirSessoes() {
 }
 
 async function abrirSessao(id) {
-  $("#sessoes").close();
+  const dialogo = $("#sessoes");
+  if (dialogo.open) dialogo.close();
   try {
     const dados = await api("/session/open", { method: "POST", body: JSON.stringify({ id }) });
     desenharHistorico(dados.history);
@@ -799,7 +1044,8 @@ async function abrirSessao(id) {
 }
 
 async function novaSessao() {
-  $("#sessoes").close();
+  const dialogo = $("#sessoes");
+  if (dialogo.open) dialogo.close();
   try {
     const dados = await api("/session/new", { method: "POST", body: "{}" });
     desenharHistorico(dados.history);
@@ -807,6 +1053,7 @@ async function novaSessao() {
     aviso("success", "sessão nova.");
   } catch (erro) {
     if (erro.status === 401) return tratar401(erro);
+    if (erro.status === 409) { aviso("warning", "a Gaia está no meio de um turno; tente de novo quando terminar."); return; }
     aviso("error", "não consegui criar a sessão: " + erro.message);
   }
 }
@@ -830,6 +1077,7 @@ $("#login").addEventListener("close", async () => {
   estado.ultimoSeq = 0;
   await carregarEngine();
   await carregarInstancias();
+  carregarComandos();
   conectar();
 });
 
@@ -841,8 +1089,10 @@ async function sair() {
 
 $("#modelo").addEventListener("click", abrirModelos);
 $("#modo").addEventListener("click", abrirModos);
-$("#sessoes").addEventListener("click", abrirSessoes);
+$("#btn-sessoes").addEventListener("click", abrirSessoes);
 $("#nova-sessao").addEventListener("click", novaSessao);
+$("#btn-nova").addEventListener("click", novaSessao);
+$("#btn-chines").addEventListener("click", alternarChines);
 $("#trocar-token").addEventListener("click", () => abrirLogin());
 $("#enviar").addEventListener("click", enviar);
 $("#abortar").addEventListener("click", async () => {
@@ -850,12 +1100,44 @@ $("#abortar").addEventListener("click", async () => {
   catch (erro) { aviso("error", "não consegui parar: " + erro.message); }
 });
 entrada.addEventListener("keydown", (evento) => {
-  if (evento.key === "Enter" && !evento.shiftKey) { evento.preventDefault(); enviar(); }
+  const caixa = $("#comandos");
+  const aberta = !caixa.hidden;
+  if (aberta && evento.key === "Escape") {
+    evento.preventDefault();
+    fecharComandos();
+    return;
+  }
+  if (aberta && evento.key === "ArrowDown") {
+    evento.preventDefault();
+    moverComando(1);
+    return;
+  }
+  if (aberta && evento.key === "ArrowUp") {
+    evento.preventDefault();
+    moverComando(-1);
+    return;
+  }
+  if (aberta && evento.key === "Tab") {
+    evento.preventDefault();
+    escolherComando(false);
+    return;
+  }
+  if (evento.key === "Enter" && !evento.shiftKey) {
+    evento.preventDefault();
+    // Na paleta, Enter completa; se o comando já está inteiro e aceita
+    // argumento, a pessoa continua digitando (ou aperta Enter de novo).
+    if (aberta && escolherComando(true)) return;
+    enviar();
+  }
 });
 entrada.addEventListener("input", () => {
   entrada.style.height = "auto";
   entrada.style.height = Math.min(entrada.scrollHeight, window.innerHeight * 0.4) + "px";
+  estado.comandosAtivo = -1;
+  filtrarComandos();
 });
+entrada.addEventListener("blur", () => setTimeout(fecharComandos, 120));
+entrada.addEventListener("focus", filtrarComandos);
 
 let espera;
 $("#q").addEventListener("input", () => {
@@ -872,6 +1154,7 @@ $("#q").addEventListener("input", () => {
   }
   await carregarInstancias();
   await carregarEngine();
+  carregarComandos();
   carregarAutomacoes();
   conectar();
 })();

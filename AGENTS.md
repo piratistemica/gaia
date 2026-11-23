@@ -52,6 +52,7 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 | `gaia/controller/orchestrator.py` | cola entre UI e agente; conversa, sessão, workers |
 | `gaia/controller/turns.py` | execução de um turno, eventos, permissão |
 | `gaia/controller/commands.py` | comandos de barra (`/status`, `/modelo`, `/sonhar`…) |
+| `gaia/controller/command_catalog.py` | catálogo dos comandos: ajuda do terminal, `GET /commands` e paleta do web |
 | `gaia/controller/modes.py` | personas/modos (prompt, não infraestrutura) |
 | `gaia/controller/prompt.py` | prompt em camadas (prefixo estável + bloco dinâmico) |
 | `gaia/controller/initiative.py` | lembretes e check-in proativo; `briefing.py` | briefings |
@@ -161,17 +162,24 @@ gaia tests` e `mypy` em Python 3.12. Não faça commit com qualquer um vermelho.
 - **Nova rota do chat:** adicione no `do_GET`/`do_POST` de
   `gaia/serve/server.py` (atrás de `_autorizado()`), implemente o metodo
   opcional no `OrchestratorTarget` (`gaia/serve/app.py`) e teste em
-  `tests/test_serve_instances.py` (rotas de estado) ou `tests/test_serve.py`
-  (transporte).
+  `tests/test_serve_instances.py` (rotas de estado), `tests/test_serve_web.py`
+  (tela/comandos) ou `tests/test_serve.py` (transporte).
 - **Nova rota do painel:** adicione no `get`/`post` de
   `gaia/serve/control_api.py` e o metodo correspondente em
   `gaia/control/center.py`. Toda rota `/control/api/*` exige
   `GAIA_CONTROL_TOKEN` (separado de `GAIA_SERVE_TOKEN`) e teste em
   `tests/test_control_api.py`.
 - **Novo comando de barra:** adicione o `elif` em
-  `controller/commands.py:_handle_command`, atualize `TerminalUI.help()`
-  (`interface/terminal.py`) e teste em `tests/test_cli.py`/`test_orchestrator.py`.
-  Se o Telegram precisar do comando, veja `gaia/telegram/service.py`.
+  `controller/commands.py:_handle_command` **e** o `Command(...)` em
+  `controller/command_catalog.py` (de lá saem a ajuda do terminal e a paleta do
+  web; `tests/test_command_catalog.py` compara catálogo × despacho por AST).
+  Teste em `tests/test_cli.py`/`test_orchestrator.py`. Se o Telegram precisar do
+  comando, veja `gaia/telegram/service.py`.
+- **Texto novo na tela do web:** o `RemoteUI` emite o evento; o `index.html`
+  precisa de um `case` em `tratarEvento`. Para testar a tela sem servidor real,
+  `/tmp/fake_serve.py` (Target falso + `ServeServer`) serve; os contratos
+  estáveis (id duplicado, seletor inexistente, catálogo) estão em
+  `tests/test_serve_web.py`.
 - **Audiobook:** lógica em `gaia/audiobook/` (testes em `tests/test_audiobook.py`,
   com o sintetizador stubado — nada de rede). Entrada nova (outro formato) é em
   `extract.py`; regra de limpeza, em `normalize.py`; o cmd `/audiobook` está em

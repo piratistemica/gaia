@@ -15,6 +15,7 @@ import concurrent.futures
 import inspect
 import logging
 import secrets
+import threading
 from typing import Any
 
 from gaia.interface.remote import RemoteUI, _plain
@@ -56,6 +57,7 @@ class OrchestratorTarget:
             "mode": getattr(self.orch, "mode_name", ""),
             "mode_key": self._mode_key(),
             "busy": self.ocupado,
+            "chinese": self.chinese(),
         }
 
     def sessions(self) -> list[dict[str, Any]]:
@@ -172,6 +174,53 @@ class OrchestratorTarget:
         futuro.result(timeout=60.0)
         return ["sessao nova criada"]
 
+    # ------------------------------------------------------------- chines/web
+    def set_chinese(self, enabled: bool) -> bool:
+        """Liga/desliga o eco 中文 do web (estado do processo, como na TUI)."""
+        ligado = bool(enabled)
+        interface = getattr(self.orch.cfg, "interface", None)
+        if interface is None:
+            raise RuntimeError("este motor nao tem configuracao de interface")
+        interface.chinese_echo = ligado
+        return ligado
+
+    def chinese(self) -> bool:
+        interface = getattr(self.orch.cfg, "interface", None)
+        return bool(getattr(interface, "chinese_echo", False))
+
+    def echo_chinese(self, role: str, text: str) -> None:
+        """Traduz em background e emite ``zh``; nunca bloqueia nem derruba o turno.
+
+        Mesmo caminho da TUI (`translate_zh`), mas fora do turno: o web nao tem
+        ``run_worker``. A traducao pode falhar (rede, modelo) e o silencio e o
+        comportamento certo — a bolha original ja esta na tela.
+        """
+        de = (text or "").strip()
+        if not de or not self.chinese():
+            return
+        loop = self._loop
+        if loop is not None and not loop.is_closed():
+            asyncio.run_coroutine_threadsafe(self._traduzir(role, de), loop)
+            return
+        threading.Thread(
+            target=lambda: asyncio.run(self._traduzir(role, de)),
+            name="gaia-zh",
+            daemon=True,
+        ).start()
+
+    async def _traduzir(self, role: str, texto: str) -> None:
+        tradutor = getattr(self.orch, "translate_zh", None)
+        if not callable(tradutor):
+            return
+        try:
+            zh = await asyncio.wait_for(tradutor(texto), timeout=20.0)
+        except Exception as exc:  # traducao nunca derruba o turno
+            logger.debug("eco zh falhou: %s", exc)
+            return
+        if zh and self.chinese():
+            # `role`, nao `kind`: `emit(kind, **payload)` ja usa esse nome.
+            self.ui.emit("zh", role=role, text=texto, zh=zh)
+
     def history(self) -> list[dict[str, Any]]:
         """Turnos da conversa ativa (para o web redesenhar ao trocar de sessao)."""
         ler = getattr(self.orch, "history", None)
@@ -195,6 +244,7 @@ class OrchestratorTarget:
         self._run = f"r_{secrets.token_hex(4)}"
         self.ui.run = self._run
         self.ui.emit("run_started", text=text)
+        self.echo_chinese("user", text)
         self._tarefa = asyncio.run_coroutine_threadsafe(
             self._executar(text), self._loop
         )
@@ -234,6 +284,8 @@ class OrchestratorTarget:
             self.ui.emit("run_finished", ok=False, error=str(exc))
             return
         self.ui.emit("run_finished", ok=True, text=resposta or "")
+        if resposta:
+            self.echo_chinese("gaia", resposta)
 
     async def _abortar(self) -> None:
         abort = getattr(self.orch.client, "abort", None)

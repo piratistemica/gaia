@@ -592,52 +592,18 @@ class TerminalUI:
 
     # ------------------------------------------------------------------- misc
     def help(self) -> None:
+        # Import tardio: `gaia.controller` importa `Orchestrator`, que depende
+        # desta interface. O catalogo em si nao depende de nada.
+        from gaia.controller.command_catalog import as_rows as command_rows
+
         table = Table(title="Comandos da Gaia", border_style=ACCENT, show_header=False)
         table.add_column(style="bold cyan", no_wrap=True)
         table.add_column()
+        # A descricao dos comandos vive em `controller/command_catalog.py`: a
+        # mesma lista alimenta a paleta do web (`GET /commands`).
         rows = [
             ("[Enter vazio]", "entra no modo voz; no modo voz, volta ao texto e desliga a voz"),
-            ("/ajuda", "mostra esta ajuda"),
-            ("/status", "servidor, sessão, modelo, memória e voz"),
-            ("/tokens", "consumo de tokens por turno e total da sessão"),
-            ("/buscar <termo>", "pesquisa no Second Brain"),
-            ("/nota <título>", "lê uma nota do Second Brain"),
-            ("/indexar", "reindexa o Second Brain"),
-            ("/novo · /nova", "inicia nova conversa e sessão do agente"),
-            (
-                "/modelo [número|provider/model|atalho]",
-                "lista/troca o modelo; atalhos cc, ds, glm, turbo, zen (F6 no app)",
-            ),
-            ("/modo [nome]", "lista ou troca o modo (pesquisadora, trabalhadora, investidora, assistente)"),
-            ("/bolsa <ticker>", "cotação rápida (ex.: PETR4, AAPL)"),
-            ("/carteira [add|remover]", "lista/acompanha seus ativos"),
-            ("/metas", "painel visual com foco atual e metas de longo prazo"),
-            ("/painel", "mesmo painel de metas"),
-            ("/foco [definir|limpar]", "define/limpa o foco do ciclo"),
-            ("/contexto on|off", "liga/desliga contexto automático do Second Brain"),
-            ("/rapido on|off", "modo rápido (sem contexto, respostas curtas)"),
-            ("/chines on|off", "mostra chinês + pinyin de cada mensagem"),
-            ("/pensando on|off", "mostra (ou esconde) o raciocínio do modelo na tela"),
-            ("/tarefas [sync|limpar]", "lista/sincroniza/limpa tarefas concluídas"),
-            ("/voz on|off|edge|say|none", "controla a voz"),
-            ("/audiobook <arquivo> [título]", "narra um PDF/TXT em MP3"),
-            ("/audiobooks", "narra todos os PDFs da pasta de audiobooks"),
-            ("/preferencia <texto>", "aprende uma preferência (taste)"),
-            ("/preferencias", "mostra as preferências aprendidas"),
-            ("/consolidar [hoje|ontem|AAAA-MM-DD]", "salva a memória do dia no Second Brain"),
-            ("/lembrar <texto> em <tempo>", "cria um lembrete falado"),
-            ("/lembretes", "lista lembretes pendentes"),
-            ("/cancelar <id>", "cancela um lembrete"),
-            ("/proativo on|off", "liga/desliga iniciativa da Gaia"),
-            ("/continuo on|off", "escuta contínua (sem Enter a cada fala)"),
-            ("/fala", "volta para a escuta contínua por voz"),
-            ("/texto", "volta para o modo texto (digitar)"),
-            ("/confirmar on|off", "pede (ou não) confirmação ao criar nota"),
-            ("/autoaprovar on|off", "auto-aprova ferramentas do agente (perigoso)"),
-            ("/interromper", "aborta a execução atual do agente"),
-            ("/sessao", "mostra o ID da sessão do agente"),
-            ("/reiniciar", "reinicia a Gaia com o código novo"),
-            ("/sair", "encerra a Gaia"),
+            *command_rows(),
         ]
         for command, description in rows:
             table.add_row(command, description)
